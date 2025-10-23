@@ -1,7 +1,7 @@
 
 --[[
-    Roblox Macro V2: Advanced Features (Calibration, Save/Load Structure, Enhanced UI)
-    This version introduces a critical calibration system for multi-resolution replay accuracy.
+    Roblox Macro V2: Persistence, Swipe Support, and Fixed Calibration
+    This version adds DataStore persistence and the ability to record/replay swipe actions.
 ]]
 
 local UserInputService = game:GetService("UserInputService")
@@ -10,9 +10,10 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService") -- For Save/Load JSON encoding
-local DataStoreService = game:GetService("DataStoreService") -- Placeholder for persistence
+local DataStoreService = game:GetService("DataStoreService") -- For Persistence
 
-local MACRO_STORE = "MacroV2_Store"
+local MACRO_STORE = "MacroV2_Library"
+local SWIPE_MIN_PIXELS = 50 -- Minimum distance to be considered a swipe
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MacroV2_GUI"
@@ -32,17 +33,19 @@ local replayCount = 1
 
 local tabButtons = {}
 local recordingIndicator -- Visual feedback element
+local currentDragData = nil -- Tracks swipe/drag actions
 
 -- Helper Functions
 local function getViewportSize()
     return UserInputService.ViewportSize
 end
 
-local function sendNotification(title, message, duration)
+local function sendNotification(title, message)
+    -- Placeholder for better in-game notification, prints to console for now
     print(string.format("[Notification] %s: %s", title, message))
 end
 
--- 1. CRITICAL FIX: Advanced Normalization for Aspect Ratio Correction
+-- Advanced Normalization for Aspect Ratio Correction
 local function adjustForScreen(normPos)
     local recordedRes = macroData.recordedResolution
     local currentRes = getViewportSize()
@@ -64,40 +67,60 @@ local function adjustForScreen(normPos)
     return Vector2.new(adjustedX, adjustedY)
 end
 
--- 2. CORE FEATURE: Save/Load Stubs
+local function toNormalized(position)
+    local recordedRes = macroData.recordedResolution
+    return Vector2.new(
+        position.X / recordedRes.X,
+        position.Y / recordedRes.Y
+    )
+end
+
+-- 1. CORE FEATURE: DataStore Save/Load
 local function saveMacro()
     if #macroData.actions == 0 then
         sendNotification("Error", "No actions to save.")
         return
     end
     
-    -- In a real game, this would save to DataStore
-    local json = HttpService:JSONEncode(macroData)
-    -- DataStoreService:GetDataStore(MACRO_STORE):SetAsync(macroData.name, json)
-    sendNotification("Saved", string.format("Macro '%s' saved (JSON size: %d bytes)", macroData.name, #json))
+    local success, err = pcall(function()
+        local data = HttpService:JSONEncode(macroData)
+        DataStoreService:GetDataStore(MACRO_STORE):SetAsync(macroData.name, data)
+    end)
+
+    if success then
+        sendNotification("Saved", string.format("Macro '%s' saved successfully.", macroData.name))
+    else
+        sendNotification("Error", "Failed to save macro: " .. (err or "Unknown Error"))
+    end
 end
 
 local function loadMacro(name)
-    -- In a real game, this would load from DataStore
-    -- local json = DataStoreService:GetDataStore(MACRO_STORE):GetAsync(name)
-    
-    -- Placeholder mock data for demonstration
-    local mockData = {
-        name = name,
-        actions = {
-            {type = "Tap", normPos = Vector2.new(0.5, 0.5), interval = 0.1},
-            {type = "Tap", normPos = Vector2.new(0.8, 0.2), interval = 0.1}
-        },
-        recordedResolution = Vector2.new(1280, 720) -- Example loaded resolution
-    }
+    if name == "" or not name then
+        sendNotification("Error", "Please enter a macro name to load.")
+        return
+    end
 
-    if mockData then
-        macroData = mockData
-        sendNotification("Loaded", string.format("Macro '%s' loaded. Resolution: %d x %d", macroData.name, macroData.recordedResolution.X, macroData.recordedResolution.Y))
-        -- Force update of GUI to show new actions/settings
-        tabButtons[currentTab].MouseButton1Click:Fire() 
+    local json, err = pcall(function()
+        return DataStoreService:GetDataStore(MACRO_STORE):GetAsync(name)
+    end)
+    
+    if json and json ~= "" then
+        local success, loadedData = pcall(function()
+            return HttpService:JSONDecode(json)
+        end)
+        
+        if success and loadedData and loadedData.actions then
+            macroData = loadedData
+            sendNotification("Loaded", string.format("Macro '%s' loaded. Resolution: %dx%d", macroData.name, macroData.recordedResolution.X, macroData.recordedResolution.Y))
+            -- Force update of GUI to show new actions/settings (requires re-firing the tab click)
+            if tabButtons[currentTab] then tabButtons[currentTab].MouseButton1Click:Fire() end 
+        else
+            sendNotification("Error", "Failed to decode macro data.")
+        end
+    elseif err then
+        sendNotification("Error", "Failed to load macro: " .. (err or "Unknown Error"))
     else
-        sendNotification("Error", "Macro not found.")
+        sendNotification("Error", string.format("Macro '%s' not found.", name))
     end
 end
 
@@ -161,7 +184,7 @@ local uiPadding = Instance.new("UIPadding", mainFrame)
 uiPadding.PaddingTop = UDim.new(0, 15)
 uiPadding.PaddingBottom = UDim.new(0, 15)
 
--- 3. UI/UX: Prominent Recording Indicator
+-- Prominent Recording Indicator
 recordingIndicator = Instance.new("Frame", mainFrame)
 recordingIndicator.Size = UDim2.new(0, 15, 0, 15)
 recordingIndicator.Position = UDim2.new(1, -25, 0, 10)
@@ -229,8 +252,6 @@ createTabButton("Record")
 createTabButton("Replay")
 createTabButton("Settings")
 
--- === TAB CONTENT ===
-
 -- 1. Record Tab
 local function setupRecordTab()
     local recordContent = Instance.new("ScrollingFrame", tabContent)
@@ -254,9 +275,6 @@ local function setupRecordTab()
     local btnToggleRecording = createButton(isRecording and "Recording..." or "Start Recording", 170, recordContent)
     btnToggleRecording.BackgroundColor3 = isRecording and Color3.fromHex("dc3232") or Color3.fromHex("238636")
 
-    local btnSetPosition = createButton("Set Position (Q)", 170, recordContent)
-    btnSetPosition.BackgroundColor3 = Color3.fromHex("30363d")
-
     local btnClearActions = createButton("Clear Actions", 170, recordContent)
     btnClearActions.BackgroundColor3 = Color3.fromHex("dc3232") 
     
@@ -278,7 +296,13 @@ local function setupRecordTab()
         item.BackgroundColor3 = index % 2 == 1 and Color3.fromHex("0d1117") or Color3.fromHex("161b22")
         item.BorderSizePixel = 0
         
-        local text = string.format("%d. %s @ (%.1f, %.1f)", index, action.type, action.normPos.X * 100, action.normPos.Y * 100)
+        local text
+        if action.type == "Tap" then
+            text = string.format("%d. TAP @ (%.1f, %.1f)", index, action.normPos.X * 100, action.normPos.Y * 100)
+        elseif action.type == "Swipe" then
+            text = string.format("%d. SWIPE Start(%.1f) End(%.1f) Dur(%.2fs)", index, action.startNorm.X * 100, action.endNorm.X * 100, action.duration)
+        end
+
         local lbl = Instance.new("TextLabel", item)
         lbl.Text = text
         lbl.Size = UDim2.new(0.8, 0, 1, 0)
@@ -329,23 +353,68 @@ local function setupRecordTab()
         end
     end)
 
-    -- Set Position Logic (Keybind Q)
+    -- 2. CORE FEATURE: Swipe and Tap Recording Logic
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if input.KeyCode == Enum.KeyCode.Q and not gameProcessed and isRecording then
-            local pos = UserInputService:GetMouseLocation()
-            local normPos = Vector2.new(pos.X / macroData.recordedResolution.X, pos.Y / macroData.recordedResolution.Y)
-            table.insert(macroData.actions, {
-                type = "Tap", 
-                normPos = normPos,
-                interval = clickInterval
-            })
-            btnSetPosition.Text = "Position Set!"
+        if not isRecording or gameProcessed then return end
+
+        local inputType = input.UserInputType
+        if inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch then
+            currentDragData = {
+                startPos = input.Position,
+                startTime = tick(),
+                movedDistance = 0,
+                isDragging = true
+            }
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input, gameProcessed)
+        if not isRecording or gameProcessed or not currentDragData or not currentDragData.isDragging then return end
+
+        local inputType = input.UserInputType
+        if inputType == Enum.UserInputType.MouseMovement or inputType == Enum.UserInputType.Touch then
+            local newPos = input.Position
+            local delta = (newPos - currentDragData.startPos)
+            -- Only update the moved distance when it moves past the threshold to prevent tap recording
+            if delta.Magnitude > currentDragData.movedDistance then
+                currentDragData.movedDistance = delta.Magnitude
+            end
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input, gameProcessed)
+        if not isRecording or gameProcessed or not currentDragData or not currentDragData.isDragging then return end
+
+        local inputType = input.UserInputType
+        if inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch then
+            local endPos = input.Position
+            local duration = tick() - currentDragData.startTime
+            local lastActionInterval = #macroData.actions > 0 and macroData.actions[#macroData.actions].interval or 0
+            
+            -- Determine the delay (the time since the last action finished)
+            local delay = math.max(0, currentDragData.startTime - lastActionInterval) 
+
+            if currentDragData.movedDistance >= SWIPE_MIN_PIXELS then
+                -- Record as SWIPE
+                table.insert(macroData.actions, {
+                    type = "Swipe",
+                    startNorm = toNormalized(currentDragData.startPos),
+                    endNorm = toNormalized(endPos),
+                    duration = duration,
+                    interval = clickInterval -- Replay interval after swipe
+                })
+            else
+                -- Record as TAP (if distance moved is small enough)
+                table.insert(macroData.actions, {
+                    type = "Tap", 
+                    normPos = toNormalized(endPos),
+                    interval = clickInterval
+                })
+            end
+            
+            currentDragData.isDragging = false
+            currentDragData = nil
             updateActionDisplay()
-            task.delay(2, function() 
-                if btnSetPosition.Text == "Position Set!" then
-                    btnSetPosition.Text = "Set Position (Q)"
-                end
-            end)
         end
     end)
 
@@ -371,7 +440,7 @@ local function setupReplayTab()
     btnReplay.BackgroundColor3 = Color3.fromHex("238636")
     
     local lblIntervalDesc = Instance.new("TextLabel", replayContent)
-    lblIntervalDesc.Text = "Click Interval (secs > 0.05):"
+    lblIntervalDesc.Text = "Interval (secs > 0.05):"
     lblIntervalDesc.BackgroundTransparency = 1
     lblIntervalDesc.TextColor3 = Color3.fromHex("c9d1d9")
     lblIntervalDesc.TextSize = 14
@@ -404,7 +473,7 @@ local function setupReplayTab()
     -- Replay Logic
     btnReplay.MouseButton1Click:Connect(function()
         if isRecording or isCalibrating then sendNotification("Error", "Stop recording/calibration first."); return end
-        if #macroData.actions == 0 then sendNotification("Error", "No actions recorded."); return end
+        if #macroData.actions == 0 then sendNotification("Error", "No actions recorded. Load or record a macro first."); return end
         
         isReplaying = true
         btnReplay.Text = "Replaying..."
@@ -424,11 +493,19 @@ local function setupReplayTab()
             for i, action in ipairs(macroData.actions) do
                 if not isReplaying then break end
                 
-                -- 1. CRITICAL FIX: Use advanced normalization
-                local pixelPos = adjustForScreen(action.normPos)
-
-                VirtualUser:Button2Down(pixelPos.X, pixelPos.Y)
-                VirtualUser:Button2Up(pixelPos.X, pixelPos.Y)
+                if action.type == "Tap" then
+                    local pixelPos = adjustForScreen(action.normPos)
+                    VirtualUser:Button2Down(pixelPos.X, pixelPos.Y)
+                    VirtualUser:Button2Up(pixelPos.X, pixelPos.Y)
+                elseif action.type == "Swipe" then
+                    local startPos = adjustForScreen(action.startNorm)
+                    local endPos = adjustForScreen(action.endNorm)
+                    
+                    -- Simulate drag: press at start, wait for duration, release at end
+                    VirtualUser:Button2Down(startPos.X, startPos.Y)
+                    task.wait(action.duration)
+                    VirtualUser:Button2Up(endPos.X, endPos.Y)
+                end
                 
                 task.wait(action.interval)
             end
@@ -452,20 +529,24 @@ local function setupSettingsTab()
     listLayout.Padding = UDim.new(0, 10)
 
     -- Macro Management Section
+    local lblMacroNameDesc = Instance.new("TextLabel", settingsContent)
+    lblMacroNameDesc.Text = "Macro Name (for Save/Load):"
+    lblMacroNameDesc.BackgroundTransparency = 1
+    lblMacroNameDesc.TextColor3 = Color3.fromHex("c9d1d9")
+    lblMacroNameDesc.TextSize = 14
+
+    local nameInput = createInput(macroData.name, 170, settingsContent)
+    nameInput.FocusLost:Connect(function(enterPressed)
+        if enterPressed then macroData.name = nameInput.Text end
+    end)
+
     local saveBtn = createButton("Save Macro", 170, settingsContent)
     saveBtn.BackgroundColor3 = Color3.fromHex("58a6ff")
     saveBtn.MouseButton1Click:Connect(saveMacro)
-
-    local loadInput = createInput("Macro Name", 170, settingsContent)
-    loadInput.FocusLost:Connect(function(enterPressed)
-        if enterPressed and loadInput.Text ~= "" then
-            loadMacro(loadInput.Text)
-        end
-    end)
     
     local loadBtn = createButton("Load Macro", 170, settingsContent)
     loadBtn.BackgroundColor3 = Color3.fromHex("58a6ff")
-    loadBtn.MouseButton1Click:Connect(function() loadMacro(loadInput.Text) end)
+    loadBtn.MouseButton1Click:Connect(function() loadMacro(nameInput.Text) end)
 
     -- Calibration Section
     local lblCalib = Instance.new("TextLabel", settingsContent)
@@ -484,16 +565,16 @@ local function setupSettingsTab()
         end
     end)
 
-    -- Swipe/Advanced Settings (Placeholders)
+    -- Other Settings (Placeholder)
     local lblNotes = Instance.new("TextLabel", settingsContent)
-    lblNotes.Text = "Swipe Duration, Curvature, and Action Editing settings will appear here."
+    lblNotes.Text = "Macro Editing and Advanced Swipe settings will be added next."
     lblNotes.Size = UDim2.new(1, 0, 0, 40)
     lblNotes.TextWrapped = true
     lblNotes.TextSize = 12
     lblNotes.TextColor3 = Color3.fromHex("c9d1d9") 
 end
 
--- 1. CRITICAL FIX: Screen Calibration System
+-- Screen Calibration System
 local calibrationFrame
 local calibrationText
 local calibrationCorners = {}
@@ -506,13 +587,9 @@ local function updateCalibrationPrompt(prompt)
 end
 
 local function finalizeCalibration(corners)
-    -- Capture the actual corner positions in pixels
-    local topLeft = corners[1]
-    local bottomRight = corners[4]
-    
-    -- Calculate the effective screen resolution captured
-    local effectiveWidth = bottomRight.X - topLeft.X
-    local effectiveHeight = bottomRight.Y - topLeft.Y
+    -- 3. MINOR FIX: Calculate width using corners 1 and 2, and height using 1 and 3.
+    local effectiveWidth = math.abs(corners[2].X - corners[1].X)
+    local effectiveHeight = math.abs(corners[3].Y - corners[1].Y)
     
     -- Set the new recorded resolution (This fixes the misalignment)
     macroData.recordedResolution = Vector2.new(effectiveWidth, effectiveHeight)
