@@ -10,7 +10,7 @@ local player = Players.LocalPlayer
 local gui = player:WaitForChild("PlayerGui")
 
 -- ==== CONFIG ====
-local BOX_SIZE = 120               -- size of the transparent touch-capture box
+local BOX_SIZE = 120
 local MIN_HOLD = 0.05
 local FONT = Enum.Font.Gotham
 local FONT_BOLD = Enum.Font.GothamBold
@@ -24,7 +24,7 @@ local MAX_REPLAY = 10000
 -- ==== STATE ====
 local autoOn = false
 local interval = 0.2
-local clickPos = Vector2.new(300,300)   -- absolute screen pixel
+local clickPos = Vector2.new(300,300)
 local waitingForBox = false
 
 local recording = false
@@ -90,7 +90,7 @@ local layout = Instance.new("UIListLayout",scroll)
 layout.Padding = UDim.new(0,8)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 
--- tabs (horizontal)
+-- tabs
 local tabs = Instance.new("Frame",scroll)
 tabs.Size = UDim2.new(1,0,0,50)
 tabs.BackgroundColor3 = Color3.fromRGB(35,35,35)
@@ -142,7 +142,8 @@ local setBoxBtn  = btn(secAuto,"Set Touch Box",60)
 local intInput   = Instance.new("TextBox",secAuto)
 intInput.Size = UDim2.new(0.9,0,0,40); intInput.Position = UDim2.new(0.05,0,0,110)
 intInput.PlaceholderText="Interval (sec)"; intInput.Text="0.2"
-intInput.Font=FONT; intInput.TextSize=17; intInput.BackgroundColor3=Color3.fromRGB(55,55,55)
+intInput.Font=FONT; intInput.TextSize=17; intInput.TextColor3=Color3.new(1,1,1); intInput.PlaceholderColor3=Color3.new(0.8,0.8,0.8)
+intInput.BackgroundColor3=Color3.fromRGB(55,55,55)
 Instance.new("UICorner",intInput).CornerRadius=UDim.new(0,10)
 
 -- RECORD
@@ -154,25 +155,28 @@ local recExp   = btn(secRec,"Export Recording",210)
 local repCnt   = Instance.new("TextBox",secRec)
 repCnt.Size = UDim2.new(0.9,0,0,40); repCnt.Position = UDim2.new(0.05,0,0,260)
 repCnt.PlaceholderText="Replay Count"; repCnt.Text="1"
-repCnt.Font=FONT; repCnt.TextSize=17; repCnt.BackgroundColor3=Color3.fromRGB(55,55,55)
+repCnt.Font=FONT; repCnt.TextSize=17; repCnt.TextColor3=Color3.new(1,1,1); repCnt.PlaceholderColor3=Color3.new(0.8,0.8,0.8)
+repCnt.BackgroundColor3=Color3.fromRGB(55,55,55)
 Instance.new("UICorner",repCnt).CornerRadius=UDim.new(0,10)
 
 -- SETTINGS
 local offX = Instance.new("TextBox",secSet)
 offX.Size = UDim2.new(0.9,0,0,40); offX.Position = UDim2.new(0.05,0,0,10)
 offX.PlaceholderText="X Offset (px or %)"; offX.Text="0"
-offX.Font=FONT; offX.TextSize=17; offX.BackgroundColor3=Color3.fromRGB(55,55,55)
+offX.Font=FONT; offX.TextSize=17; offX.TextColor3=Color3.new(1,1,1); offX.PlaceholderColor3=Color3.new(0.8,0.8,0.8)
+offX.BackgroundColor3=Color3.fromRGB(55,55,55)
 Instance.new("UICorner",offX).CornerRadius=UDim.new(0,10)
 
 local offY = Instance.new("TextBox",secSet)
 offY.Size = UDim2.new(0.9,0,0,40); offY.Position = UDim2.new(0.05,0,0,60)
 offY.PlaceholderText="Y Offset (px or %)"; offY.Text="0"
-offY.Font=FONT; offY.TextSize=17; offY.BackgroundColor3=Color3.fromRGB(55,55,55)
+offY.Font=FONT; offY.TextSize=17; offY.TextColor3=Color3.new(1,1,1); offY.PlaceholderColor3=Color3.new(0.8,0.8,0.8)
+offY.BackgroundColor3=Color3.fromRGB(55,55,55)
 Instance.new("UICorner",offY).CornerRadius=UDim.new(0,10)
 
 local apply = btn(secSet,"Apply Settings",110)
 
--- TOGGLE BUTTON (59 px from top)
+-- TOGGLE BUTTON
 local toggle = Instance.new("TextButton",screen)
 toggle.Size = UDim2.new(0,80,0,40); toggle.Position = UDim2.new(0,10,0,59)
 toggle.Text = "Hide"; toggle.Font = FONT_BOLD; toggle.TextSize = 18
@@ -180,7 +184,7 @@ toggle.BackgroundColor3 = Color3.fromRGB(0,120,255); toggle.TextColor3 = Color3.
 toggle.ZIndex = 1000
 Instance.new("UICorner",toggle).CornerRadius = UDim.new(0,10)
 
--- ==== TOUCH-CAPTURE BOX (transparent, draggable) ====
+-- TOUCH BOX
 local box = Instance.new("Frame",screen)
 box.Size = UDim2.new(0,BOX_SIZE,0,BOX_SIZE)
 box.Position = UDim2.new(0.5,-BOX_SIZE/2,0.5,-BOX_SIZE/2)
@@ -212,10 +216,10 @@ local function drag(obj,handle)
   end)
   handle.InputEnded:Connect(function() dragging=false end)
 end
-drag(container,drag)      -- GUI drag
-drag(box,box)            -- box drag
+drag(container,drag)
+drag(box,box)
 
--- ==== TAB LOGIC ====
+-- TAB LOGIC
 local function show(sec)
   secAuto.Visible = sec=="auto"
   secRec.Visible  = sec=="rec"
@@ -229,7 +233,7 @@ tAuto.MouseButton1Click:Connect(function() show("auto") end)
 tRec.MouseButton1Click:Connect(function() show("rec") end)
 tSet.MouseButton1Click:Connect(function() show("set") end)
 
--- ==== TOGGLE GUI ====
+-- TOGGLE GUI
 toggle.MouseButton1Click:Connect(function()
   hidden = not hidden
   container.Visible = not hidden
@@ -237,33 +241,30 @@ toggle.MouseButton1Click:Connect(function()
   toggle.Text = hidden and "Show" or "Hide"
 end)
 
--- ==== VIRTUAL INPUT HELPERS ====
+-- VIRTUAL INPUT
 local function vm() return VirtualInputManager and typeof(VirtualInputManager.SendMouseButtonEvent)=="function" end
 local function move(x,y) if vm() then pcall(function() VirtualInputManager:SendMouseMoveEvent(x,y,game,0) end) end end
 local function press(x,y,down) if vm() then pcall(function() VirtualInputManager:SendMouseButtonEvent(x,y,0,down,game,0) end) end end
-
 local function clickAt(absX,absY)
   move(absX,absY); task.wait(0.02)
   press(absX,absY,true); task.wait(MIN_HOLD)
   press(absX,absY,false)
 end
 
--- ==== SET TOUCH BOX ====
+-- SET TOUCH BOX
 setBoxBtn.MouseButton1Click:Connect(function()
   if waitingForBox then return end
   waitingForBox = true
   setBoxBtn.Text = "Tap Box..."
   box.Visible = true
   boxLbl.Text = "Tap Inside"
-
-  local conn
-  conn = UserInputService.TouchStarted:Connect(function(touch)
+  local conn = UserInputService.TouchStarted:Connect(function(touch)
     if not waitingForBox then return end
     local p = touch.Position
     local a = box.AbsolutePosition
     local s = box.AbsoluteSize
     if p.X>=a.X and p.X<=a.X+s.X and p.Y>=a.Y and p.Y<=a.Y+s.Y then
-      clickPos = p                -- **absolute screen pixel**
+      clickPos = p
       waitingForBox = false
       setBoxBtn.Text = "Box Set!"
       box.Visible = false
@@ -273,7 +274,7 @@ setBoxBtn.MouseButton1Click:Connect(function()
   end)
 end)
 
--- ==== AUTO CLICKER ====
+-- AUTO CLICKER
 autoToggle.MouseButton1Click:Connect(function()
   autoOn = not autoOn
   autoToggle.Text = autoOn and "Auto Clicker: ON" or "Auto Clicker: OFF"
@@ -295,21 +296,18 @@ intInput.FocusLost:Connect(function()
   if v and v>=MIN_INTERVAL and v<=MAX_INTERVAL then interval=v else intInput.Text=tostring(interval) end
 end)
 
--- ==== RECORDING (multi-touch) ====
+-- RECORDING
 local touches = {}
 local recConns = {}
-
 local function startRec()
   recording = true; actions = {}; recStart = os.clock()
   recStart.Text = "Stop Recording"
-
   recConns.began = UserInputService.TouchStarted:Connect(function(t)
     if not recording then return end
-    local objs = playerGui:GetGuiObjectsAtPosition(t.Position.X,t.Position.Y)
+    local objs = gui:GetGuiObjectsAtPosition(t.Position.X,t.Position.Y)
     for _,o in ipairs(objs) do if o:IsDescendantOf(screen) then return end end
     touches[t] = {start=os.clock(),pos=t.Position}
   end)
-
   recConns.ended = UserInputService.TouchEnded:Connect(function(t)
     if not recording or not touches[t] then return end
     local d = touches[t]
@@ -317,7 +315,6 @@ local function startRec()
     local delay = now - recStart; recStart = now
     local endPos = t.Position or d.pos
     local moved = (endPos-d.pos).Magnitude
-
     if moved >= SWIPE_MIN then
       table.insert(actions,{type="swipe",start=d.pos,endPos=endPos,dur=now-d.start,delay=delay})
     else
@@ -326,16 +323,14 @@ local function startRec()
     touches[t]=nil
   end)
 end
-
 local function stopRec()
   recording = false; recStart.Text = "Start Recording"
   for _,c in pairs(recConns) do if c.Connected then c:Disconnect() end end
   recConns = {}
 end
-
 recStart.MouseButton1Click:Connect(function() if recording then stopRec() else startRec() end)
 
--- ==== REPLAY / LOOP / CLEAR / EXPORT ====
+-- REPLAY / LOOP / CLEAR / EXPORT
 recPlay.MouseButton1Click:Connect(function()
   if replaying then replaying=false; recPlay.Text="Replay Clicks"; if replayThread then task.cancel(replayThread) end return end
   if #actions==0 then return end
@@ -384,7 +379,7 @@ recExp.MouseButton1Click:Connect(function()
   if setclipboard then setclipboard(json) end
 end)
 
--- ==== SETTINGS OFFSETS ====
+-- SETTINGS
 local function parse(txt)
   txt = txt:gsub("%%",""):gsub("%s+","")
   if txt:sub(-1)=="%" then return {mode="pct",value=tonumber(txt:sub(1,-2))/100} end
