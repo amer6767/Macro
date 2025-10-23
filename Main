@@ -1,566 +1,400 @@
--- Roblox Macro V2 (HALF HEIGHT | SCROLLABLE | CLICK BOX | FIXED OFFSET)
--- LocalScript in StarterPlayerScripts or StarterGui
-
+-- Roblox Macro V2 – Mobile Touch Box (200 px tall, scrollable, perfect alignment)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
-local workspace = workspace
-
--- Config
-local MIN_CLICK_HOLD_DURATION = 0.05
-local FONT_MAIN = Enum.Font.Gotham
-local FONT_BOLD = Enum.Font.GothamBold
-local SWIPE_MIN_PIXELS = 8
-local CLICK_BOX_SIZE = 120  -- Size of transparent click capture box
-
--- Limits
-local MIN_CLICK_INTERVAL = 0.01
-local MAX_CLICK_INTERVAL = 10.0
-local MIN_REPLAY_COUNT = 1
-local MAX_REPLAY_COUNT = 10000
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local gui = player:WaitForChild("PlayerGui")
 
--- State
-local autoClickEnabled = false
-local clickInterval = 0.2
-local clickPosition = Vector2.new(300, 300)
-local waitingForPosition = false
+-- ==== CONFIG ====
+local BOX_SIZE = 120               -- size of the transparent touch-capture box
+local MIN_HOLD = 0.05
+local FONT = Enum.Font.Gotham
+local FONT_BOLD = Enum.Font.GothamBold
+local SWIPE_MIN = 8
 
-local isRecording = false
-local recordedActions = {}
-local recordStartTime = 0
+local MIN_INTERVAL = 0.01
+local MAX_INTERVAL = 10
+local MIN_REPLAY = 1
+local MAX_REPLAY = 10000
 
-local isReplaying = false
+-- ==== STATE ====
+local autoOn = false
+local interval = 0.2
+local clickPos = Vector2.new(300,300)   -- absolute screen pixel
+local waitingForBox = false
+
+local recording = false
+local actions = {}
+local recStart = 0
+
+local replaying = false
 local replayCount = 1
-local currentReplayThread = nil
+local replayThread = nil
 
-local isReplayingLoop = false
-local currentReplayLoopThread = nil
+local looping = false
+local loopThread = nil
 
-local activeXOffsetRaw = { mode = "px", value = 0 }
-local activeYOffsetRaw = { mode = "px", value = 0 }
+local offsetX = {mode="px",value=0}
+local offsetY = {mode="px",value=0}
+local hidden = false
 
-local guiHidden = false
+-- ==== TASK SHIM ====
+if not task then task = {spawn=function(f) coroutine.resume(coroutine.create(f)) end,
+                         wait=function(t) local s=tick() while tick()-s < (t or 0) do RunService.Heartbeat:Wait() end end,
+                         delay=function(t,f) task.spawn(function() task.wait(t) f() end) end,
+                         cancel=function() end} end
 
--- task shim
-if not task or not task.spawn then
-    task = {
-        spawn = function(func)
-            local co = coroutine.create(func)
-            coroutine.resume(co)
-            return co
-        end,
-        wait = function(time)
-            local start = tick()
-            while tick() - start < (time or 0) do
-                RunService.Heartbeat:Wait()
-            end
-        end,
-        delay = function(time, func)
-            task.spawn(function()
-                task.wait(time)
-                func()
-            end)
-        end,
-        cancel = function(co) end
-    }
-end
+-- ==== MAIN GUI (200 px tall) ====
+local screen = Instance.new("ScreenGui",gui)
+screen.Name = "MacroV2"
+screen.IgnoreGuiInset = true
+screen.ResetOnSpawn = false
 
--- UI Creation (HALF HEIGHT + SCROLL + CLICK BOX)
-local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV2GUI"
-mainGui.IgnoreGuiInset = true
-mainGui.ResetOnSpawn = false
-mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-mainGui.Parent = playerGui
-
--- Main Container (HALF HEIGHT)
-local container = Instance.new("Frame", mainGui)
-container.Size = UDim2.new(0, 350, 0, 200)  -- Half height
-container.AnchorPoint = Vector2.new(0.5, 0.5)
-container.Position = UDim2.new(0.5, 0, 0.5, 0)
-container.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+local container = Instance.new("Frame",screen)
+container.Size = UDim2.new(0,350,0,200)
+container.AnchorPoint = Vector2.new(0.5,0.5)
+container.Position = UDim2.new(0.5,0,0.5,0)
+container.BackgroundColor3 = Color3.fromRGB(30,30,30)
 container.BorderSizePixel = 0
-container.ClipsDescendants = true
-container.Visible = true
-local containerCorner = Instance.new("UICorner", container)
-containerCorner.CornerRadius = UDim.new(0, 16)
+Instance.new("UICorner",container).CornerRadius = UDim.new(0,16)
 
--- Drag Bar
-local dragBar = Instance.new("Frame", container)
-dragBar.Size = UDim2.new(1, 0, 0, 40)
-dragBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-dragBar.BorderSizePixel = 0
-local dragCorner = Instance.new("UICorner", dragBar)
-dragCorner.CornerRadius = UDim.new(0, 16)
+-- drag bar
+local drag = Instance.new("Frame",container)
+drag.Size = UDim2.new(1,0,0,40)
+drag.BackgroundColor3 = Color3.fromRGB(40,40,40)
+Instance.new("UICorner",drag).CornerRadius = UDim.new(0,16)
 
-local title = Instance.new("TextLabel", dragBar)
-title.Size = UDim2.new(1, -100, 1, 0)
-title.Position = UDim2.new(0, 50, 0, 0)
+local title = Instance.new("TextLabel",drag)
+title.Size = UDim2.new(1,-100,1,0)
+title.Position = UDim2.new(0,50,0,0)
 title.BackgroundTransparency = 1
 title.Text = "Macro V2"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextColor3 = Color3.new(1,1,1)
 title.Font = FONT_BOLD
 title.TextSize = 20
 title.TextXAlignment = Enum.TextXAlignment.Left
 
--- Scrollable Content
-local scrollFrame = Instance.new("ScrollingFrame", container)
-scrollFrame.Size = UDim2.new(1, 0, 1, -40)
-scrollFrame.Position = UDim2.new(0, 0, 0, 40)
-scrollFrame.BackgroundTransparency = 1
-scrollFrame.ScrollBarThickness = 6
-scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
-scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 800)
+-- scrollable area
+local scroll = Instance.new("ScrollingFrame",container)
+scroll.Size = UDim2.new(1,0,1,-40)
+scroll.Position = UDim2.new(0,0,0,40)
+scroll.BackgroundTransparency = 1
+scroll.ScrollBarThickness = 6
+scroll.CanvasSize = UDim2.new(0,0,0,900)
 
-local contentLayout = Instance.new("UIListLayout", scrollFrame)
-contentLayout.Padding = UDim.new(0, 8)
-contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+local layout = Instance.new("UIListLayout",scroll)
+layout.Padding = UDim.new(0,8)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Side Tabs
-local tabContainer = Instance.new("Frame", scrollFrame)
-tabContainer.Size = UDim2.new(1, 0, 0, 50)
-tabContainer.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-tabContainer.LayoutOrder = 1
-local tabCorner = Instance.new("UICorner", tabContainer)
-tabCorner.CornerRadius = UDim.new(0, 10)
+-- tabs (horizontal)
+local tabs = Instance.new("Frame",scroll)
+tabs.Size = UDim2.new(1,0,0,50)
+tabs.BackgroundColor3 = Color3.fromRGB(35,35,35)
+tabs.LayoutOrder = 1
+Instance.new("UICorner",tabs).CornerRadius = UDim.new(0,10)
 
-local tabLayout = Instance.new("UIListLayout", tabContainer)
-tabLayout.FillDirection = Enum.FillDirection.Horizontal
-tabLayout.Padding = UDim.new(0, 4)
+local tabLay = Instance.new("UIListLayout",tabs)
+tabLay.FillDirection = Enum.FillDirection.Horizontal
+tabLay.Padding = UDim.new(0,4)
 
-local function createTab(text, order)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 100, 1, -8)
-    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    btn.Text = text
-    btn.Font = FONT_BOLD
-    btn.TextSize = 16
-    btn.TextColor3 = Color3.fromRGB(220, 220, 220)
-    btn.LayoutOrder = order
-    btn.Parent = tabContainer
-    local corner = Instance.new("UICorner", btn)
-    corner.CornerRadius = UDim.new(0, 8)
-    return btn
+local function tabBtn(txt,order)
+  local b = Instance.new("TextButton",tabs)
+  b.Size = UDim2.new(0,100,1,-8)
+  b.BackgroundColor3 = Color3.fromRGB(50,50,50)
+  b.Text = txt
+  b.Font = FONT_BOLD
+  b.TextSize = 16
+  b.TextColor3 = Color3.new(1,1,1)
+  b.LayoutOrder = order
+  Instance.new("UICorner",b).CornerRadius = UDim.new(0,8)
+  return b
+end
+local tAuto = tabBtn("Auto",1)
+local tRec  = tabBtn("Record",2)
+local tSet  = tabBtn("Settings",3)
+
+-- sections
+local secAuto = Instance.new("Frame",scroll); secAuto.Size = UDim2.new(1,0,0,180); secAuto.BackgroundTransparency=1; secAuto.LayoutOrder=2; secAuto.Visible=true
+local secRec  = Instance.new("Frame",scroll); secRec.Size  = UDim2.new(1,0,0,300); secRec.BackgroundTransparency=1; secRec.LayoutOrder=3; secRec.Visible=false
+local secSet  = Instance.new("Frame",scroll); secSet.Size  = UDim2.new(1,0,0,200); secSet.BackgroundTransparency=1; secSet.LayoutOrder=4; secSet.Visible=false
+
+local function btn(parent,txt,y,cb)
+  local b = Instance.new("TextButton",parent)
+  b.Size = UDim2.new(0.9,0,0,40)
+  b.Position = UDim2.new(0.05,0,0,y)
+  b.Text = txt
+  b.Font = FONT
+  b.TextSize = 17
+  b.TextColor3 = Color3.new(1,1,1)
+  b.BackgroundColor3 = Color3.fromRGB(55,55,55)
+  Instance.new("UICorner",b).CornerRadius = UDim.new(0,10)
+  if cb then b.MouseButton1Click:Connect(cb) end
+  return b
 end
 
-local tabAuto = createTab("Auto", 1)
-local tabRecord = createTab("Record", 2)
-local tabSettings = createTab("Settings", 3)
+-- AUTO
+local autoToggle = btn(secAuto,"Auto Clicker: OFF",10)
+local setBoxBtn  = btn(secAuto,"Set Touch Box",60)
+local intInput   = Instance.new("TextBox",secAuto)
+intInput.Size = UDim2.new(0.9,0,0,40); intInput.Position = UDim2.new(0.05,0,0,110)
+intInput.PlaceholderText="Interval (sec)"; intInput.Text="0.2"
+intInput.Font=FONT; intInput.TextSize=17; intInput.BackgroundColor3=Color3.fromRGB(55,55,55)
+Instance.new("UICorner",intInput).CornerRadius=UDim.new(0,10)
 
--- Content Sections
-local autoSection = Instance.new("Frame", scrollFrame)
-autoSection.Size = UDim2.new(1, 0, 0, 180)
-autoSection.BackgroundTransparency = 1
-autoSection.LayoutOrder = 2
-autoSection.Visible = true
+-- RECORD
+local recStart = btn(secRec,"Start Recording",10)
+local recPlay  = btn(secRec,"Replay Clicks",60)
+local recLoop  = btn(secRec,"Replay Loop: OFF",110)
+local recClr   = btn(secRec,"Clear Recording",160)
+local recExp   = btn(secRec,"Export Recording",210)
+local repCnt   = Instance.new("TextBox",secRec)
+repCnt.Size = UDim2.new(0.9,0,0,40); repCnt.Position = UDim2.new(0.05,0,0,260)
+repCnt.PlaceholderText="Replay Count"; repCnt.Text="1"
+repCnt.Font=FONT; repCnt.TextSize=17; repCnt.BackgroundColor3=Color3.fromRGB(55,55,55)
+Instance.new("UICorner",repCnt).CornerRadius=UDim.new(0,10)
 
-local recordSection = Instance.new("Frame", scrollFrame)
-recordSection.Size = UDim2.new(1, 0, 0, 300)
-recordSection.BackgroundTransparency = 1
-recordSection.LayoutOrder = 3
-recordSection.Visible = false
+-- SETTINGS
+local offX = Instance.new("TextBox",secSet)
+offX.Size = UDim2.new(0.9,0,0,40); offX.Position = UDim2.new(0.05,0,0,10)
+offX.PlaceholderText="X Offset (px or %)"; offX.Text="0"
+offX.Font=FONT; offX.TextSize=17; offX.BackgroundColor3=Color3.fromRGB(55,55,55)
+Instance.new("UICorner",offX).CornerRadius=UDim.new(0,10)
 
-local settingsSection = Instance.new("Frame", scrollFrame)
-settingsSection.Size = UDim2.new(1, 0, 0, 200)
-settingsSection.BackgroundTransparency = 1
-settingsSection.LayoutOrder = 4
-settingsSection.Visible = false
+local offY = Instance.new("TextBox",secSet)
+offY.Size = UDim2.new(0.9,0,0,40); offY.Position = UDim2.new(0.05,0,0,60)
+offY.PlaceholderText="Y Offset (px or %)"; offY.Text="0"
+offY.Font=FONT; offY.TextSize=17; offY.BackgroundColor3=Color3.fromRGB(55,55,55)
+Instance.new("UICorner",offY).CornerRadius=UDim.new(0,10)
 
--- Button Factory
-local function addButton(parent, text, yPos, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.9, 0, 0, 40)
-    btn.Position = UDim2.new(0.05, 0, 0, yPos)
-    btn.Text = text
-    btn.Font = FONT_MAIN
-    btn.TextSize = 17
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-    btn.Parent = parent
-    local corner = Instance.new("UICorner", btn)
-    corner.CornerRadius = UDim.new(0, 10)
-    if callback then btn.MouseButton1Click:Connect(callback) end
-    return btn
-end
+local apply = btn(secSet,"Apply Settings",110)
 
--- Auto Tab
-local btnAutoToggle = addButton(autoSection, "Auto Clicker: OFF", 10)
-local btnSetPos = addButton(autoSection, "Set Click Box", 60)
+-- TOGGLE BUTTON (59 px from top)
+local toggle = Instance.new("TextButton",screen)
+toggle.Size = UDim2.new(0,80,0,40); toggle.Position = UDim2.new(0,10,0,59)
+toggle.Text = "Hide"; toggle.Font = FONT_BOLD; toggle.TextSize = 18
+toggle.BackgroundColor3 = Color3.fromRGB(0,120,255); toggle.TextColor3 = Color3.new(1,1,1)
+toggle.ZIndex = 1000
+Instance.new("UICorner",toggle).CornerRadius = UDim.new(0,10)
 
-local intervalInput = Instance.new("TextBox", autoSection)
-intervalInput.Size = UDim2.new(0.9, 0, 0, 40)
-intervalInput.Position = UDim2.new(0.05, 0, 0, 110)
-intervalInput.PlaceholderText = "Interval (sec)"
-intervalInput.Text = "0.2"
-intervalInput.Font = FONT_MAIN
-intervalInput.TextSize = 17
-intervalInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-local intCorner = Instance.new("UICorner", intervalInput)
-intCorner.CornerRadius = UDim.new(0, 10)
+-- ==== TOUCH-CAPTURE BOX (transparent, draggable) ====
+local box = Instance.new("Frame",screen)
+box.Size = UDim2.new(0,BOX_SIZE,0,BOX_SIZE)
+box.Position = UDim2.new(0.5,-BOX_SIZE/2,0.5,-BOX_SIZE/2)
+box.BackgroundTransparency = 0.85
+box.BackgroundColor3 = Color3.fromRGB(0,255,0)
+box.BorderSizePixel = 2
+box.BorderColor3 = Color3.fromRGB(0,200,0)
+box.ZIndex = 999
+box.Visible = false
+Instance.new("UICorner",box).CornerRadius = UDim.new(0,12)
 
--- Record Tab
-local btnStartRec = addButton(recordSection, "Start Recording", 10)
-local btnReplay = addButton(recordSection, "Replay Clicks", 60)
-local btnLoop = addButton(recordSection, "Replay Loop: OFF", 110)
-local btnClear = addButton(recordSection, "Clear Recording", 160)
-local btnExport = addButton(recordSection, "Export Recording", 210)
+local boxLbl = Instance.new("TextLabel",box)
+boxLbl.Size = UDim2.new(1,0,1,0); boxLbl.BackgroundTransparency=1
+boxLbl.Text = "Tap Inside"; boxLbl.TextColor3 = Color3.new(1,1,1)
+boxLbl.Font = FONT_BOLD; boxLbl.TextSize = 16; boxLbl.ZIndex = 1000
 
-local replayCountInput = Instance.new("TextBox", recordSection)
-replayCountInput.Size = UDim2.new(0.9, 0, 0, 40)
-replayCountInput.Position = UDim2.new(0.05, 0, 0, 260)
-replayCountInput.PlaceholderText = "Replay Count"
-replayCountInput.Text = "1"
-replayCountInput.Font = FONT_MAIN
-replayCountInput.TextSize = 17
-replayCountInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-local rcCorner = Instance.new("UICorner", replayCountInput)
-rcCorner.CornerRadius = UDim.new(0, 10)
-
--- Settings Tab
-local offsetXInput = Instance.new("TextBox", settingsSection)
-offsetXInput.Size = UDim2.new(0.9, 0, 0, 40)
-offsetXInput.Position = UDim2.new(0.05, 0, 0, 10)
-offsetXInput.PlaceholderText = "X Offset (px or %)"
-offsetXInput.Text = "0"
-offsetXInput.Font = FONT_MAIN
-offsetXInput.TextSize = 17
-offsetXInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-local oxCorner = Instance.new("UICorner", offsetXInput)
-oxCorner.CornerRadius = UDim.new(0, 10)
-
-local offsetYInput = Instance.new("TextBox", settingsSection)
-offsetYInput.Size = UDim2.new(0.9, 0, 0, 40)
-offsetYInput.Position = UDim2.new(0.05, 0, 0, 60)
-offsetYInput.PlaceholderText = "Y Offset (px or %)"
-offsetYInput.Text = "0"
-offsetYInput.Font = FONT_MAIN
-offsetYInput.TextSize = 17
-offsetYInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-local oyCorner = Instance.new("UICorner", offsetYInput)
-oyCorner.CornerRadius = UDim.new(0, 10)
-
-local btnApply = addButton(settingsSection, "Apply Settings", 110)
-
--- Toggle Button (59px from top)
-local toggleGuiBtn = Instance.new("TextButton", mainGui)
-toggleGuiBtn.Size = UDim2.new(0, 80, 0, 40)
-toggleGuiBtn.Position = UDim2.new(0, 10, 0, 59)
-toggleGuiBtn.Text = "Hide"
-toggleGuiBtn.Font = FONT_BOLD
-toggleGuiBtn.TextSize = 18
-toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
-toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleGuiBtn.ZIndex = 1000
-toggleGuiBtn.Visible = true
-local toggleCorner = Instance.new("UICorner", toggleGuiBtn)
-toggleCorner.CornerRadius = UDim.new(0, 10)
-
--- CLICK CAPTURE BOX (Transparent + Draggable)
-local clickBox = Instance.new("Frame", mainGui)
-clickBox.Size = UDim2.new(0, CLICK_BOX_SIZE, 0, CLICK_BOX_SIZE)
-clickBox.Position = UDim2.new(0.5, -CLICK_BOX_SIZE/2, 0.5, -CLICK_BOX_SIZE/2)
-clickBox.BackgroundTransparency = 0.8
-clickBox.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-clickBox.BorderSizePixel = 2
-clickBox.BorderColor3 = Color3.fromRGB(0, 200, 0)
-clickBox.ZIndex = 999
-clickBox.Visible = false
-local boxCorner = Instance.new("UICorner", clickBox)
-boxCorner.CornerRadius = UDim.new(0, 12)
-
-local boxLabel = Instance.new("TextLabel", clickBox)
-boxLabel.Size = UDim2.new(1, 0, 1, 0)
-boxLabel.BackgroundTransparency = 1
-boxLabel.Text = "Click Here"
-boxLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-boxLabel.Font = FONT_BOLD
-boxLabel.TextSize = 16
-boxLabel.ZIndex = 1000
-
--- Draggable Click Box
-local function makeDraggable(obj, handle)
-    local dragging = false
-    local dragStart, startPos
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = obj.Position
-        end
-    end)
-    handle.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            obj.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    handle.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-end
-makeDraggable(clickBox, clickBox)
-
--- GUI Draggable
-makeDraggable(container, dragBar)
-
--- Tab Switching
-local function showTab(name)
-    autoSection.Visible = name == "auto"
-    recordSection.Visible = name == "record"
-    settingsSection.Visible = name == "settings"
-    scrollFrame.CanvasPosition = Vector2.new(0, 0)
-    
-    tabAuto.BackgroundColor3 = name == "auto" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
-    tabRecord.BackgroundColor3 = name == "record" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = name == "settings" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
-end
-
-tabAuto.MouseButton1Click:Connect(function() showTab("auto") end)
-tabRecord.MouseButton1Click:Connect(function() showTab("record") end)
-tabSettings.MouseButton1Click:Connect(function() showTab("settings") end)
-
--- Toggle GUI
-toggleGuiBtn.MouseButton1Click:Connect(function()
-    guiHidden = not guiHidden
-    container.Visible = not guiHidden
-    clickBox.Visible = not guiHidden and waitingForPosition
-    toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
-end)
-
--- Viewport
-local function getViewportSize()
-    local cam = workspace.CurrentCamera
-    return cam and cam.ViewportSize or Vector2.new(1920, 1080)
-end
-
-local function toNormalized(pos)
-    local vs = getViewportSize()
-    return Vector2.new(pos.X / vs.X, pos.Y / vs.Y)
-end
-
-local function fromNormalized(norm)
-    local vs = getViewportSize()
-    return Vector2.new(math.clamp(norm.X * vs.X, 0, vs.X), math.clamp(norm.Y * vs.Y, 0, vs.Y))
-end
-
--- Virtual Input
-local function vmAvailable()
-    return VirtualInputManager and typeof(VirtualInputManager.SendMouseButtonEvent) == "function"
-end
-
-local function safeSendMouseMove(x, y)
-    if vmAvailable() then pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y, game, 0) end) end
-end
-
-local function safeSendMouseButton(x, y, down)
-    if vmAvailable() then pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, 0, down, game, 0) end) end
-end
-
-local function simulateClick(norm)
-    local pos = fromNormalized(norm)
-    local vs = getViewportSize()
-    local xOffset = activeXOffsetRaw.mode == "px" and activeXOffsetRaw.value or activeXOffsetRaw.value * vs.X
-    local yOffset = activeYOffsetRaw.mode == "px" and activeYOffsetRaw.value or activeYOffsetRaw.value * vs.Y
-    local x, y = pos.X + xOffset, pos.Y + yOffset
-    safeSendMouseMove(x, y)
-    task.wait(0.02)
-    safeSendMouseButton(x, y, true)
-    task.wait(MIN_CLICK_HOLD_DURATION)
-    safeSendMouseButton(x, y, false)
-end
-
--- Set Click Box
-btnSetPos.MouseButton1Click:Connect(function()
-    if waitingForPosition then return end
-    waitingForPosition = true
-    btnSetPos.Text = "Tap Box..."
-    clickBox.Visible = true
-    boxLabel.Text = "Click Inside"
-
-    local conn
-    conn = UserInputService.InputBegan:Connect(function(input)
-        if not waitingForPosition then return end
-        local pos = input.Position
-        local boxPos = clickBox.AbsolutePosition
-        local boxSize = clickBox.AbsoluteSize
-        if pos.X >= boxPos.X and pos.X <= boxPos.X + boxSize.X and
-           pos.Y >= boxPos.Y and pos.Y <= boxPos.Y + boxSize.Y then
-            clickPosition = pos
-            waitingForPosition = false
-            btnSetPos.Text = "Box Set!"
-            clickBox.Visible = false
-            conn:Disconnect()
-            task.delay(1, function() if btnSetPos.Text == "Box Set!" then btnSetPos.Text = "Set Click Box" end end)
-        end
-    end)
-end)
-
--- Auto Clicker
-btnAutoToggle.MouseButton1Click:Connect(function()
-    autoClickEnabled = not autoClickEnabled
-    btnAutoToggle.Text = autoClickEnabled and "Auto Clicker: ON" or "Auto Clicker: OFF"
-    if autoClickEnabled then
-        task.spawn(function()
-            while autoClickEnabled do
-                simulateClick(toNormalized(clickPosition))
-                task.wait(clickInterval)
-            end
-        end)
+local function drag(obj,handle)
+  local dragging,startPos,dragStart
+  handle.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+      dragging=true; dragStart=i.Position; startPos=obj.Position
     end
-end)
-
--- Recording (Multi-Touch)
-local activeTouches = {}
-local recordConnections = {}
-
-local function startRecording()
-    isRecording = true
-    recordedActions = {}
-    recordStartTime = os.clock()
-    btnStartRec.Text = "Stop Recording"
-
-    recordConnections.began = UserInputService.InputBegan:Connect(function(input)
-        if not isRecording then return end
-        local ut = input.UserInputType
-        if ut ~= Enum.UserInputType.Touch and ut ~= Enum.UserInputType.MouseButton1 then return end
-        local pos = input.Position
-        local objs = playerGui:GetGuiObjectsAtPosition(pos.X, pos.Y)
-        for _, obj in ipairs(objs) do
-            if obj:IsDescendantOf(mainGui) then return end
-        end
-        activeTouches[input] = { startTime = os.clock(), startPos = pos }
-    end)
-
-    recordConnections.ended = UserInputService.InputEnded:Connect(function(input)
-        if not isRecording or not activeTouches[input] then return end
-        local data = activeTouches[input]
-        local now = os.clock()
-        local delay = now - recordStartTime
-        recordStartTime = now
-        local endPos = input.Position or data.startPos
-        local moved = (endPos - data.startPos).Magnitude
-
-        if moved >= SWIPE_MIN_PIXELS then
-            table.insert(recordedActions, {
-                type = "swipe",
-                startNorm = toNormalized(data.startPos),
-                endNorm = toNormalized(endPos),
-                duration = now - data.startTime,
-                delay = delay
-            })
-        else
-            table.insert(recordedActions, {
-                type = "tap",
-                norm = toNormalized(data.startPos),
-                delay = delay
-            })
-        end
-        activeTouches[input] = nil
-    end)
-end
-
-local function stopRecording()
-    isRecording = false
-    btnStartRec.Text = "Start Recording"
-    for _, conn in pairs(recordConnections) do if conn.Connected then conn:Disconnect() end end
-    recordConnections = {}
-end
-
-btnStartRec.MouseButton1Click:Connect(function()
-    if isRecording then stopRecording() else startRecording() end
-end)
-
--- Replay / Loop / Clear / Export
-btnReplay.MouseButton1Click:Connect(function()
-    if isReplaying then
-        isReplaying = false
-        btnReplay.Text = "Replay Clicks"
-        if currentReplayThread then task.cancel(currentReplayThread) end
-        return
+  end)
+  handle.InputChanged:Connect(function(i)
+    if dragging and (i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseMovement) then
+      local d=i.Position-dragStart
+      obj.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
     end
-    if #recordedActions == 0 then return end
-    isReplaying = true
-    local count = tonumber(replayCountInput.Text) or 1
-    btnReplay.Text = "Stop Replay"
-    currentReplayThread = task.spawn(function()
-        for i = 1, count do
-            if not isReplaying then break end
-            for _, act in ipairs(recordedActions) do
-                if not isReplaying then break end
-                if act.delay then task.wait(act.delay) end
-                if act.type == "tap" then simulateClick(act.norm) end
-            end
-        end
-        isReplaying = false
-        btnReplay.Text = "Replay Clicks"
-    end)
+  end)
+  handle.InputEnded:Connect(function() dragging=false end)
+end
+drag(container,drag)      -- GUI drag
+drag(box,box)            -- box drag
+
+-- ==== TAB LOGIC ====
+local function show(sec)
+  secAuto.Visible = sec=="auto"
+  secRec.Visible  = sec=="rec"
+  secSet.Visible  = sec=="set"
+  scroll.CanvasPosition = Vector2.new(0,0)
+  tAuto.BackgroundColor3 = sec=="auto" and Color3.fromRGB(0,120,255) or Color3.fromRGB(50,50,50)
+  tRec.BackgroundColor3  = sec=="rec"  and Color3.fromRGB(0,120,255) or Color3.fromRGB(50,50,50)
+  tSet.BackgroundColor3  = sec=="set"  and Color3.fromRGB(0,120,255) or Color3.fromRGB(50,50,50)
+end
+tAuto.MouseButton1Click:Connect(function() show("auto") end)
+tRec.MouseButton1Click:Connect(function() show("rec") end)
+tSet.MouseButton1Click:Connect(function() show("set") end)
+
+-- ==== TOGGLE GUI ====
+toggle.MouseButton1Click:Connect(function()
+  hidden = not hidden
+  container.Visible = not hidden
+  box.Visible = not hidden and waitingForBox
+  toggle.Text = hidden and "Show" or "Hide"
 end)
 
-btnLoop.MouseButton1Click:Connect(function()
-    isReplayingLoop = not isReplayingLoop
-    btnLoop.Text = isReplayingLoop and "Replay Loop: ON" or "Replay Loop: OFF"
-    if isReplayingLoop then
-        currentReplayLoopThread = task.spawn(function()
-            while isReplayingLoop do
-                for _, act in ipairs(recordedActions) do
-                    if not isReplayingLoop then break end
-                    if act.delay then task.wait(act.delay) end
-                    if act.type == "tap" then simulateClick(act.norm) end
-                end
-                task.wait(0.1)
-            end
-        end)
+-- ==== VIRTUAL INPUT HELPERS ====
+local function vm() return VirtualInputManager and typeof(VirtualInputManager.SendMouseButtonEvent)=="function" end
+local function move(x,y) if vm() then pcall(function() VirtualInputManager:SendMouseMoveEvent(x,y,game,0) end) end end
+local function press(x,y,down) if vm() then pcall(function() VirtualInputManager:SendMouseButtonEvent(x,y,0,down,game,0) end) end end
+
+local function clickAt(absX,absY)
+  move(absX,absY); task.wait(0.02)
+  press(absX,absY,true); task.wait(MIN_HOLD)
+  press(absX,absY,false)
+end
+
+-- ==== SET TOUCH BOX ====
+setBoxBtn.MouseButton1Click:Connect(function()
+  if waitingForBox then return end
+  waitingForBox = true
+  setBoxBtn.Text = "Tap Box..."
+  box.Visible = true
+  boxLbl.Text = "Tap Inside"
+
+  local conn
+  conn = UserInputService.TouchStarted:Connect(function(touch)
+    if not waitingForBox then return end
+    local p = touch.Position
+    local a = box.AbsolutePosition
+    local s = box.AbsoluteSize
+    if p.X>=a.X and p.X<=a.X+s.X and p.Y>=a.Y and p.Y<=a.Y+s.Y then
+      clickPos = p                -- **absolute screen pixel**
+      waitingForBox = false
+      setBoxBtn.Text = "Box Set!"
+      box.Visible = false
+      conn:Disconnect()
+      task.delay(1,function() if setBoxBtn.Text=="Box Set!" then setBoxBtn.Text="Set Touch Box" end end)
+    end
+  end)
+end)
+
+-- ==== AUTO CLICKER ====
+autoToggle.MouseButton1Click:Connect(function()
+  autoOn = not autoOn
+  autoToggle.Text = autoOn and "Auto Clicker: ON" or "Auto Clicker: OFF"
+  if autoOn then
+    task.spawn(function()
+      while autoOn do
+        local vs = workspace.CurrentCamera.ViewportSize
+        local ox = offsetX.mode=="px" and offsetX.value or offsetX.value*vs.X
+        local oy = offsetY.mode=="px" and offsetY.value or offsetY.value*vs.Y
+        clickAt(clickPos.X + ox, clickPos.Y + oy)
+        task.wait(interval)
+      end
+    end)
+  end
+end)
+
+intInput.FocusLost:Connect(function()
+  local v = tonumber(intInput.Text)
+  if v and v>=MIN_INTERVAL and v<=MAX_INTERVAL then interval=v else intInput.Text=tostring(interval) end
+end)
+
+-- ==== RECORDING (multi-touch) ====
+local touches = {}
+local recConns = {}
+
+local function startRec()
+  recording = true; actions = {}; recStart = os.clock()
+  recStart.Text = "Stop Recording"
+
+  recConns.began = UserInputService.TouchStarted:Connect(function(t)
+    if not recording then return end
+    local objs = playerGui:GetGuiObjectsAtPosition(t.Position.X,t.Position.Y)
+    for _,o in ipairs(objs) do if o:IsDescendantOf(screen) then return end end
+    touches[t] = {start=os.clock(),pos=t.Position}
+  end)
+
+  recConns.ended = UserInputService.TouchEnded:Connect(function(t)
+    if not recording or not touches[t] then return end
+    local d = touches[t]
+    local now = os.clock()
+    local delay = now - recStart; recStart = now
+    local endPos = t.Position or d.pos
+    local moved = (endPos-d.pos).Magnitude
+
+    if moved >= SWIPE_MIN then
+      table.insert(actions,{type="swipe",start=d.pos,endPos=endPos,dur=now-d.start,delay=delay})
     else
-        if currentReplayLoopThread then task.cancel(currentReplayLoopThread) end
+      table.insert(actions,{type="tap",pos=d.pos,delay=delay})
     end
-end)
+    touches[t]=nil
+  end)
+end
 
-btnClear.MouseButton1Click:Connect(function() recordedActions = {} end)
-btnExport.MouseButton1Click:Connect(function()
-    if #recordedActions == 0 then return end
-    local data = HttpService:JSONEncode({ actions = recordedActions })
-    if setclipboard then setclipboard(data) end
-end)
+local function stopRec()
+  recording = false; recStart.Text = "Start Recording"
+  for _,c in pairs(recConns) do if c.Connected then c:Disconnect() end end
+  recConns = {}
+end
 
--- Apply Offsets
-btnApply.MouseButton1Click:Connect(function()
-    local function parse(text)
-        text = text:gsub("%%", ""):gsub("%s+", "")
-        if text:find("%%$") then
-            return { mode = "pct", value = tonumber(text:sub(1, -2)) / 100 }
-        else
-            return { mode = "px", value = tonumber(text) }
+recStart.MouseButton1Click:Connect(function() if recording then stopRec() else startRec() end)
+
+-- ==== REPLAY / LOOP / CLEAR / EXPORT ====
+recPlay.MouseButton1Click:Connect(function()
+  if replaying then replaying=false; recPlay.Text="Replay Clicks"; if replayThread then task.cancel(replayThread) end return end
+  if #actions==0 then return end
+  replaying=true; local cnt=tonumber(repCnt.Text) or 1; recPlay.Text="Stop Replay"
+  replayThread = task.spawn(function()
+    for i=1,cnt do if not replaying then break end
+      for _,a in ipairs(actions) do if not replaying then break end
+        if a.delay then task.wait(a.delay) end
+        if a.type=="tap" then
+          local vs = workspace.CurrentCamera.ViewportSize
+          local ox = offsetX.mode=="px" and offsetX.value or offsetX.value*vs.X
+          local oy = offsetY.mode=="px" and offsetY.value or offsetY.value*vs.Y
+          clickAt(a.pos.X+ox, a.pos.Y+oy)
         end
+      end
     end
-    local x = parse(offsetXInput.Text)
-    local y = parse(offsetYInput.Text)
-    if x and y then
-        activeXOffsetRaw = x
-        activeYOffsetRaw = y
-    end
+    replaying=false; recPlay.Text="Replay Clicks"
+  end)
 end)
 
--- Interval
-intervalInput.FocusLost:Connect(function()
-    local val = tonumber(intervalInput.Text)
-    if val and val >= MIN_CLICK_INTERVAL and val <= MAX_CLICK_INTERVAL then
-        clickInterval = val
-    else
-        intervalInput.Text = tostring(clickInterval)
-    end
+recLoop.MouseButton1Click:Connect(function()
+  looping = not looping
+  recLoop.Text = looping and "Replay Loop: ON" or "Replay Loop: OFF"
+  if looping then
+    loopThread = task.spawn(function()
+      while looping do
+        for _,a in ipairs(actions) do if not looping then break end
+          if a.delay then task.wait(a.delay) end
+          if a.type=="tap" then
+            local vs = workspace.CurrentCamera.ViewportSize
+            local ox = offsetX.mode=="px" and offsetX.value or offsetX.value*vs.X
+            local oy = offsetY.mode=="px" and offsetY.value or offsetY.value*vs.Y
+            clickAt(a.pos.X+ox, a.pos.Y+oy)
+          end
+        end
+        task.wait(0.1)
+      end
+    end)
+  else if loopThread then task.cancel(loopThread) end end
 end)
 
--- Start
-showTab("auto")
-            
+recClr.MouseButton1Click:Connect(function() actions={} end)
+recExp.MouseButton1Click:Connect(function()
+  if #actions==0 then return end
+  local json = HttpService:JSONEncode({actions=actions})
+  if setclipboard then setclipboard(json) end
+end)
+
+-- ==== SETTINGS OFFSETS ====
+local function parse(txt)
+  txt = txt:gsub("%%",""):gsub("%s+","")
+  if txt:sub(-1)=="%" then return {mode="pct",value=tonumber(txt:sub(1,-2))/100} end
+  return {mode="px",value=tonumber(txt)}
+end
+apply.MouseButton1Click:Connect(function()
+  local x = parse(offX.Text)
+  local y = parse(offY.Text)
+  if x and y then offsetX, offsetY = x, y end
+end)
+
+show("auto")
+  
