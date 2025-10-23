@@ -1,4 +1,4 @@
--- Roblox Macro V2 (FULLY MOBILE COMPATIBLE | NO KEY SYSTEM | TAP/SWIPE RECORDING + EXPORT/IMPORT)
+-- Roblox Macro V2 (MOBILE-FULLY CENTERED | NO KEY | TAP/SWIPE WORKS)
 -- LocalScript in StarterPlayerScripts or StarterGui
 
 local Players = game:GetService("Players")
@@ -26,7 +26,6 @@ local MAX_REPLAY_COUNT = 10000
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-local mouse = player:GetMouse()
 
 -- State
 local autoClickEnabled = false
@@ -76,7 +75,7 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
     }
 end
 
--- UI Creation (Mobile-Optimized)
+-- UI Creation (CENTERED ON ALL DEVICES)
 local mainGui = Instance.new("ScreenGui")
 mainGui.Name = "MacroV2GUI"
 mainGui.IgnoreGuiInset = true
@@ -84,10 +83,11 @@ mainGui.ResetOnSpawn = false
 mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 mainGui.Parent = playerGui
 
+-- Main Frame - Always Centered
 local mainFrame = Instance.new("Frame", mainGui)
 mainFrame.Size = UDim2.new(0, 300, 0, 420)
-mainFrame.Position = UDim2.new(0.5, -150, 0.5, -210)
 mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
@@ -95,12 +95,14 @@ mainFrame.Visible = true
 local frameCorner = Instance.new("UICorner", mainFrame)
 frameCorner.CornerRadius = UDim.new(0, 12)
 
+-- Drag Handle
 local dragLayer = Instance.new("Frame", mainFrame)
 dragLayer.Size = UDim2.new(1, 0, 0, 50)
 dragLayer.BackgroundTransparency = 1
 dragLayer.ZIndex = 1
 dragLayer.Active = true
 
+-- Title
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 50)
 title.BackgroundTransparency = 1
@@ -110,6 +112,7 @@ title.Font = FONT_BOLD
 title.TextSize = 24
 title.ZIndex = 2
 
+-- Tab Bar
 local tabBar = Instance.new("Frame", mainFrame)
 tabBar.Size = UDim2.new(1, 0, 0, 45)
 tabBar.Position = UDim2.new(0, 0, 0, 50)
@@ -133,6 +136,7 @@ local tabAutoClicker = createTab("Auto", 10)
 local tabRecorder = createTab("Record", 105)
 local tabSettings = createTab("Settings", 200)
 
+-- Content Area
 local contentArea = Instance.new("Frame", mainFrame)
 contentArea.Size = UDim2.new(1, 0, 1, -95)
 contentArea.Position = UDim2.new(0, 0, 0, 95)
@@ -153,6 +157,7 @@ settingsContent.Size = UDim2.new(1, 0, 1, 0)
 settingsContent.BackgroundTransparency = 1
 settingsContent.Visible = false
 
+-- Button Factory
 local function createButton(text, posY, parent, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.9, 0, 0, 40)
@@ -208,7 +213,7 @@ replayCountInput.BorderSizePixel = 0
 local replayCorner = Instance.new("UICorner", replayCountInput)
 replayCorner.CornerRadius = UDim.new(0, 8)
 
--- Action List (Scroll)
+-- Action List
 local actionListFrame = Instance.new("ScrollingFrame", recordContent)
 actionListFrame.Size = UDim2.new(0.9, 0, 0, 120)
 actionListFrame.Position = UDim2.new(0.05, 0, 0, 360)
@@ -217,7 +222,6 @@ actionListFrame.BorderSizePixel = 0
 actionListFrame.ScrollBarThickness = 6
 actionListFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
 actionListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-actionListFrame.Visible = true
 local actionListCorner = Instance.new("UICorner", actionListFrame)
 actionListCorner.CornerRadius = UDim.new(0, 6)
 
@@ -269,7 +273,7 @@ swipeCorner.CornerRadius = UDim.new(0, 8)
 
 local btnApplyOffsets = createButton("Apply Settings", 160, settingsContent)
 
--- Toggle Button
+-- Toggle Button (Top-Left Corner)
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
 toggleGuiBtn.Size = UDim2.new(0, 80, 0, 40)
 toggleGuiBtn.Position = UDim2.new(0, 10, 0, 10)
@@ -371,11 +375,12 @@ local function safeSendMouseButton(x, y, down)
     if vmAvailable() then pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, 0, down, game, 0) end) end
 end
 
--- Simulate
+-- Simulate Click
 local function simulateClick(norm)
     local pos = fromNormalized(norm)
-    local x = pos.X + (activeXOffsetRaw.mode == "px" and activeXOffsetRaw.value or activeXOffsetRaw.value * getViewportSize().X)
-    local y = pos.Y + (activeYOffsetRaw.mode == "px" and activeYOffsetRaw.value or activeYOffsetRaw.value * getViewportSize().Y)
+    local xOffset = activeXOffsetRaw.mode == "px" and activeXOffsetRaw.value or activeXOffsetRaw.value * getViewportSize().X
+    local yOffset = activeYOffsetRaw.mode == "px" and activeYOffsetRaw.value or activeYOffsetRaw.value * getViewportSize().Y
+    local x, y = pos.X + xOffset, pos.Y + yOffset
     safeSendMouseMove(x, y)
     task.wait(0.02)
     safeSendMouseButton(x, y, true)
@@ -403,7 +408,9 @@ local function startRecording()
     visualizer.Enabled = true
 
     recordConnections.began = UserInputService.InputBegan:Connect(function(input)
-        if not isRecording or input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if not isRecording then return end
+        local ut = input.UserInputType
+        if ut ~= Enum.UserInputType.Touch and ut ~= Enum.UserInputType.MouseButton1 then return end
         local pos = input.Position
         if isOverGUI(pos) then return end
         activeInputs[input] = { startTime = os.clock(), startPos = pos }
@@ -518,6 +525,117 @@ toggleGuiBtn.MouseButton1Click:Connect(function()
     toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
 end)
 
+-- Auto Clicker
+btnAutoClicker.MouseButton1Click:Connect(function()
+    autoClickEnabled = not autoClickEnabled
+    btnAutoClicker.Text = autoClickEnabled and "Auto Clicker: ON" or "Auto Clicker: OFF"
+    if autoClickEnabled then
+        task.spawn(function()
+            while autoClickEnabled do
+                simulateClick(toNormalized(clickPosition))
+                task.wait(clickInterval)
+            end
+        end)
+    end
+end)
+
+-- Set Position
+btnSetPosition.MouseButton1Click:Connect(function()
+    if waitingForPosition then return end
+    waitingForPosition = true
+    btnSetPosition.Text = "Tap Screen..."
+    local conn = UserInputService.InputBegan:Connect(function(input)
+        if not waitingForPosition then return end
+        local pos = input.Position
+        if isOverGUI(pos) then return end
+        clickPosition = pos
+        waitingForPosition = false
+        btnSetPosition.Text = "Position Set!"
+        conn:Disconnect()
+        task.delay(1, function() if btnSetPosition.Text == "Position Set!" then btnSetPosition.Text = "Set Position" end end)
+    end)
+end)
+
+-- Replay
+btnReplayClicks.MouseButton1Click:Connect(function()
+    if isReplaying then
+        isReplaying = false
+        btnReplayClicks.Text = "Replay Clicks"
+        if currentReplayThread then task.cancel(currentReplayThread) end
+        return
+    end
+    if #recordedActions == 0 then sendNotification("No Actions", "Record first"); return end
+    isReplaying = true
+    local count = tonumber(replayCountInput.Text) or 1
+    btnReplayClicks.Text = "Stop Replay"
+    currentReplayThread = task.spawn(function()
+        for i = 1, count do
+            if not isReplaying then break end
+            for _, act in ipairs(recordedActions) do
+                if not isReplaying then break end
+                if act.delay then task.wait(act.delay) end
+                if act.type == "tap" then
+                    simulateClick(act.norm)
+                elseif act.type == "swipe" then
+                    -- Simplified swipe replay
+                    task.wait(act.duration or 0.2)
+                end
+            end
+        end
+        isReplaying = false
+        btnReplayClicks.Text = "Replay Clicks"
+    end)
+end)
+
+-- Loop Replay
+btnReplayLoop.MouseButton1Click:Connect(function()
+    isReplayingLoop = not isReplayingLoop
+    btnReplayLoop.Text = isReplayingLoop and "Replay Loop: ON" or "Replay Loop: OFF"
+    if isReplayingLoop then
+        currentReplayLoopThread = task.spawn(function()
+            while isReplayingLoop do
+                for _, act in ipairs(recordedActions) do
+                    if not isReplayingLoop then break end
+                    if act.delay then task.wait(act.delay) end
+                    if act.type == "tap" then simulateClick(act.norm) end
+                end
+                task.wait(0.1)
+            end
+        end)
+    else
+        if currentReplayLoopThread then task.cancel(currentReplayLoopThread) end
+    end
+end)
+
+-- Clear
+btnClearRecording.MouseButton1Click:Connect(function()
+    recordedActions = {}
+    updateActionList()
+    sendNotification("Cleared", "Recording reset")
+end)
+
+-- Apply Offsets
+btnApplyOffsets.MouseButton1Click:Connect(function()
+    local function parse(text)
+        text = text:gsub("%%", ""):gsub("%s+", "")
+        if text:find("%%$") then
+            return { mode = "pct", value = tonumber(text:sub(1, -2)) / 100 }
+        else
+            return { mode = "px", value = tonumber(text) }
+        end
+    end
+    local x = parse(offsetXInput.Text)
+    local y = parse(offsetYInput.Text)
+    if x and y then
+        activeXOffsetRaw = x
+        activeYOffsetRaw = y
+        sendNotification("Applied", "Offsets updated")
+    else
+        sendNotification("Error", "Invalid format")
+    end
+end)
+
+-- Start
 selectTab("auto")
-sendNotification("Macro V2", "Mobile-ready & tap/swipe fixed!")
+sendNotification("Macro V2", "GUI centered on all devices!")
             
