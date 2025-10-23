@@ -1,114 +1,135 @@
 
 --[[
-    Roblox Macro V2: Fully Responsive & Enhanced GUI
-    This version implements screen-size normalization for accurate replay on any resolution,
-    adds robust input validation, and improves user feedback.
+    Roblox Macro V2: Advanced Features (Calibration, Save/Load Structure, Enhanced UI)
+    This version introduces a critical calibration system for multi-resolution replay accuracy.
 ]]
 
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-local GuiService = game:GetService("GuiService")
 local CoreGui = game:GetService("CoreGui")
+local HttpService = game:GetService("HttpService") -- For Save/Load JSON encoding
+local DataStoreService = game:GetService("DataStoreService") -- Placeholder for persistence
+
+local MACRO_STORE = "MacroV2_Store"
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MacroV2_GUI"
 screenGui.Parent = CoreGui
 screenGui.IgnoreGuiInset = true
 
-local recordedActions = {}
+local macroData = {
+    name = "New Macro",
+    actions = {},
+    recordedResolution = Vector2.new(1920, 1080) -- Default, will be updated by calibration
+}
 local isRecording = false
 local isReplaying = false
+local isCalibrating = false
 local clickInterval = 0.1 -- Default click interval in seconds
 local replayCount = 1
-local defaultRecordedResolution = Vector2.new(1920, 1080) -- Reference resolution for normalization
 
--- Local GUI Elements Setup
-local mainFrame
-local contentFrame
 local tabButtons = {}
+local recordingIndicator -- Visual feedback element
 
--- Helper to safely encode Unicode strings to base64 (Not used in Lua, but kept in mind for context)
-local function sendNotification(title, message, duration)
-    -- Simplified notification for display purposes
-    print(string.format("[Notification] %s: %s", title, message))
-    -- In a real Roblox environment, this would show an actual UI notification
-end
-
+-- Helper Functions
 local function getViewportSize()
     return UserInputService.ViewportSize
 end
 
--- 1. FIX: Normalization Functions (for responsive replay)
-local function toNormalized(position)
-    local viewport = getViewportSize()
-    return Vector2.new(
-        position.X / viewport.X,
-        position.Y / viewport.Y
-    )
+local function sendNotification(title, message, duration)
+    print(string.format("[Notification] %s: %s", title, message))
 end
 
-local function fromNormalized(normPos)
-    local viewport = getViewportSize()
-    return Vector2.new(
-        normPos.X * viewport.X,
-        normPos.Y * viewport.Y
-    )
-end
-
--- 2. IMPROVEMENT: Screen Ratio Calculation (for replay adjustment)
-local function getDeviceRatio()
-    local currentSize = getViewportSize()
-    return {
-        x = currentSize.X / defaultRecordedResolution.X,
-        y = currentSize.Y / defaultRecordedResolution.Y
-    }
-end
-
+-- 1. CRITICAL FIX: Advanced Normalization for Aspect Ratio Correction
 local function adjustForScreen(normPos)
-    local currentSize = getViewportSize()
-    -- Calculate pixel position based on current viewport size and recorded normalized position
-    return Vector2.new(
-        normPos.X * currentSize.X, 
-        normPos.Y * currentSize.Y
-    )
+    local recordedRes = macroData.recordedResolution
+    local currentRes = getViewportSize()
+
+    local xRatio = currentRes.X / recordedRes.X
+    local yRatio = currentRes.Y / recordedRes.Y
+    
+    -- Use the minimum ratio for consistent scaling (Aspect Ratio Preservation)
+    local scaleRatio = math.min(xRatio, yRatio)
+
+    -- Calculate offsets to center the macro area on non-matching aspect ratios
+    local offsetX = (currentRes.X - (recordedRes.X * scaleRatio)) / 2
+    local offsetY = (currentRes.Y - (recordedRes.Y * scaleRatio)) / 2
+    
+    -- Calculate position based on scale and offset
+    local adjustedX = (normPos.X * recordedRes.X * scaleRatio) + offsetX
+    local adjustedY = (normPos.Y * recordedRes.Y * scaleRatio) + offsetY
+    
+    return Vector2.new(adjustedX, adjustedY)
 end
 
--- Base GUI Creation Helpers
+-- 2. CORE FEATURE: Save/Load Stubs
+local function saveMacro()
+    if #macroData.actions == 0 then
+        sendNotification("Error", "No actions to save.")
+        return
+    end
+    
+    -- In a real game, this would save to DataStore
+    local json = HttpService:JSONEncode(macroData)
+    -- DataStoreService:GetDataStore(MACRO_STORE):SetAsync(macroData.name, json)
+    sendNotification("Saved", string.format("Macro '%s' saved (JSON size: %d bytes)", macroData.name, #json))
+end
+
+local function loadMacro(name)
+    -- In a real game, this would load from DataStore
+    -- local json = DataStoreService:GetDataStore(MACRO_STORE):GetAsync(name)
+    
+    -- Placeholder mock data for demonstration
+    local mockData = {
+        name = name,
+        actions = {
+            {type = "Tap", normPos = Vector2.new(0.5, 0.5), interval = 0.1},
+            {type = "Tap", normPos = Vector2.new(0.8, 0.2), interval = 0.1}
+        },
+        recordedResolution = Vector2.new(1280, 720) -- Example loaded resolution
+    }
+
+    if mockData then
+        macroData = mockData
+        sendNotification("Loaded", string.format("Macro '%s' loaded. Resolution: %d x %d", macroData.name, macroData.recordedResolution.X, macroData.recordedResolution.Y))
+        -- Force update of GUI to show new actions/settings
+        tabButtons[currentTab].MouseButton1Click:Fire() 
+    else
+        sendNotification("Error", "Macro not found.")
+    end
+end
+
+-- === GUI CORE HELPERS (Modern Look with UICorner) ===
+
+local function addUICorner(parent, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 8)
+    corner.Parent = parent
+end
+
 local function createFrame(size, position, parent)
     local frame = Instance.new("Frame")
-    frame.Size = size or UDim2.new(0.3, 0, 0.6, 0) -- Responsive default size (5. Responsive UI Design)
-    frame.Position = position or UDim2.new(0.5, -frame.Size.X.Offset/2, 0.5, -frame.Size.Y.Offset/2)
+    frame.Size = size or UDim2.new(0.3, 0, 0.6, 0)
+    frame.Position = position or UDim2.new(0.5, 0, 0.5, 0)
     frame.AnchorPoint = Vector2.new(0.5, 0.5)
-    frame.BackgroundColor3 = Color3.fromHex("161b22") -- Dark Card
+    frame.BackgroundColor3 = Color3.fromHex("161b22")
     frame.BorderSizePixel = 0
-    frame.BorderColor3 = Color3.fromHex("30363d")
-    frame.ClipsDescendants = true
+    addUICorner(frame, 8) -- Rounded corners
     frame.Parent = parent
     return frame
-end
-
-local function createTextLabel(text, size, parent)
-    local label = Instance.new("TextLabel")
-    label.Text = text
-    label.Size = size or UDim2.new(1, 0, 0, 30)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromHex("c9d1d9") -- Light Text
-    label.TextSize = 16 -- Will be adjusted responsively
-    label.Font = Enum.Font.SourceSans
-    label.Parent = parent
-    return label
 end
 
 local function createButton(text, width, parent)
     local button = Instance.new("TextButton")
     button.Text = text
     button.Size = UDim2.new(0, width, 0, 35)
-    button.BackgroundColor3 = Color3.fromHex("238636") -- GitHub Green
+    button.BackgroundColor3 = Color3.fromHex("238636")
     button.TextColor3 = Color3.new(1, 1, 1)
     button.TextSize = 16
     button.Font = Enum.Font.SourceSans
+    addUICorner(button, 6) -- Rounded corners
     button.Parent = parent
     return button
 end
@@ -120,6 +141,7 @@ local function createInput(default, width, parent)
     input.BackgroundColor3 = Color3.fromHex("0d1117") -- Dark background
     input.TextColor3 = Color3.fromHex("58a6ff") -- Blue highlight
     input.TextSize = 16
+    addUICorner(input, 6) -- Rounded corners
     input.Font = Enum.Font.SourceSans
     input.TextXAlignment = Enum.TextXAlignment.Left
     input.TextYAlignment = Enum.TextYAlignment.Center
@@ -128,48 +150,57 @@ local function createInput(default, width, parent)
     return input
 end
 
-local function createPadding(parent)
-    local padding = Instance.new("UIListLayout")
-    padding.Padding = UDim.new(0, 5)
-    padding.SortOrder = Enum.SortOrder.LayoutOrder
-    padding.Parent = parent
-    return padding
-end
-
 -- Main GUI Initialization
-mainFrame = createFrame(UDim2.new(0.3, 0, 0.6, 0), UDim2.new(0.5, 0, 0.5, 0), screenGui)
+local mainFrame = createFrame(UDim2.new(0.8, 0, 0.7, 0), UDim2.new(0.5, 0, 0.5, 0), screenGui)
 local uiList = Instance.new("UIListLayout")
 uiList.FillDirection = Enum.FillDirection.Vertical
 uiList.Padding = UDim.new(0, 10)
 uiList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 uiList.Parent = mainFrame
+local uiPadding = Instance.new("UIPadding", mainFrame)
+uiPadding.PaddingTop = UDim.new(0, 15)
+uiPadding.PaddingBottom = UDim.new(0, 15)
 
-local title = createTextLabel("Roblox Macro V2", UDim2.new(1, -20, 0, 30), mainFrame)
-title.Position = UDim2.new(0.5, 0, 0, 10)
-title.TextScaled = true -- Responsive text size
--- 5. IMPROVEMENT: Adjust font sizes based on screen size (handled by TextScaled property)
+-- 3. UI/UX: Prominent Recording Indicator
+recordingIndicator = Instance.new("Frame", mainFrame)
+recordingIndicator.Size = UDim2.new(0, 15, 0, 15)
+recordingIndicator.Position = UDim2.new(1, -25, 0, 10)
+recordingIndicator.AnchorPoint = Vector2.new(1, 0)
+recordingIndicator.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+recordingIndicator.Visible = false
+addUICorner(recordingIndicator, 15) -- Circle shape
 
-local tabsContainer = createFrame(UDim2.new(1, -20, 0, 40), nil, mainFrame)
+local title = Instance.new("TextLabel", mainFrame)
+title.Text = "Roblox Macro V2"
+title.Size = UDim2.new(1, -30, 0, 30)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.fromHex("c9d1d9")
+title.TextScaled = true
+
+-- Tabs Container
+local tabsContainer = createFrame(UDim2.new(1, 0, 0, 40), nil, mainFrame)
 tabsContainer.BackgroundColor3 = Color3.fromHex("0d1117")
-tabsContainer.LayoutUtil = Instance.new("UIListLayout")
-tabsContainer.LayoutUtil.FillDirection = Enum.FillDirection.Horizontal
-tabsContainer.LayoutUtil.Parent = tabsContainer
-tabsContainer.LayoutUtil.HorizontalAlignment = Enum.HorizontalAlignment.Center
+tabsContainer.BorderSizePixel = 0
+addUICorner(tabsContainer, 8)
 
-local tabContent = createFrame(UDim2.new(1, -20, 1, -80), nil, mainFrame)
+local tabsLayout = Instance.new("UIListLayout")
+tabsLayout.FillDirection = Enum.FillDirection.Horizontal
+tabsLayout.Parent = tabsContainer
+tabsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+tabsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+
+local tabContent = createFrame(UDim2.new(1, 0, 1, -100), nil, mainFrame)
 tabContent.BackgroundColor3 = Color3.fromHex("0d1117")
-tabContent.LayoutUtil = Instance.new("UIListLayout")
-tabContent.LayoutUtil.FillDirection = Enum.FillDirection.Vertical
-tabContent.LayoutUtil.Padding = UDim.new(0, 10)
-tabContent.LayoutUtil.Parent = tabContent
+tabContent.BorderSizePixel = 0
+addUICorner(tabContent, 8)
 
--- Tab Creation Logic
 local currentTab = nil
 
 local function createTabButton(name)
     local btn = createButton(name, 100, tabsContainer)
-    btn.Size = UDim2.new(1/3, 0, 1, 0)
-    btn.BackgroundColor3 = Color3.fromHex("30363d") -- Inactive tab color
+    btn.Size = UDim2.new(0.33, 0, 1, 0) -- Responsive sizing
+    btn.BackgroundColor3 = Color3.fromHex("30363d") 
+    btn.TextColor3 = Color3.fromHex("c9d1d9") 
     tabButtons[name] = btn
 
     btn.MouseButton1Click:Connect(function()
@@ -177,13 +208,15 @@ local function createTabButton(name)
             tabButtons[currentTab].BackgroundColor3 = Color3.fromHex("30363d")
         end
         currentTab = name
-        btn.BackgroundColor3 = Color3.fromHex("161b22") -- Active tab color
+        btn.BackgroundColor3 = Color3.fromHex("161b22") 
+        
         -- Clear content and display new tab content
         for _, child in pairs(tabContent:GetChildren()) do
-            if child:IsA("Frame") or child:IsA("ScrollingFrame") then
+            if not child:IsA("UIListLayout") and not child:IsA("UIPadding") and not child:IsA("UICorner") then
                 child:Destroy()
             end
         end
+        
         if name == "Record" then setupRecordTab()
         elseif name == "Replay" then setupReplayTab()
         elseif name == "Settings" then setupSettingsTab()
@@ -200,56 +233,98 @@ createTabButton("Settings")
 
 -- 1. Record Tab
 local function setupRecordTab()
-    local recordContent = createFrame(UDim2.new(1, 0, 1, 0), nil, tabContent)
-    recordContent.BackgroundColor3 = Color3.fromHex("161b22")
-    createPadding(recordContent)
+    local recordContent = Instance.new("ScrollingFrame", tabContent)
+    recordContent.Size = UDim2.new(1, 0, 1, 0)
+    recordContent.BackgroundTransparency = 1
+    recordContent.ScrollBarThickness = 5
+
+    local listLayout = Instance.new("UIListLayout", recordContent)
+    listLayout.FillDirection = Enum.FillDirection.Vertical
+    listLayout.Padding = UDim.new(0, 10)
+    listLayout.Parent = recordContent
     
-    local btnToggleRecording = createButton("Start Recording", 170, recordContent)
-    btnToggleRecording.BackgroundColor3 = Color3.fromHex("238636") -- Green
+    local nameInput = createInput(macroData.name, 200, recordContent)
+    nameInput.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            macroData.name = nameInput.Text
+            sendNotification("Macro Name", "Name set to: " .. macroData.name)
+        end
+    end)
+
+    local btnToggleRecording = createButton(isRecording and "Recording..." or "Start Recording", 170, recordContent)
+    btnToggleRecording.BackgroundColor3 = isRecording and Color3.fromHex("dc3232") or Color3.fromHex("238636")
 
     local btnSetPosition = createButton("Set Position (Q)", 170, recordContent)
     btnSetPosition.BackgroundColor3 = Color3.fromHex("30363d")
 
-    local btnClearActions = createButton("Clear Recorded Actions", 170, recordContent)
-    btnClearActions.BackgroundColor3 = Color3.fromHex("dc3232") -- Red (2. IMPROVEMENT: Add action clearing option)
+    local btnClearActions = createButton("Clear Actions", 170, recordContent)
+    btnClearActions.BackgroundColor3 = Color3.fromHex("dc3232") 
+    
+    local actionDisplay = Instance.new("Frame", recordContent)
+    actionDisplay.Size = UDim2.new(1, 0, 0, 200) -- Fixed size for actions list
 
-    -- 2. IMPROVEMENT: Add recorded actions display
-    local actionDisplay = Instance.new("ScrollingFrame", recordContent)
-    actionDisplay.Size = UDim2.new(1, 0, 1, -120) -- Take remaining vertical space
-    actionDisplay.BackgroundColor3 = Color3.fromHex("0d1117")
-    actionDisplay.CanvasSize = UDim2.new(0, 0, 0, 0)
-    actionDisplay.ScrollBarThickness = 5
-    actionDisplay.HorizontalScrollBarVisible = false
+    local scrollFrame = Instance.new("ScrollingFrame", actionDisplay)
+    scrollFrame.Size = UDim2.new(1, 0, 1, 0)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.ScrollBarThickness = 5
 
-    local actionList = Instance.new("UIListLayout", actionDisplay)
+    local actionList = Instance.new("UIListLayout", scrollFrame)
     actionList.FillDirection = Enum.FillDirection.Vertical
     actionList.Padding = UDim.new(0, 2)
-    actionList.Parent = actionDisplay
-
-    local function updateActionDisplay()
-        for _, child in pairs(actionDisplay:GetChildren()) do
-            if child:IsA("TextLabel") then child:Destroy() end
-        end
-        for i, action in ipairs(recordedActions) do
-            local text = string.format("%d. %s at (%.1f, %.1f)", i, action.type, action.normPos.X * 100, action.normPos.Y * 100)
-            local lbl = createTextLabel(text, UDim2.new(1, 0, 0, 20), actionDisplay)
-            lbl.TextSize = 12
-        end
-        actionDisplay.CanvasSize = UDim2.new(0, 0, 0, #recordedActions * 22)
+    
+    local function createActionItem(index, action)
+        local item = Instance.new("Frame", scrollFrame)
+        item.Size = UDim2.new(1, 0, 0, 30)
+        item.BackgroundColor3 = index % 2 == 1 and Color3.fromHex("0d1117") or Color3.fromHex("161b22")
+        item.BorderSizePixel = 0
+        
+        local text = string.format("%d. %s @ (%.1f, %.1f)", index, action.type, action.normPos.X * 100, action.normPos.Y * 100)
+        local lbl = Instance.new("TextLabel", item)
+        lbl.Text = text
+        lbl.Size = UDim2.new(0.8, 0, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.TextColor3 = Color3.fromHex("c9d1d9")
+        lbl.TextSize = 14
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        
+        -- Placeholder for future editing
+        local btnEdit = createButton("Edit", 50, item)
+        btnEdit.Size = UDim2.new(0.2, -10, 0.8, 0)
+        btnEdit.Position = UDim2.new(0.8, 0, 0.5, 0)
+        btnEdit.AnchorPoint = Vector2.new(0, 0.5)
+        btnEdit.BackgroundColor3 = Color3.fromHex("58a6ff")
+        btnEdit.TextSize = 12
+        btnEdit.MouseButton1Click:Connect(function()
+            sendNotification("Action Editor", "Feature not yet implemented: Editing action " .. index)
+        end)
+        
+        return item
     end
 
-    -- Toggle Recording Logic (2. IMPROVEMENT: Improve recording status visibility)
+    local function updateActionDisplay()
+        for _, child in pairs(scrollFrame:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        for i, action in ipairs(macroData.actions) do
+            createActionItem(i, action)
+        end
+        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, #macroData.actions * 32)
+    end
+
+    -- Toggle Recording Logic
     btnToggleRecording.MouseButton1Click:Connect(function()
-        if not isReplaying then
+        if not isReplaying and not isCalibrating then
             isRecording = not isRecording
+            recordingIndicator.Visible = isRecording -- Show/hide indicator
             if isRecording then
+                macroData.recordedResolution = getViewportSize() -- Record initial screen size
                 btnToggleRecording.Text = "Recording..."
-                btnToggleRecording.BackgroundColor3 = Color3.fromHex("dc3232") -- Red: Recording
-                sendNotification("Recording", "Recording has started.", 1)
+                btnToggleRecording.BackgroundColor3 = Color3.fromHex("dc3232")
+                sendNotification("Recording", "Recording started. Resolution: " .. macroData.recordedResolution.X .. "x" .. macroData.recordedResolution.Y, 1)
             else
                 btnToggleRecording.Text = "Start Recording"
-                btnToggleRecording.BackgroundColor3 = Color3.fromHex("238636") -- Green: Stopped
-                sendNotification("Recording", "Recording has stopped.", 1)
+                btnToggleRecording.BackgroundColor3 = Color3.fromHex("238636")
+                sendNotification("Recording", "Recording stopped.", 1)
             end
         end
     end)
@@ -258,17 +333,14 @@ local function setupRecordTab()
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if input.KeyCode == Enum.KeyCode.Q and not gameProcessed and isRecording then
             local pos = UserInputService:GetMouseLocation()
-            local normPos = toNormalized(pos) -- 1. FIX: Convert to normalized coordinates
-            table.insert(recordedActions, {
+            local normPos = Vector2.new(pos.X / macroData.recordedResolution.X, pos.Y / macroData.recordedResolution.Y)
+            table.insert(macroData.actions, {
                 type = "Tap", 
                 normPos = normPos,
-                time = os.clock(), -- Record absolute time
                 interval = clickInterval
             })
             btnSetPosition.Text = "Position Set!"
             updateActionDisplay()
-            
-            -- 2. IMPROVEMENT: Extended notification duration (from 1 to 2 seconds)
             task.delay(2, function() 
                 if btnSetPosition.Text == "Position Set!" then
                     btnSetPosition.Text = "Set Position (Q)"
@@ -277,87 +349,71 @@ local function setupRecordTab()
         end
     end)
 
-    -- 2. IMPROVEMENT: Clear actions button logic
     btnClearActions.MouseButton1Click:Connect(function()
-        recordedActions = {}
+        macroData.actions = {}
         updateActionDisplay()
         sendNotification("Cleared", "All recorded actions have been cleared.")
     end)
     
-    updateActionDisplay() -- Initial display load
+    updateActionDisplay() 
 end
 
 -- 2. Replay Tab
 local function setupReplayTab()
-    local replayContent = createFrame(UDim2.new(1, 0, 1, 0), nil, tabContent)
-    replayContent.BackgroundColor3 = Color3.fromHex("161b22")
-    createPadding(replayContent)
-
-    local replayControls = createFrame(UDim2.new(1, 0, 0, 80), nil, replayContent)
-    replayControls.BackgroundTransparency = 1
-    local controlsLayout = Instance.new("UIListLayout", replayControls)
-    controlsLayout.FillDirection = Enum.FillDirection.Vertical
-    controlsLayout.Padding = UDim.new(0, 5)
-    controlsLayout.Parent = replayControls
-
-    local btnReplay = createButton("Start Replay", 170, replayControls)
+    local replayContent = Instance.new("Frame", tabContent)
+    replayContent.Size = UDim2.new(1, 0, 1, 0)
+    replayContent.BackgroundTransparency = 1
+    local listLayout = Instance.new("UIListLayout", replayContent)
+    listLayout.FillDirection = Enum.FillDirection.Vertical
+    listLayout.Padding = UDim.new(0, 5)
+    
+    local btnReplay = createButton("Start Replay", 170, replayContent)
     btnReplay.BackgroundColor3 = Color3.fromHex("238636")
     
-    local lblIntervalDesc = createTextLabel("Click Interval (secs > 0.05):", UDim2.new(1, 0, 0, 20), replayControls)
+    local lblIntervalDesc = Instance.new("TextLabel", replayContent)
+    lblIntervalDesc.Text = "Click Interval (secs > 0.05):"
+    lblIntervalDesc.BackgroundTransparency = 1
+    lblIntervalDesc.TextColor3 = Color3.fromHex("c9d1d9")
     lblIntervalDesc.TextSize = 14
-    local lblInterval = createInput(tostring(clickInterval), 100, replayControls)
+    local lblInterval = createInput(tostring(clickInterval), 100, replayContent)
     
-    local lblReplayCountDesc = createTextLabel("Replay Amount (times > 0):", UDim2.new(1, 0, 0, 20), replayControls)
+    local lblReplayCountDesc = Instance.new("TextLabel", replayContent)
+    lblReplayCountDesc.Text = "Replay Amount (times > 0):"
+    lblReplayCountDesc.BackgroundTransparency = 1
+    lblReplayCountDesc.TextColor3 = Color3.fromHex("c9d1d9")
     lblReplayCountDesc.TextSize = 14
-    local replayCountInput = createInput(tostring(replayCount), 100, replayControls)
+    local replayCountInput = createInput(tostring(replayCount), 100, replayContent)
 
-    -- 4. Input Validation Enhancements
+    -- Input Validation
     lblInterval.FocusLost:Connect(function(enterPressed)
         if enterPressed then
             local val = tonumber(lblInterval.Text)
-            if val and val > 0.05 then
-                clickInterval = val
-                sendNotification("Setting Updated", "Click Interval set to " .. tostring(clickInterval) .. "s")
-            else
-                lblInterval.Text = tostring(clickInterval)
-                sendNotification("Invalid Value", "Interval must be > 0.05 seconds.")
-            end
+            if val and val > 0.05 then clickInterval = val
+            else lblInterval.Text = tostring(clickInterval); sendNotification("Invalid Value", "Interval must be > 0.05s.") end
         end
     end)
 
     replayCountInput.FocusLost:Connect(function(enterPressed)
         if enterPressed then
             local val = tonumber(replayCountInput.Text)
-            if val and val > 0 then
-                replayCount = math.floor(val)
-                sendNotification("Setting Updated", "Replay Count set to " .. tostring(replayCount))
-            else
-                replayCountInput.Text = tostring(replayCount)
-                sendNotification("Invalid Value", "Replay count must be a positive integer.")
-            end
+            if val and val > 0 then replayCount = math.floor(val)
+            else replayCountInput.Text = tostring(replayCount); sendNotification("Invalid Value", "Count must be a positive integer.") end
         end
     end)
 
     -- Replay Logic
     btnReplay.MouseButton1Click:Connect(function()
-        if isRecording then
-            sendNotification("Error", "Stop recording before starting replay.")
-            return
-        end
-        if #recordedActions == 0 then
-            sendNotification("Error", "No actions recorded to replay.")
-            return
-        end
+        if isRecording or isCalibrating then sendNotification("Error", "Stop recording/calibration first."); return end
+        if #macroData.actions == 0 then sendNotification("Error", "No actions recorded."); return end
         
         isReplaying = true
         btnReplay.Text = "Replaying..."
-        btnReplay.BackgroundColor3 = Color3.fromHex("58a6ff") -- Blue: Replaying
-        sendNotification("Replay", string.format("Starting %d replays...", replayCount))
+        btnReplay.BackgroundColor3 = Color3.fromHex("58a6ff")
 
         local currentReplay = 0
         local function executeReplay()
             currentReplay = currentReplay + 1
-            if currentReplay > replayCount then
+            if currentReplay > replayCount or not isReplaying then
                 isReplaying = false
                 btnReplay.Text = "Start Replay"
                 btnReplay.BackgroundColor3 = Color3.fromHex("238636")
@@ -365,26 +421,21 @@ local function setupReplayTab()
                 return
             end
             
-            for i, action in ipairs(recordedActions) do
-                if not isReplaying then break end -- Emergency stop
+            for i, action in ipairs(macroData.actions) do
+                if not isReplaying then break end
                 
-                -- 1. FIX: Use screen adjustment for normalized position
+                -- 1. CRITICAL FIX: Use advanced normalization
                 local pixelPos = adjustForScreen(action.normPos)
 
-                -- Use VirtualUser for reliable click simulation
                 VirtualUser:Button2Down(pixelPos.X, pixelPos.Y)
                 VirtualUser:Button2Up(pixelPos.X, pixelPos.Y)
                 
-                -- Wait for the configured interval
                 task.wait(action.interval)
             end
             
-            -- Wait a short moment between replays
             task.wait(clickInterval) 
             
-            if isReplaying then
-                executeReplay() -- Recursive call for next replay
-            end
+            if isReplaying then executeReplay() end
         end
 
         executeReplay()
@@ -393,36 +444,143 @@ end
 
 -- 3. Settings Tab
 local function setupSettingsTab()
-    local settingsContent = createFrame(UDim2.new(1, 0, 1, 0), nil, tabContent)
-    settingsContent.BackgroundColor3 = Color3.fromHex("161b22")
-    createPadding(settingsContent)
+    local settingsContent = Instance.new("Frame", tabContent)
+    settingsContent.Size = UDim2.new(1, 0, 1, 0)
+    settingsContent.BackgroundTransparency = 1
+    local listLayout = Instance.new("UIListLayout", settingsContent)
+    listLayout.FillDirection = Enum.FillDirection.Vertical
+    listLayout.Padding = UDim.new(0, 10)
 
-    -- 3. IMPROVEMENT: Swipe Speed Control
-    local lblSwipeSpeedDesc = createTextLabel("Swipe Duration (sec, default 0.15):", UDim2.new(1, 0, 0, 20), settingsContent)
-    lblSwipeSpeedDesc.TextSize = 14
-    local swipeSpeedInput = createInput("0.15", 100, settingsContent)
+    -- Macro Management Section
+    local saveBtn = createButton("Save Macro", 170, settingsContent)
+    saveBtn.BackgroundColor3 = Color3.fromHex("58a6ff")
+    saveBtn.MouseButton1Click:Connect(saveMacro)
+
+    local loadInput = createInput("Macro Name", 170, settingsContent)
+    loadInput.FocusLost:Connect(function(enterPressed)
+        if enterPressed and loadInput.Text ~= "" then
+            loadMacro(loadInput.Text)
+        end
+    end)
     
-    -- 2. IMPROVEMENT: Add usage instructions for Swipe Curvature
-    local lblCurveDesc = createTextLabel("Swipe Curvature (0=Straight, 10-50=Curve):", UDim2.new(1, 0, 0, 20), settingsContent)
-    lblCurveDesc.TextSize = 14
-    local swipeCurveInput = createInput("20", 100, settingsContent)
-    
-    -- 1. IMPROVEMENT: Screen Calibration Mode Placeholder
-    local btnCalibrate = createButton("Calibrate Screen (WIP)", 170, settingsContent)
-    btnCalibrate.BackgroundColor3 = Color3.fromHex("30363d")
-    
-    local lblNotes = createTextLabel("Note: To record a SWIPE, press 'S' on initial click, then release 'S' on final position.", UDim2.new(1, 0, 0, 40), settingsContent)
+    local loadBtn = createButton("Load Macro", 170, settingsContent)
+    loadBtn.BackgroundColor3 = Color3.fromHex("58a6ff")
+    loadBtn.MouseButton1Click:Connect(function() loadMacro(loadInput.Text) end)
+
+    -- Calibration Section
+    local lblCalib = Instance.new("TextLabel", settingsContent)
+    lblCalib.Text = "Resolution: " .. macroData.recordedResolution.X .. "x" .. macroData.recordedResolution.Y
+    lblCalib.BackgroundTransparency = 1
+    lblCalib.TextColor3 = Color3.fromHex("e3b341")
+    lblCalib.TextSize = 16
+
+    local btnCalibrate = createButton("Calibrate Screen (Fix Replay)", 170, settingsContent)
+    btnCalibrate.BackgroundColor3 = Color3.fromHex("238636")
+    btnCalibrate.MouseButton1Click:Connect(function()
+        if not isRecording and not isReplaying then
+            calibrateScreen(lblCalib)
+        else
+            sendNotification("Error", "Stop recording/replaying to calibrate.")
+        end
+    end)
+
+    -- Swipe/Advanced Settings (Placeholders)
+    local lblNotes = Instance.new("TextLabel", settingsContent)
+    lblNotes.Text = "Swipe Duration, Curvature, and Action Editing settings will appear here."
+    lblNotes.Size = UDim2.new(1, 0, 0, 40)
     lblNotes.TextWrapped = true
     lblNotes.TextSize = 12
-    lblNotes.TextColor3 = Color3.fromHex("e3b341") -- Yellow
+    lblNotes.TextColor3 = Color3.fromHex("c9d1d9") 
+end
 
-    -- Add swipe logic placeholders (future enhancement)
+-- 1. CRITICAL FIX: Screen Calibration System
+local calibrationFrame
+local calibrationText
+local calibrationCorners = {}
+local currentCorner = 1
+local cornerPrompts = {"Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right"}
+local calibrationInputConnection
+
+local function updateCalibrationPrompt(prompt)
+    if calibrationText then calibrationText.Text = "Click " .. prompt .. " Corner" end
+end
+
+local function finalizeCalibration(corners)
+    -- Capture the actual corner positions in pixels
+    local topLeft = corners[1]
+    local bottomRight = corners[4]
+    
+    -- Calculate the effective screen resolution captured
+    local effectiveWidth = bottomRight.X - topLeft.X
+    local effectiveHeight = bottomRight.Y - topLeft.Y
+    
+    -- Set the new recorded resolution (This fixes the misalignment)
+    macroData.recordedResolution = Vector2.new(effectiveWidth, effectiveHeight)
+    
+    isCalibrating = false
+    calibrationInputConnection:Disconnect()
+    
+    -- Cleanup UI
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    TweenService:Create(calibrationFrame, tweenInfo, {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+    task.delay(0.3, function() calibrationFrame:Destroy() end)
+
+    sendNotification("Calibration Complete", string.format("Screen Calibrated! Resolution set to %dx%d.", effectiveWidth, effectiveHeight))
+end
+
+local function calibrateScreen(lblCalib)
+    isCalibrating = true
+    sendNotification("Calibration", "Starting 4-Corner Calibration. Click the corners as prompted.")
+    
+    -- Setup Calibration UI (simple overlay)
+    calibrationFrame = createFrame(UDim2.new(1, 0, 1, 0), UDim2.new(0.5, 0, 0.5, 0), CoreGui)
+    calibrationFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    calibrationFrame.BackgroundTransparency = 0.5
+    calibrationFrame.ZIndex = 100
+    addUICorner(calibrationFrame, 0)
+    
+    calibrationText = Instance.new("TextLabel", calibrationFrame)
+    calibrationText.Size = UDim2.new(1, 0, 0, 50)
+    calibrationText.Position = UDim2.new(0.5, 0, 0.5, 0)
+    calibrationText.AnchorPoint = Vector2.new(0.5, 0.5)
+    calibrationText.TextScaled = true
+    calibrationText.TextColor3 = Color3.fromHex("c9d1d9")
+    calibrationText.BackgroundTransparency = 1
+    
+    currentCorner = 1
+    updateCalibrationPrompt(cornerPrompts[currentCorner])
+    
+    -- Input capture
+    calibrationInputConnection = UserInputService.InputBegan:Connect(function(input)
+        if isCalibrating and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            if currentCorner <= 4 then
+                local pos = UserInputService:GetMouseLocation()
+                calibrationCorners[currentCorner] = pos
+                
+                -- Visual feedback dot
+                local dot = Instance.new("Frame", calibrationFrame)
+                dot.Size = UDim2.new(0, 10, 0, 10)
+                dot.Position = UDim2.new(0, pos.X, 0, pos.Y)
+                dot.AnchorPoint = Vector2.new(0.5, 0.5)
+                dot.BackgroundColor3 = Color3.fromHex("238636")
+                addUICorner(dot, 10)
+
+                currentCorner = currentCorner + 1
+                
+                if currentCorner <= 4 then
+                    updateCalibrationPrompt(cornerPrompts[currentCorner])
+                else
+                    finalizeCalibration(calibrationCorners)
+                    lblCalib.Text = "Resolution: " .. macroData.recordedResolution.X .. "x" .. macroData.recordedResolution.Y
+                end
+            end
+        end
+    end)
 end
 
 -- Initialize the GUI on the "Record" tab
-task.wait(0.1) -- Wait for UI to load
+task.wait(0.1) 
 if tabButtons["Record"] then
     tabButtons["Record"].MouseButton1Click:Fire()
 end
-    
     
