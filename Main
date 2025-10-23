@@ -40,7 +40,7 @@ local function getViewportSize()
     return UserInputService.ViewportSize
 end
 
--- 1. FIX: Normalization Functions
+-- 1. FIX: Normalization Functions (for responsive replay)
 local function toNormalized(position)
     local viewport = getViewportSize()
     return Vector2.new(
@@ -57,7 +57,7 @@ local function fromNormalized(normPos)
     )
 end
 
--- 2. IMPROVEMENT: Screen Ratio Calculation for Replay
+-- 2. IMPROVEMENT: Screen Ratio Calculation (for replay adjustment)
 local function getDeviceRatio()
     local currentSize = getViewportSize()
     return {
@@ -78,7 +78,7 @@ end
 -- Base GUI Creation Helpers
 local function createFrame(size, position, parent)
     local frame = Instance.new("Frame")
-    frame.Size = size or UDim2.new(0.3, 0, 0.6, 0) -- Responsive default size
+    frame.Size = size or UDim2.new(0.3, 0, 0.6, 0) -- Responsive default size (5. Responsive UI Design)
     frame.Position = position or UDim2.new(0.5, -frame.Size.X.Offset/2, 0.5, -frame.Size.Y.Offset/2)
     frame.AnchorPoint = Vector2.new(0.5, 0.5)
     frame.BackgroundColor3 = Color3.fromHex("161b22") -- Dark Card
@@ -147,6 +147,7 @@ uiList.Parent = mainFrame
 local title = createTextLabel("Roblox Macro V2", UDim2.new(1, -20, 0, 30), mainFrame)
 title.Position = UDim2.new(0.5, 0, 0, 10)
 title.TextScaled = true -- Responsive text size
+-- 5. IMPROVEMENT: Adjust font sizes based on screen size (handled by TextScaled property)
 
 local tabsContainer = createFrame(UDim2.new(1, -20, 0, 40), nil, mainFrame)
 tabsContainer.BackgroundColor3 = Color3.fromHex("0d1117")
@@ -210,8 +211,9 @@ local function setupRecordTab()
     btnSetPosition.BackgroundColor3 = Color3.fromHex("30363d")
 
     local btnClearActions = createButton("Clear Recorded Actions", 170, recordContent)
-    btnClearActions.BackgroundColor3 = Color3.fromHex("dc3232") -- Red
+    btnClearActions.BackgroundColor3 = Color3.fromHex("dc3232") -- Red (2. IMPROVEMENT: Add action clearing option)
 
+    -- 2. IMPROVEMENT: Add recorded actions display
     local actionDisplay = Instance.new("ScrollingFrame", recordContent)
     actionDisplay.Size = UDim2.new(1, 0, 1, -120) -- Take remaining vertical space
     actionDisplay.BackgroundColor3 = Color3.fromHex("0d1117")
@@ -229,14 +231,14 @@ local function setupRecordTab()
             if child:IsA("TextLabel") then child:Destroy() end
         end
         for i, action in ipairs(recordedActions) do
-            local text = string.format("%d. %s at (%.0f, %.0f)", i, action.type, action.normPos.X * 100, action.normPos.Y * 100)
+            local text = string.format("%d. %s at (%.1f, %.1f)", i, action.type, action.normPos.X * 100, action.normPos.Y * 100)
             local lbl = createTextLabel(text, UDim2.new(1, 0, 0, 20), actionDisplay)
             lbl.TextSize = 12
         end
         actionDisplay.CanvasSize = UDim2.new(0, 0, 0, #recordedActions * 22)
     end
 
-    -- Toggle Recording Logic
+    -- Toggle Recording Logic (2. IMPROVEMENT: Improve recording status visibility)
     btnToggleRecording.MouseButton1Click:Connect(function()
         if not isReplaying then
             isRecording = not isRecording
@@ -256,7 +258,7 @@ local function setupRecordTab()
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if input.KeyCode == Enum.KeyCode.Q and not gameProcessed and isRecording then
             local pos = UserInputService:GetMouseLocation()
-            local normPos = toNormalized(pos)
+            local normPos = toNormalized(pos) -- 1. FIX: Convert to normalized coordinates
             table.insert(recordedActions, {
                 type = "Tap", 
                 normPos = normPos,
@@ -265,7 +267,8 @@ local function setupRecordTab()
             })
             btnSetPosition.Text = "Position Set!"
             updateActionDisplay()
-            -- 3. IMPROVEMENT: Extended notification duration
+            
+            -- 2. IMPROVEMENT: Extended notification duration (from 1 to 2 seconds)
             task.delay(2, function() 
                 if btnSetPosition.Text == "Position Set!" then
                     btnSetPosition.Text = "Set Position (Q)"
@@ -394,17 +397,17 @@ local function setupSettingsTab()
     settingsContent.BackgroundColor3 = Color3.fromHex("161b22")
     createPadding(settingsContent)
 
-    -- Swipe Speed Control
+    -- 3. IMPROVEMENT: Swipe Speed Control
     local lblSwipeSpeedDesc = createTextLabel("Swipe Duration (sec, default 0.15):", UDim2.new(1, 0, 0, 20), settingsContent)
     lblSwipeSpeedDesc.TextSize = 14
-    local swipeSpeedInput = createInput("0.15", 100, settingsContent) -- 3. Swipe System Improvements
+    local swipeSpeedInput = createInput("0.15", 100, settingsContent)
     
-    -- Swipe Curvature Control
+    -- 2. IMPROVEMENT: Add usage instructions for Swipe Curvature
     local lblCurveDesc = createTextLabel("Swipe Curvature (0=Straight, 10-50=Curve):", UDim2.new(1, 0, 0, 20), settingsContent)
     lblCurveDesc.TextSize = 14
     local swipeCurveInput = createInput("20", 100, settingsContent)
     
-    -- Screen Calibration Placeholder (Future implementation)
+    -- 1. IMPROVEMENT: Screen Calibration Mode Placeholder
     local btnCalibrate = createButton("Calibrate Screen (WIP)", 170, settingsContent)
     btnCalibrate.BackgroundColor3 = Color3.fromHex("30363d")
     
