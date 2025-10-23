@@ -1,4 +1,4 @@
--- Roblox Macro V2 (SIDE TABS | DRAGGABLE | MULTI-TOUCH | CLEAN TEXT)
+-- Roblox Macro V2 (HALF HEIGHT | SCROLLABLE | CLICK BOX | FIXED OFFSET)
 -- LocalScript in StarterPlayerScripts or StarterGui
 
 local Players = game:GetService("Players")
@@ -14,6 +14,7 @@ local MIN_CLICK_HOLD_DURATION = 0.05
 local FONT_MAIN = Enum.Font.Gotham
 local FONT_BOLD = Enum.Font.GothamBold
 local SWIPE_MIN_PIXELS = 8
+local CLICK_BOX_SIZE = 120  -- Size of transparent click capture box
 
 -- Limits
 local MIN_CLICK_INTERVAL = 0.01
@@ -70,7 +71,7 @@ if not task or not task.spawn then
     }
 end
 
--- UI Creation (SIDE TABS + DRAGGABLE + CLEAN TEXT)
+-- UI Creation (HALF HEIGHT + SCROLL + CLICK BOX)
 local mainGui = Instance.new("ScreenGui")
 mainGui.Name = "MacroV2GUI"
 mainGui.IgnoreGuiInset = true
@@ -78,9 +79,9 @@ mainGui.ResetOnSpawn = false
 mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 mainGui.Parent = playerGui
 
--- Main Container
+-- Main Container (HALF HEIGHT)
 local container = Instance.new("Frame", mainGui)
-container.Size = UDim2.new(0, 350, 0, 400)
+container.Size = UDim2.new(0, 350, 0, 200)  -- Half height
 container.AnchorPoint = Vector2.new(0.5, 0.5)
 container.Position = UDim2.new(0.5, 0, 0.5, 0)
 container.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
@@ -90,9 +91,9 @@ container.Visible = true
 local containerCorner = Instance.new("UICorner", container)
 containerCorner.CornerRadius = UDim.new(0, 16)
 
--- Drag Handle (Top Bar)
+-- Drag Bar
 local dragBar = Instance.new("Frame", container)
-dragBar.Size = UDim2.new(1, 0, 0, 50)
+dragBar.Size = UDim2.new(1, 0, 0, 40)
 dragBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 dragBar.BorderSizePixel = 0
 local dragCorner = Instance.new("UICorner", dragBar)
@@ -105,23 +106,37 @@ title.BackgroundTransparency = 1
 title.Text = "Macro V2"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = FONT_BOLD
-title.TextSize = 22
+title.TextSize = 20
 title.TextXAlignment = Enum.TextXAlignment.Left
 
--- Tab Container (Left Side)
-local tabContainer = Instance.new("Frame", container)
-tabContainer.Size = UDim2.new(0, 90, 1, -50)
-tabContainer.Position = UDim2.new(0, 0, 0, 50)
+-- Scrollable Content
+local scrollFrame = Instance.new("ScrollingFrame", container)
+scrollFrame.Size = UDim2.new(1, 0, 1, -40)
+scrollFrame.Position = UDim2.new(0, 0, 0, 40)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 800)
+
+local contentLayout = Instance.new("UIListLayout", scrollFrame)
+contentLayout.Padding = UDim.new(0, 8)
+contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Side Tabs
+local tabContainer = Instance.new("Frame", scrollFrame)
+tabContainer.Size = UDim2.new(1, 0, 0, 50)
 tabContainer.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-tabContainer.BorderSizePixel = 0
+tabContainer.LayoutOrder = 1
+local tabCorner = Instance.new("UICorner", tabContainer)
+tabCorner.CornerRadius = UDim.new(0, 10)
 
 local tabLayout = Instance.new("UIListLayout", tabContainer)
-tabLayout.Padding = UDim.new(0, 2)
-tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.Padding = UDim.new(0, 4)
 
-local function createSideTab(text, order)
+local function createTab(text, order)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 60)
+    btn.Size = UDim2.new(0, 100, 1, -8)
     btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
     btn.Text = text
     btn.Font = FONT_BOLD
@@ -134,29 +149,37 @@ local function createSideTab(text, order)
     return btn
 end
 
-local tabAuto = createSideTab("Auto", 1)
-local tabRecord = createSideTab("Record", 2)
-local tabSettings = createSideTab("Settings", 3)
+local tabAuto = createTab("Auto", 1)
+local tabRecord = createTab("Record", 2)
+local tabSettings = createTab("Settings", 3)
 
--- Content Area
-local contentArea = Instance.new("Frame", container)
-contentArea.Size = UDim2.new(1, -90, 1, -50)
-contentArea.Position = UDim2.new(0, 90, 0, 50)
-contentArea.BackgroundTransparency = 1
+-- Content Sections
+local autoSection = Instance.new("Frame", scrollFrame)
+autoSection.Size = UDim2.new(1, 0, 0, 180)
+autoSection.BackgroundTransparency = 1
+autoSection.LayoutOrder = 2
+autoSection.Visible = true
 
--- Auto Tab Content
-local autoContent = Instance.new("Frame", contentArea)
-autoContent.Size = UDim2.new(1, 0, 1, 0)
-autoContent.BackgroundTransparency = 1
-autoContent.Visible = true
+local recordSection = Instance.new("Frame", scrollFrame)
+recordSection.Size = UDim2.new(1, 0, 0, 300)
+recordSection.BackgroundTransparency = 1
+recordSection.LayoutOrder = 3
+recordSection.Visible = false
 
+local settingsSection = Instance.new("Frame", scrollFrame)
+settingsSection.Size = UDim2.new(1, 0, 0, 200)
+settingsSection.BackgroundTransparency = 1
+settingsSection.LayoutOrder = 4
+settingsSection.Visible = false
+
+-- Button Factory
 local function addButton(parent, text, yPos, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.9, 0, 0, 45)
+    btn.Size = UDim2.new(0.9, 0, 0, 40)
     btn.Position = UDim2.new(0.05, 0, 0, yPos)
     btn.Text = text
     btn.Font = FONT_MAIN
-    btn.TextSize = 18
+    btn.TextSize = 17
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
     btn.Parent = parent
@@ -166,71 +189,63 @@ local function addButton(parent, text, yPos, callback)
     return btn
 end
 
-local btnAutoToggle = addButton(autoContent, "Auto Clicker: OFF", 20)
-local btnSetPos = addButton(autoContent, "Set Position", 80)
-local intervalInput = Instance.new("TextBox", autoContent)
-intervalInput.Size = UDim2.new(0.9, 0, 0, 45)
-intervalInput.Position = UDim2.new(0.05, 0, 0, 140)
+-- Auto Tab
+local btnAutoToggle = addButton(autoSection, "Auto Clicker: OFF", 10)
+local btnSetPos = addButton(autoSection, "Set Click Box", 60)
+
+local intervalInput = Instance.new("TextBox", autoSection)
+intervalInput.Size = UDim2.new(0.9, 0, 0, 40)
+intervalInput.Position = UDim2.new(0.05, 0, 0, 110)
 intervalInput.PlaceholderText = "Interval (sec)"
 intervalInput.Text = "0.2"
 intervalInput.Font = FONT_MAIN
-intervalInput.TextSize = 18
+intervalInput.TextSize = 17
 intervalInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
 local intCorner = Instance.new("UICorner", intervalInput)
 intCorner.CornerRadius = UDim.new(0, 10)
 
--- Record Tab Content
-local recordContent = Instance.new("Frame", contentArea)
-recordContent.Size = UDim2.new(1, 0, 1, 0)
-recordContent.BackgroundTransparency = 1
-recordContent.Visible = false
+-- Record Tab
+local btnStartRec = addButton(recordSection, "Start Recording", 10)
+local btnReplay = addButton(recordSection, "Replay Clicks", 60)
+local btnLoop = addButton(recordSection, "Replay Loop: OFF", 110)
+local btnClear = addButton(recordSection, "Clear Recording", 160)
+local btnExport = addButton(recordSection, "Export Recording", 210)
 
-local btnStartRec = addButton(recordContent, "Start Recording", 20)
-local btnReplay = addButton(recordContent, "Replay Clicks", 80)
-local btnLoop = addButton(recordContent, "Replay Loop: OFF", 140)
-local btnClear = addButton(recordContent, "Clear Recording", 200)
-local btnExport = addButton(recordContent, "Export Recording", 260)
-
-local replayCountInput = Instance.new("TextBox", recordContent)
-replayCountInput.Size = UDim2.new(0.9, 0, 0, 45)
-replayCountInput.Position = UDim2.new(0.05, 0, 0, 320)
+local replayCountInput = Instance.new("TextBox", recordSection)
+replayCountInput.Size = UDim2.new(0.9, 0, 0, 40)
+replayCountInput.Position = UDim2.new(0.05, 0, 0, 260)
 replayCountInput.PlaceholderText = "Replay Count"
 replayCountInput.Text = "1"
 replayCountInput.Font = FONT_MAIN
-replayCountInput.TextSize = 18
+replayCountInput.TextSize = 17
 replayCountInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
 local rcCorner = Instance.new("UICorner", replayCountInput)
 rcCorner.CornerRadius = UDim.new(0, 10)
 
--- Settings Tab Content
-local settingsContent = Instance.new("Frame", contentArea)
-settingsContent.Size = UDim2.new(1, 0, 1, 0)
-settingsContent.BackgroundTransparency = 1
-settingsContent.Visible = false
-
-local offsetXInput = Instance.new("TextBox", settingsContent)
-offsetXInput.Size = UDim2.new(0.9, 0, 0, 45)
-offsetXInput.Position = UDim2.new(0.05, 0, 0, 20)
+-- Settings Tab
+local offsetXInput = Instance.new("TextBox", settingsSection)
+offsetXInput.Size = UDim2.new(0.9, 0, 0, 40)
+offsetXInput.Position = UDim2.new(0.05, 0, 0, 10)
 offsetXInput.PlaceholderText = "X Offset (px or %)"
 offsetXInput.Text = "0"
 offsetXInput.Font = FONT_MAIN
-offsetXInput.TextSize = 18
+offsetXInput.TextSize = 17
 offsetXInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
 local oxCorner = Instance.new("UICorner", offsetXInput)
 oxCorner.CornerRadius = UDim.new(0, 10)
 
-local offsetYInput = Instance.new("TextBox", settingsContent)
-offsetYInput.Size = UDim2.new(0.9, 0, 0, 45)
-offsetYInput.Position = UDim2.new(0.05, 0, 0, 80)
+local offsetYInput = Instance.new("TextBox", settingsSection)
+offsetYInput.Size = UDim2.new(0.9, 0, 0, 40)
+offsetYInput.Position = UDim2.new(0.05, 0, 0, 60)
 offsetYInput.PlaceholderText = "Y Offset (px or %)"
 offsetYInput.Text = "0"
 offsetYInput.Font = FONT_MAIN
-offsetYInput.TextSize = 18
+offsetYInput.TextSize = 17
 offsetYInput.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
 local oyCorner = Instance.new("UICorner", offsetYInput)
 oyCorner.CornerRadius = UDim.new(0, 10)
 
-local btnApply = addButton(settingsContent, "Apply Settings", 140)
+local btnApply = addButton(settingsSection, "Apply Settings", 110)
 
 -- Toggle Button (59px from top)
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
@@ -246,47 +261,69 @@ toggleGuiBtn.Visible = true
 local toggleCorner = Instance.new("UICorner", toggleGuiBtn)
 toggleCorner.CornerRadius = UDim.new(0, 10)
 
--- Draggable
-local function makeDraggable(guiObject, handle)
+-- CLICK CAPTURE BOX (Transparent + Draggable)
+local clickBox = Instance.new("Frame", mainGui)
+clickBox.Size = UDim2.new(0, CLICK_BOX_SIZE, 0, CLICK_BOX_SIZE)
+clickBox.Position = UDim2.new(0.5, -CLICK_BOX_SIZE/2, 0.5, -CLICK_BOX_SIZE/2)
+clickBox.BackgroundTransparency = 0.8
+clickBox.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+clickBox.BorderSizePixel = 2
+clickBox.BorderColor3 = Color3.fromRGB(0, 200, 0)
+clickBox.ZIndex = 999
+clickBox.Visible = false
+local boxCorner = Instance.new("UICorner", clickBox)
+boxCorner.CornerRadius = UDim.new(0, 12)
+
+local boxLabel = Instance.new("TextLabel", clickBox)
+boxLabel.Size = UDim2.new(1, 0, 1, 0)
+boxLabel.BackgroundTransparency = 1
+boxLabel.Text = "Click Here"
+boxLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+boxLabel.Font = FONT_BOLD
+boxLabel.TextSize = 16
+boxLabel.ZIndex = 1000
+
+-- Draggable Click Box
+local function makeDraggable(obj, handle)
     local dragging = false
     local dragStart, startPos
-
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
-            startPos = guiObject.Position
+            startPos = obj.Position
         end
     end)
-
     handle.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
-            guiObject.Position = UDim2.new(
+            obj.Position = UDim2.new(
                 startPos.X.Scale, startPos.X.Offset + delta.X,
                 startPos.Y.Scale, startPos.Y.Offset + delta.Y
             )
         end
     end)
-
     handle.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
 end
+makeDraggable(clickBox, clickBox)
 
+-- GUI Draggable
 makeDraggable(container, dragBar)
 
 -- Tab Switching
-local function showTab(tabName)
-    autoContent.Visible = tabName == "auto"
-    recordContent.Visible = tabName == "record"
-    settingsContent.Visible = tabName == "settings"
+local function showTab(name)
+    autoSection.Visible = name == "auto"
+    recordSection.Visible = name == "record"
+    settingsSection.Visible = name == "settings"
+    scrollFrame.CanvasPosition = Vector2.new(0, 0)
     
-    tabAuto.BackgroundColor3 = tabName == "auto" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
-    tabRecord.BackgroundColor3 = tabName == "record" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = tabName == "settings" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
+    tabAuto.BackgroundColor3 = name == "auto" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
+    tabRecord.BackgroundColor3 = name == "record" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
+    tabSettings.BackgroundColor3 = name == "settings" and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(50, 50, 50)
 end
 
 tabAuto.MouseButton1Click:Connect(function() showTab("auto") end)
@@ -297,10 +334,11 @@ tabSettings.MouseButton1Click:Connect(function() showTab("settings") end)
 toggleGuiBtn.MouseButton1Click:Connect(function()
     guiHidden = not guiHidden
     container.Visible = not guiHidden
+    clickBox.Visible = not guiHidden and waitingForPosition
     toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
 end)
 
--- Viewport & Multi-Touch
+-- Viewport
 local function getViewportSize()
     local cam = workspace.CurrentCamera
     return cam and cam.ViewportSize or Vector2.new(1920, 1080)
@@ -316,7 +354,7 @@ local function fromNormalized(norm)
     return Vector2.new(math.clamp(norm.X * vs.X, 0, vs.X), math.clamp(norm.Y * vs.Y, 0, vs.Y))
 end
 
--- Virtual Input (Multi-Touch Safe)
+-- Virtual Input
 local function vmAvailable()
     return VirtualInputManager and typeof(VirtualInputManager.SendMouseButtonEvent) == "function"
 end
@@ -331,14 +369,42 @@ end
 
 local function simulateClick(norm)
     local pos = fromNormalized(norm)
-    local x = pos.X + (activeXOffsetRaw.mode == "px" and activeXOffsetRaw.value or activeXOffsetRaw.value * getViewportSize().X)
-    local y = pos.Y + (activeYOffsetRaw.mode == "px" and activeYOffsetRaw.value or activeYOffsetRaw.value * getViewportSize().Y)
+    local vs = getViewportSize()
+    local xOffset = activeXOffsetRaw.mode == "px" and activeXOffsetRaw.value or activeXOffsetRaw.value * vs.X
+    local yOffset = activeYOffsetRaw.mode == "px" and activeYOffsetRaw.value or activeYOffsetRaw.value * vs.Y
+    local x, y = pos.X + xOffset, pos.Y + yOffset
     safeSendMouseMove(x, y)
     task.wait(0.02)
     safeSendMouseButton(x, y, true)
     task.wait(MIN_CLICK_HOLD_DURATION)
     safeSendMouseButton(x, y, false)
 end
+
+-- Set Click Box
+btnSetPos.MouseButton1Click:Connect(function()
+    if waitingForPosition then return end
+    waitingForPosition = true
+    btnSetPos.Text = "Tap Box..."
+    clickBox.Visible = true
+    boxLabel.Text = "Click Inside"
+
+    local conn
+    conn = UserInputService.InputBegan:Connect(function(input)
+        if not waitingForPosition then return end
+        local pos = input.Position
+        local boxPos = clickBox.AbsolutePosition
+        local boxSize = clickBox.AbsoluteSize
+        if pos.X >= boxPos.X and pos.X <= boxPos.X + boxSize.X and
+           pos.Y >= boxPos.Y and pos.Y <= boxPos.Y + boxSize.Y then
+            clickPosition = pos
+            waitingForPosition = false
+            btnSetPos.Text = "Box Set!"
+            clickBox.Visible = false
+            conn:Disconnect()
+            task.delay(1, function() if btnSetPos.Text == "Box Set!" then btnSetPos.Text = "Set Click Box" end end)
+        end
+    end)
+end)
 
 -- Auto Clicker
 btnAutoToggle.MouseButton1Click:Connect(function()
@@ -354,28 +420,7 @@ btnAutoToggle.MouseButton1Click:Connect(function()
     end
 end)
 
--- Set Position
-btnSetPos.MouseButton1Click:Connect(function()
-    if waitingForPosition then return end
-    waitingForPosition = true
-    btnSetPos.Text = "Tap Screen..."
-    local conn
-    conn = UserInputService.InputBegan:Connect(function(input)
-        if not waitingForPosition then return end
-        local pos = input.Position
-        local objs = playerGui:GetGuiObjectsAtPosition(pos.X, pos.Y)
-        for _, obj in ipairs(objs) do
-            if obj:IsDescendantOf(mainGui) then return end
-        end
-        clickPosition = pos
-        waitingForPosition = false
-        btnSetPos.Text = "Position Set!"
-        conn:Disconnect()
-        task.delay(1, function() if btnSetPos.Text == "Position Set!" then btnSetPos.Text = "Set Position" end end)
-    end)
-end)
-
--- Recording (Multi-Touch Support)
+-- Recording (Multi-Touch)
 local activeTouches = {}
 local recordConnections = {}
 
@@ -436,7 +481,7 @@ btnStartRec.MouseButton1Click:Connect(function()
     if isRecording then stopRecording() else startRecording() end
 end)
 
--- Replay
+-- Replay / Loop / Clear / Export
 btnReplay.MouseButton1Click:Connect(function()
     if isReplaying then
         isReplaying = false
@@ -462,7 +507,6 @@ btnReplay.MouseButton1Click:Connect(function()
     end)
 end)
 
--- Loop
 btnLoop.MouseButton1Click:Connect(function()
     isReplayingLoop = not isReplayingLoop
     btnLoop.Text = isReplayingLoop and "Replay Loop: ON" or "Replay Loop: OFF"
@@ -482,7 +526,6 @@ btnLoop.MouseButton1Click:Connect(function()
     end
 end)
 
--- Clear & Export
 btnClear.MouseButton1Click:Connect(function() recordedActions = {} end)
 btnExport.MouseButton1Click:Connect(function()
     if #recordedActions == 0 then return end
