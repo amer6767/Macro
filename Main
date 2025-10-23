@@ -406,7 +406,7 @@ local function computePixelYOffset(raw)
         return raw.value * vs.Y
     end
 end
-console.log('Patch Applied: Line 409 is now corrected!');
+
 -- VirtualInputManager safety wrappers
 local function vmAvailable()
     return VirtualInputManager and typeof(VirtualInputManager.SendMouseButtonEvent) == "function"
