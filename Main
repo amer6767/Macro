@@ -3,13 +3,10 @@
 --
 -- Fixes/Improvements:
 -- 1. Added master stopAllProcesses() function to prevent conflicts.
--- 2. Made stop functions idempotent (safe to call even if already stopped).
--- 3. Added GuiInset fix to simulated clicks/swipes to correct for coordinate mismatch.
--- 4. FIXED: Added wait for LocalPlayer to support executor injection (e.g., Delta).
--- 5. FIXED: Changed GUI parent to CoreGui for executor compatibility.
--- 6. FIXED: Replaced 'VirtualInputManager' (Studio-only) with executor-native
---    functions ('touchpress', 'touchmove', 'touchrelease') for true mobile/Delta support.
--- 7. REMOVED: GuiInset math, as 'touch' functions operate on viewport coordinates.
+-- 2. Added wait for LocalPlayer to support executor injection (e.g., Delta).
+-- 3. Changed GUI parent to CoreGui for executor compatibility.
+-- 4. FIXED: Replaced 'touch' functions (touchpress, etc.) with executor-native
+--    'mouse' functions (mouse1press, mousemoveabs) for true executor support.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -441,27 +438,31 @@ local function applyEasing(name, t)
     return (EASINGS[name] and EASINGS[name](t)) or t
 end
 
--- Executor-compatible click
+-- Executor-compatible click (using MOUSE globals)
 local function simulateClick(norm)
-    if not norm or not touchpress or not touchrelease then return end -- Check for executor globals
+    -- Check for mouse globals, not touch
+    if not norm or not mousemoveabs or not mouse1press or not mouse1release then return end
 
-    -- NOTE: Executors like Delta often hook 'touchpress' to expect VIEWPORT coordinates,
-    -- so we do NOT add the GuiInset here.
     local pixelPos = fromNormalized(norm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
     local effectivePos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
 
-    pcall(function() touchpress(effectivePos.X, effectivePos.Y) end)
+    -- 1. Move mouse to position
+    pcall(function() mousemoveabs(effectivePos.X, effectivePos.Y) end)
+    task.wait(0.01) -- Short delay for move to register
+    -- 2. Press and hold
+    pcall(function() mouse1press() end)
     task.wait(MIN_CLICK_HOLD_DURATION)
-    pcall(function() touchrelease(effectivePos.X, effectivePos.Y) end)
+    -- 3. Release
+    pcall(function() mouse1release() end)
 end
 
--- Executor-compatible swipe
+-- Executor-compatible swipe (using MOUSE globals)
 local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
-    if not startNorm or not endNorm or not touchpress or not touchmove or not touchrelease then return end
+    if not startNorm or not endNorm or not mousemoveabs or not mouse1press or not mouse1release then return end
 
-    -- No GuiInset, as executor functions typically want viewport coordinates
+    -- (Coordinate/Offset math is unchanged)
     local startPixel = fromNormalized(startNorm)
     local endPixel = fromNormalized(endNorm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
@@ -469,7 +470,7 @@ local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
     local startPos = Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset)
     local endPos = Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset)
 
-    -- Calculate perpendicular vector for curvature
+    -- (Curvature math is unchanged)
     local dx = endPos.X - startPos.X
     local dy = endPos.Y - startPos.Y
     local dist = math.sqrt(dx * dx + dy * dy)
@@ -481,10 +482,13 @@ local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
         perpY = dx / dist
     end
     
-    -- begin press
-    pcall(function() touchpress(startPos.X, startPos.Y) end)
+    -- 1. Move to start and PRESS
+    pcall(function() mousemoveabs(startPos.X, startPos.Y) end)
+    task.wait(0.01)
+    pcall(function() mouse1press() end) -- Press and HOLD
     task.wait(0.01)
 
+    -- 2. Loop and MOVE
     for i = 1, steps do
         local t = i / steps
         local eased = applyEasing(SWIPE_EASING, t)
@@ -500,12 +504,14 @@ local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
         local x = baseX + perpX * curveAmount
         local y = baseY + perpY * curveAmount
         
-        pcall(function() touchmove(x, y) end) -- Use touchmove
+        pcall(function() mousemoveabs(x, y) end) -- Move while pressed
         RunService.Heartbeat:Wait()
     end
 
-    -- release at end
-    pcall(function() touchrelease(endPos.X, endPos.Y) end)
+    -- 3. Move to end and RELEASE
+    pcall(function() mousemoveabs(endPos.X, endPos.Y) end) -- Ensure final position
+    task.wait(0.01)
+    pcall(function() mouse1release() end) -- Release
 end
 
 -- Recording implementation (supports taps and swipes)
@@ -887,14 +893,21 @@ submitBtn.MouseButton1Click:Connect(function()
     local expectedKey = "key_not_fetched"
     
     -- NOTE: game:HttpGet() requires HttpService to be enabled in the game settings.
+    -- Executors often provide their own 'game:HttpGet' or a global 'HttpGet'.
+    local httpGet = game.HttpGet or HttpGet
+    if not httpGet then
+        sendNotification("Key Check Failed", "No HttpGet function found.")
+        return
+    end
+    
     local success, response = pcall(function()
-        return game:HttpGet("https://pastebin.com/raw/v4eb6fHw", true)
+        return httpGet("https://pastebin.com/raw/v4eb6fHw", true)
     end)
     
     if success and response then
         expectedKey = response:match("%S+") or "pastebin_read_error"
     else
-        sendNotification("Key Check Failed", "Could not fetch key. Check HttpService.")
+        sendNotification("Key Check Failed", "Could not fetch key. Check HttpService/network.")
     end
     
     if enteredKey == expectedKey or enteredKey == "happybirthday Mohamednigga" then
@@ -934,7 +947,8 @@ tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 
 -- initial UI state & notes
 selectTab("auto")
-sendNotification("MacroV2 Loaded", (touchpress and "Executor functions found") or "Executor functions (touchpress) NOT found")
+-- Check for the new mouse globals
+sendNotification("MacroV2 Loaded", (mouse1press and mousemoveabs and "Mouse functions found") or "Mouse functions (mouse1press) NOT found")
 
 -- End of script
 -->
