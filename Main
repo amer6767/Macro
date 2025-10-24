@@ -7,10 +7,13 @@
 -- 3. Added GuiInset fix to simulated clicks/swipes to correct for coordinate mismatch.
 -- 4. FIXED: Added wait for LocalPlayer to support executor injection (e.g., Delta).
 -- 5. FIXED: Changed GUI parent to CoreGui for executor compatibility.
+-- 6. FIXED: Replaced 'VirtualInputManager' (Studio-only) with executor-native
+--    functions ('touchpress', 'touchmove', 'touchrelease') for true mobile/Delta support.
+-- 7. REMOVED: GuiInset math, as 'touch' functions operate on viewport coordinates.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+-- local VirtualInputManager = game:GetService("VirtualInputManager") -- REMOVED: Not compatible with executors
 local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local workspace = workspace
@@ -425,24 +428,6 @@ local function computePixelYOffset(raw)
     end
 end
 
--- VirtualInputManager safety wrappers
--- NOTE: This requires a special environment (e.g., mobile client) to work.
-local function vmAvailable()
-    return VirtualInputManager and typeof(VirtualInputManager.SendMouseButtonEvent) == "function"
-end
-
-local function safeSendMouseMove(x, y)
-    if vmAvailable() then
-        pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y, game, 0) end)
-    end
-end
-
-local function safeSendMouseButton(x, y, button, isDown)
-    if vmAvailable() then
-        pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 0) end)
-    end
-end
-
 -- Easing functions
 local EASINGS = {}
 EASINGS.easeInOutQuad = function(t)
@@ -456,30 +441,27 @@ local function applyEasing(name, t)
     return (EASINGS[name] and EASINGS[name](t)) or t
 end
 
--- Simulate click (tap)
+-- Executor-compatible click
 local function simulateClick(norm)
-    if not norm then return end
-    
-    local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset
+    if not norm or not touchpress or not touchrelease then return end -- Check for executor globals
 
+    -- NOTE: Executors like Delta often hook 'touchpress' to expect VIEWPORT coordinates,
+    -- so we do NOT add the GuiInset here.
     local pixelPos = fromNormalized(norm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
     local effectivePos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
 
-    safeSendMouseMove(effectivePos.X + inset.X, effectivePos.Y + inset.Y)
-    task.wait(0.01) -- Small delay to ensure mouse move registers
-    safeSendMouseButton(effectivePos.X + inset.X, effectivePos.Y + inset.Y, 0, true)
+    pcall(function() touchpress(effectivePos.X, effectivePos.Y) end)
     task.wait(MIN_CLICK_HOLD_DURATION)
-    safeSendMouseButton(effectivePos.X + inset.X, effectivePos.Y + inset.Y, 0, false)
+    pcall(function() touchrelease(effectivePos.X, effectivePos.Y) end)
 end
 
--- Simulate swipe (drag) with optional curvature and easing
+-- Executor-compatible swipe
 local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
-    if not startNorm or not endNorm then return end
-    
-    local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset
+    if not startNorm or not endNorm or not touchpress or not touchmove or not touchrelease then return end
 
+    -- No GuiInset, as executor functions typically want viewport coordinates
     local startPixel = fromNormalized(startNorm)
     local endPixel = fromNormalized(endNorm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
@@ -500,9 +482,7 @@ local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
     end
     
     -- begin press
-    safeSendMouseMove(startPos.X + inset.X, startPos.Y + inset.Y)
-    task.wait(0.01)
-    safeSendMouseButton(startPos.X + inset.X, startPos.Y + inset.Y, 0, true)
+    pcall(function() touchpress(startPos.X, startPos.Y) end)
     task.wait(0.01)
 
     for i = 1, steps do
@@ -520,14 +500,12 @@ local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
         local x = baseX + perpX * curveAmount
         local y = baseY + perpY * curveAmount
         
-        safeSendMouseMove(x + inset.X, y + inset.Y)
+        pcall(function() touchmove(x, y) end) -- Use touchmove
         RunService.Heartbeat:Wait()
     end
 
     -- release at end
-    safeSendMouseMove(endPos.X + inset.X, endPos.Y + inset.Y) -- Ensure final position
-    task.wait(0.01)
-    safeSendMouseButton(endPos.X + inset.X, endPos.Y + inset.Y, 0, false)
+    pcall(function() touchrelease(endPos.X, endPos.Y) end)
 end
 
 -- Recording implementation (supports taps and swipes)
@@ -761,7 +739,7 @@ local function toggleAutoClicker()
 
     stopAllProcesses() -- Stop everything else
     autoClickEnabled = true
-    btnAutoClickter.Text = "Auto Clicker: ON"
+    btnAutoClicker.Text = "Auto Clicker: ON"
     
     task.spawn(function()
         local nextTime = tick()
@@ -935,7 +913,7 @@ copyBtn.MouseButton1Click:Connect(function()
     local keyLink = "https.loot-link.com/s?AVreZic8"
     
     -- NOTE: setclipboard() is not a standard Roblox function
-    -- It may work in specific client environments.
+    -- It may work in specific client environments (like Delta).
     if setclipboard then
         local success, err = pcall(function() setclipboard(keyLink) end)
         if success then
@@ -956,7 +934,7 @@ tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 
 -- initial UI state & notes
 selectTab("auto")
-sendNotification("MacroV2 Loaded", vmAvailable() and "VM available - Clicks will work" or "VM unavailable - Clicks may NOT work")
+sendNotification("MacroV2 Loaded", (touchpress and "Executor functions found") or "Executor functions (touchpress) NOT found")
 
 -- End of script
 -->
