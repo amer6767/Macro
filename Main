@@ -8,8 +8,10 @@
 -- 4. Replaced 'touch' functions with executor-native 'mouse' functions.
 -- 5. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
 -- 6. Added GuiInset translation to 'simulateClick' and 'simulateSwipe' to fix coordinate mismatch.
--- 7. CHANGED: Set viewport fallback to 2400x1080.
--- 8. CHANGED: Switched 'simulateClick' to use mouse1click() for better compatibility.
+-- 7. Set viewport fallback to 2400x1080.
+-- 8. Reverted 'simulateClick' to use mouse1press/mouse1release for stability.
+-- 9. CRITICAL FIX: Added 'isrbxactive()' check before all input simulation
+--    to satisfy executor security/stability protocols.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -441,12 +443,15 @@ local function applyEasing(name, t)
     return (EASINGS[name] and EASINGS[name](t)) or t
 end
 
--- Executor-compatible click (using mouse1click global)
+-- Executor-compatible click (using press/release AND isrbxactive)
 local function simulateClick(norm)
-    -- Check for mouse globals. Now includes mouse1click.
-    if not norm or not mousemoveabs or not mouse1click or not mouse1press or not mouse1release then return end
+    -- NEW: Check for isrbxactive, the environment's security check
+    if isrbxactive and isrbxactive() == false then return end
+    
+    -- Check for mouse globals
+    if not norm or not mousemoveabs or not mouse1press or not mouse1release then return end
 
-    local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset
+    local inset = StarterGui:GetGuiInset()
     local pixelPos = fromNormalized(norm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
@@ -456,16 +461,19 @@ local function simulateClick(norm)
 
     -- 1. Move mouse to position
     pcall(function() mousemoveabs(effectivePos.X, effectivePos.Y) end)
-    task.wait(0.01) -- Short delay for move to register
-    
-    -- 2. Use the direct mouse1click() function
-    pcall(function() mouse1click() end)
+    task.wait(0.01)
+    -- 2. Press and hold (reverted from mouse1click)
+    pcall(function() mouse1press() end)
+    task.wait(MIN_CLICK_HOLD_DURATION)
+    -- 3. Release
+    pcall(function() mouse1release() end)
 end
 
 -- Executor-compatible swipe (using MOUSE globals)
--- NOTE: This function MUST use press/release, not mouse1click,
--- to perform a click-and-drag action.
 local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
+    -- NEW: Check for isrbxactive, the environment's security check
+    if isrbxactive and isrbxactive() == false then return end
+    
     if not startNorm or not endNorm or not mousemoveabs or not mouse1press or not mouse1release then return end
 
     local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset
@@ -963,8 +971,13 @@ tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 
 -- initial UI state & notes
 selectTab("auto")
--- Check for the new mouse globals
-sendNotification("MacroV2 Loaded", (mouse1press and mousemoveabs and mouse1click and "Mouse functions found") or "Mouse functions (mouse1press, mouse1click) NOT found")
+-- Check for all critical mouse globals
+local funcs = {mouse1press, mousemoveabs, mouse1click, isrbxactive}
+local allFound = true
+for _, f in ipairs(funcs) do
+    if not f then allFound = false; break end
+end
+sendNotification("MacroV2 Loaded", allFound and "All mouse functions found" or "CRITICAL: Mouse functions (e.g., isrbxactive, mouse1press) NOT found")
 
 -- End of script
 -->
