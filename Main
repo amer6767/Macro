@@ -6,8 +6,9 @@
 -- 2. Added wait for LocalPlayer to support executor injection (e.g., Delta).
 -- 3. Changed GUI parent to CoreGui for executor compatibility.
 -- 4. Replaced 'touch' functions with executor-native 'mouse' functions.
--- 5. FIXED: Patched input race condition in 'setClickPosition' by delaying
---    the listener disconnection using task.spawn() to prevent 'stuck dragging'.
+-- 5. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
+-- 6. FIXED: Added GuiInset translation to 'simulateClick' and 'simulateSwipe'
+--    to fix coordinate mismatch between recorded (Viewport) and replayed (Absolute) positions.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -444,10 +445,13 @@ local function simulateClick(norm)
     -- Check for mouse globals, not touch
     if not norm or not mousemoveabs or not mouse1press or not mouse1release then return end
 
+    local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset (e.g., (0, 36))
     local pixelPos = fromNormalized(norm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
-    local effectivePos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
+    
+    -- Convert Viewport Coords (from recording) to Absolute Coords (for mousemoveabs)
+    local effectivePos = Vector2.new(pixelPos.X + xOffset + inset.X, pixelPos.Y + yOffset + inset.Y)
 
     -- 1. Move mouse to position
     pcall(function() mousemoveabs(effectivePos.X, effectivePos.Y) end)
@@ -463,13 +467,15 @@ end
 local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
     if not startNorm or not endNorm or not mousemoveabs or not mouse1press or not mouse1release then return end
 
-    -- (Coordinate/Offset math is unchanged)
+    local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset
     local startPixel = fromNormalized(startNorm)
     local endPixel = fromNormalized(endNorm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
-    local startPos = Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset)
-    local endPos = Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset)
+    
+    -- Convert Viewport Coords to Absolute Coords
+    local startPos = Vector2.new(startPixel.X + xOffset + inset.X, startPixel.Y + yOffset + inset.Y)
+    local endPos = Vector2.new(endPixel.X + xOffset + inset.X, endPixel.Y + yOffset + inset.Y)
 
     -- (Curvature math is unchanged)
     local dx = endPos.X - startPos.X
