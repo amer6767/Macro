@@ -5,8 +5,9 @@
 -- 1. Added master stopAllProcesses() function to prevent conflicts.
 -- 2. Added wait for LocalPlayer to support executor injection (e.g., Delta).
 -- 3. Changed GUI parent to CoreGui for executor compatibility.
--- 4. FIXED: Replaced 'touch' functions (touchpress, etc.) with executor-native
---    'mouse' functions (mouse1press, mousemoveabs) for true executor support.
+-- 4. Replaced 'touch' functions with executor-native 'mouse' functions.
+-- 5. FIXED: Patched input race condition in 'setClickPosition' by delaying
+--    the listener disconnection using task.spawn() to prevent 'stuck dragging'.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -776,9 +777,17 @@ local function stopSetPosition()
     if btnSetPosition.Text ~= "Set Position" then
         btnSetPosition.Text = "Set Position"
     end
+    
+    -- FIX: Delay disconnection to prevent input-sinking/race condition
+    -- This allows the input event chain to complete (e.g., for dragLayer's InputEnded)
+    -- before we destroy this connection.
     if positionSetConnection then
-        pcall(function() positionSetConnection:Disconnect() end)
-        positionSetConnection = nil
+        local connToDisconnect = positionSetConnection
+        positionSetConnection = nil -- Clear it immediately
+        task.spawn(function()
+            -- Disconnect on the next frame
+            pcall(function() connToDisconnect:Disconnect() end)
+        end)
     end
 end
 
