@@ -1,4 +1,5 @@
--- Roblox Macro V2 (Simplified: Taps Only)
+-- Roblox Macro V2 (Fixed + Mobile/Android improvements + Advanced swipe)
+-- Put this as a LocalScript in StarterPlayerScripts or StarterGui
 --
 -- Fixes/Improvements:
 -- 1. Added master stopAllProcesses() function to prevent conflicts.
@@ -6,14 +7,13 @@
 -- 3. Changed GUI parent to CoreGui for executor compatibility.
 -- 4. Replaced 'touch' functions with executor-native 'mouse' functions.
 -- 5. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
--- 6. REVERTED: Removed GuiInset translation from 'simulateClick'.
---    This fixes the "clicks don't happen" bug, proving 'mousemoveabs'
---    expects Viewport coordinates, not Absolute coordinates.
--- 7. REMOVED: All Swipe functionality (recording, replaying, UI) to simplify
---    the script and isolate variables for debugging.
+-- 6. Added GuiInset translation to 'simulateClick' and 'simulateSwipe' to fix coordinate mismatch.
+-- 7. CHANGED: Set viewport fallback to 2400x1080.
+-- 8. CHANGED: Switched 'simulateClick' to use mouse1click() for better compatibility.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+-- local VirtualInputManager = game:GetService("VirtualInputManager") -- REMOVED: Not compatible with executors
 local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local workspace = workspace
@@ -29,6 +29,10 @@ end
 local MIN_CLICK_HOLD_DURATION = 0.05
 local FONT_MAIN = Enum.Font.Gotham
 local FONT_BOLD = Enum.Font.GothamBold
+local SWIPE_MIN_PIXELS = 8 -- Min pixel distance to register as a swipe
+local SWIPE_SAMPLE_FPS = 60 -- How many steps to simulate in a swipe
+local SWIPE_CURVATURE_DEFAULT = 0.0 -- fraction of distance perpendicular to swipe (0..0.5 typical)
+local SWIPE_EASING = "easeInOutQuad" -- implemented easing
 
 local CoreGui = game:GetService("CoreGui") -- Use CoreGui for executors
 local mouse = player:GetMouse()
@@ -36,7 +40,7 @@ local mouse = player:GetMouse()
 -- State
 local autoClickEnabled = false
 local clickInterval = 0.2
-local clickPosition = Vector2.new(300, 300) -- stored in pixels for quick UI use
+local clickPosition = Vector2.new(300, 300) -- stored in pixels for quick UI use; normalized on-the-fly when needed
 local waitingForPosition = false
 
 local isRecording = false
@@ -303,7 +307,22 @@ offsetYInput.ZIndex = 3
 local offsetYCorner = Instance.new("UICorner", offsetYInput)
 offsetYCorner.CornerRadius = UDim.new(0, 6)
 
-local btnApplyOffsets = createButton("Apply Offsets", 90, settingsContent) -- Removed Swipe UI
+local swipeCurveInput = Instance.new("TextBox", settingsContent)
+swipeCurveInput.Size = UDim2.new(0.85, 0, 0, 30)
+swipeCurveInput.Position = UDim2.new(0.075, 0, 0, 90)
+swipeCurveInput.PlaceholderText = "Swipe Curvature (0..50%)"
+swipeCurveInput.Text = tostring(SWIPE_CURVATURE_DEFAULT * 100)
+swipeCurveInput.Font = FONT_MAIN
+swipeCurveInput.TextSize = 16
+swipeCurveInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+swipeCurveInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+swipeCurveInput.BorderSizePixel = 0
+swipeCurveInput.ClearTextOnFocus = false
+swipeCurveInput.ZIndex = 3
+local swipeCorner = Instance.new("UICorner", swipeCurveInput)
+swipeCorner.CornerRadius = UDim.new(0, 6)
+
+local btnApplyOffsets = createButton("Apply Offsets & Swipe Curve", 130, settingsContent)
 
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
 toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30)
@@ -373,8 +392,8 @@ local function getViewportSize()
     if cam and cam.ViewportSize then
         return cam.ViewportSize
     end
-    -- Fallback size
-    return Vector2.new(1920, 1080)
+    -- Fallback size updated as requested
+    return Vector2.new(2400, 1080)
 end
 
 -- Convert pixel coordinates (e.g., 300, 500) to normalized (e.g., 0.2, 0.4)
@@ -409,36 +428,102 @@ local function computePixelYOffset(raw)
     end
 end
 
--- Executor-compatible click (using MOUSE globals)
-local function simulateClick(norm)
-    -- Check for mouse globals, not touch
-    if not norm or not mousemoveabs or not mouse1press or not mouse1release then return end
+-- Easing functions
+local EASINGS = {}
+EASINGS.easeInOutQuad = function(t)
+    if t < 0.5 then
+        return 2 * t * t
+    else
+        return -1 + (4 - 2 * t) * t
+    end
+end
+local function applyEasing(name, t)
+    return (EASINGS[name] and EASINGS[name](t)) or t
+end
 
-    -- REVERTED: Do NOT add GuiInset. Our test failed, proving
-    -- mousemoveabs expects Viewport coordinates, not Absolute coordinates.
-    -- local inset = StarterGui:GetGuiInset() 
-    
+-- Executor-compatible click (using mouse1click global)
+local function simulateClick(norm)
+    -- Check for mouse globals. Now includes mouse1click.
+    if not norm or not mousemoveabs or not mouse1click or not mouse1press or not mouse1release then return end
+
+    local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset
     local pixelPos = fromNormalized(norm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
     
-    -- We pass Viewport coordinates directly, as this seems to be what the API expects.
-    local effectivePos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
+    -- Convert Viewport Coords (from recording) to Absolute Coords (for mousemoveabs)
+    local effectivePos = Vector2.new(pixelPos.X + xOffset + inset.X, pixelPos.Y + yOffset + inset.Y)
 
     -- 1. Move mouse to position
     pcall(function() mousemoveabs(effectivePos.X, effectivePos.Y) end)
     task.wait(0.01) -- Short delay for move to register
-    -- 2. Press and hold
-    pcall(function() mouse1press() end)
-    task.wait(MIN_CLICK_HOLD_DURATION)
-    -- 3. Release
-    pcall(function() mouse1release() end)
+    
+    -- 2. Use the direct mouse1click() function
+    pcall(function() mouse1click() end)
 end
 
--- REMOVED: simulateSwipe function
+-- Executor-compatible swipe (using MOUSE globals)
+-- NOTE: This function MUST use press/release, not mouse1click,
+-- to perform a click-and-drag action.
+local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
+    if not startNorm or not endNorm or not mousemoveabs or not mouse1press or not mouse1release then return end
 
--- Recording implementation (Taps Only)
-local activeInputs = {} -- map inputObject -> {startTime, startPos}
+    local inset = StarterGui:GetGuiInset() -- FIX: Get the top-bar offset
+    local startPixel = fromNormalized(startNorm)
+    local endPixel = fromNormalized(endNorm)
+    local xOffset = computePixelXOffset(activeXOffsetRaw)
+    local yOffset = computePixelYOffset(activeYOffsetRaw)
+    
+    -- Convert Viewport Coords to Absolute Coords
+    local startPos = Vector2.new(startPixel.X + xOffset + inset.X, startPixel.Y + yOffset + inset.Y)
+    local endPos = Vector2.new(endPixel.X + xOffset + inset.X, endPixel.Y + yOffset + inset.Y)
+
+    -- (Curvature math is unchanged)
+    local dx = endPos.X - startPos.X
+    local dy = endPos.Y - startPos.Y
+    local dist = math.sqrt(dx * dx + dy * dy)
+    local steps = math.max(2, math.floor(math.max(0.02, duration) * SWIPE_SAMPLE_FPS))
+    local perpX, perpY = 0, 0
+    if curvatureFraction and curvatureFraction ~= 0 and dist > 0 then
+        -- perpendicular direction
+        perpX = -dy / dist
+        perpY = dx / dist
+    end
+    
+    -- 1. Move to start and PRESS
+    pcall(function() mousemoveabs(startPos.X, startPos.Y) end)
+    task.wait(0.01)
+    pcall(function() mouse1press() end) -- Press and HOLD
+    task.wait(0.01)
+
+    -- 2. Loop and MOVE
+    for i = 1, steps do
+        local t = i / steps
+        local eased = applyEasing(SWIPE_EASING, t)
+        
+        -- Linear interpolation for base position
+        local baseX = startPos.X + (endPos.X - startPos.X) * eased
+        local baseY = startPos.Y + (endPos.Y - startPos.Y) * eased
+        
+        -- Apply curvature
+        -- This uses a simple triangular envelope: 0 at start, 1 at middle, 0 at end
+        local curveAmount = (curvatureFraction or 0) * dist * (1 - math.abs(2 * t - 1))
+        
+        local x = baseX + perpX * curveAmount
+        local y = baseY + perpY * curveAmount
+        
+        pcall(function() mousemoveabs(x, y) end) -- Move while pressed
+        RunService.Heartbeat:Wait()
+    end
+
+    -- 3. Move to end and RELEASE
+    pcall(function() mousemoveabs(endPos.X, endPos.Y) end) -- Ensure final position
+    task.wait(0.01)
+    pcall(function() mouse1release() end) -- Release
+end
+
+-- Recording implementation (supports taps and swipes)
+local activeInputs = {} -- map inputObject -> {startTime, startPos, lastPos, isDragging}
 
 local function clearActiveInputs()
     for k in pairs(activeInputs) do
@@ -493,13 +578,26 @@ local function startRecording()
         local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
         if isOverOurGUI(pos) then return end
 
-        -- Only store start position, no need to track movement for swipes
-        activeInputs[input] = { startTime = os.clock(), startPos = pos }
+        activeInputs[input] = { startTime = os.clock(), startPos = pos, lastPos = pos, isDragging = false }
+    end)
+
+    -- InputChanged
+    recordConnections["changed"] = UserInputService.InputChanged:Connect(function(input)
+        if not isRecording then return end
+        local data = activeInputs[input]
+        if not data then return end
+        
+        local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        if not data.isDragging and (pos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then
+            data.isDragging = true
+        end
+        data.lastPos = pos
     end)
 
     -- InputEnded
     recordConnections["ended"] = UserInputService.InputEnded:Connect(function(input, gameProcessed)
         if not isRecording then return end
+        -- Do not check gameProcessed for ended, as GUI might consume it
         local data = activeInputs[input]
         if not data then return end
 
@@ -508,13 +606,26 @@ local function startRecording()
         local delay = now - recordStartTime
         recordStartTime = now -- Reset start time for next delay
 
-        -- SIMPLIFIED: Always record a tap. No swipe detection.
-        table.insert(recordedActions, {
-            type = "tap",
-            norm = toNormalized(data.startPos),
-            delay = delay
-        })
-        
+        local endPos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        local moved = (endPos - data.startPos).Magnitude
+
+        if data.isDragging or moved >= SWIPE_MIN_PIXELS then
+            -- record swipe
+            table.insert(recordedActions, {
+                type = "swipe",
+                startNorm = toNormalized(data.startPos),
+                endNorm = toNormalized(endPos),
+                duration = math.max(0.02, now - data.startTime),
+                delay = delay
+            })
+        else
+            -- record tap
+            table.insert(recordedActions, {
+                type = "tap",
+                norm = toNormalized(data.startPos),
+                delay = delay
+            })
+        end
         activeInputs[input] = nil
     end)
 end
@@ -541,7 +652,7 @@ function stopReplay()
 end
 
 local function doReplayActions(actionList)
-    for _, act in ipairs(actionList)
+    for _, act in ipairs(actionList) do
         -- Check if stopped *before* wait
         if not isReplaying and not isReplayingLoop then break end
         
@@ -556,7 +667,11 @@ local function doReplayActions(actionList)
 
         if act.type == "tap" then
             simulateClick(act.norm)
-        -- REMOVED: 'elseif act.type == "swipe"'
+        elseif act.type == "swipe" then
+            -- use configured curvature from settings
+            local curve = tonumber(swipeCurveInput.Text) or (SWIPE_CURVATURE_DEFAULT * 100)
+            curve = math.clamp(curve, 0, 100) / 100
+            simulateSwipe(act.startNorm, act.endNorm, act.duration or 0.12, curve)
         end
     end
 end
@@ -671,10 +786,13 @@ local function stopSetPosition()
     end
     
     -- FIX: Delay disconnection to prevent input-sinking/race condition
+    -- This allows the input event chain to complete (e.g., for dragLayer's InputEnded)
+    -- before we destroy this connection.
     if positionSetConnection then
         local connToDisconnect = positionSetConnection
         positionSetConnection = nil -- Clear it immediately
         task.spawn(function()
+            -- Disconnect on the next frame
             pcall(function() connToDisconnect:Disconnect() end)
         end)
     end
@@ -762,13 +880,16 @@ btnApplyOffsets.MouseButton1Click:Connect(function()
 
     local xRaw = parseOffsetInput(offsetXInput.Text)
     local yRaw = parseOffsetInput(offsetYInput.Text)
+    local curve = tonumber(swipeCurveInput.Text)
     
-    if xRaw and yRaw then
+    if xRaw and yRaw and curve ~= nil then
         activeXOffsetRaw = xRaw
         activeYOffsetRaw = yRaw
+        local curveClamped = math.clamp(curve, 0, 100) / 100
+        swipeCurveInput.Text = tostring(curveClamped * 100)
         
-        sendNotification("Offsets Updated", ("X: %s, Y: %s")
-            :format(offsetXInput.Text, offsetYInput.Text))
+        sendNotification("Offsets Updated", ("X: %s, Y: %s, Curve: %.1f%%")
+            :format(offsetXInput.Text, offsetYInput.Text, curveClamped*100))
     else
         sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
         -- Reset text to last valid
@@ -787,6 +908,8 @@ submitBtn.MouseButton1Click:Connect(function()
     local enteredKey = keyBox.Text
     local expectedKey = "key_not_fetched"
     
+    -- NOTE: game:HttpGet() requires HttpService to be enabled in the game settings.
+    -- Executors often provide their own 'game:HttpGet' or a global 'HttpGet'.
     local httpGet = game.HttpGet or HttpGet
     if not httpGet then
         sendNotification("Key Check Failed", "No HttpGet function found.")
@@ -794,7 +917,7 @@ submitBtn.MouseButton1Click:Connect(function()
     end
     
     local success, response = pcall(function()
-        return httpGet("https.pastebin.com/raw/v4eb6fHw", true)
+        return httpGet("https://pastebin.com/raw/v4eb6fHw", true)
     end)
     
     if success and response then
@@ -818,6 +941,8 @@ end)
 copyBtn.MouseButton1Click:Connect(function()
     local keyLink = "https.loot-link.com/s?AVreZic8"
     
+    -- NOTE: setclipboard() is not a standard Roblox function
+    -- It may work in specific client environments (like Delta).
     if setclipboard then
         local success, err = pcall(function() setclipboard(keyLink) end)
         if success then
@@ -838,7 +963,8 @@ tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 
 -- initial UI state & notes
 selectTab("auto")
-sendNotification("MacroV2 (Taps Only) Loaded", (mouse1press and mousemoveabs and "Mouse functions found") or "Mouse functions (mouse1press) NOT found")
+-- Check for the new mouse globals
+sendNotification("MacroV2 Loaded", (mouse1press and mousemoveabs and mouse1click and "Mouse functions found") or "Mouse functions (mouse1press, mouse1click) NOT found")
 
 -- End of script
 -->
