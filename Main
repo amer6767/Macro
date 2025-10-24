@@ -2,10 +2,11 @@
 -- Put this as a LocalScript in StarterPlayerScripts or StarterGui
 --
 -- Fixes/Improvements:
--- 1. Added master stopAllProcesses() function to prevent conflicts (e.g., recording while auto-clicking).
+-- 1. Added master stopAllProcesses() function to prevent conflicts.
 -- 2. Made stop functions idempotent (safe to call even if already stopped).
--- 3. Added more comments for clarity on complex logic and dependencies.
--- 4. FIXED: Added GuiInset to simulated clicks/swipes to correct for coordinate mismatch.
+-- 3. Added GuiInset fix to simulated clicks/swipes to correct for coordinate mismatch.
+-- 4. FIXED: Added wait for LocalPlayer to support executor injection (e.g., Delta).
+-- 5. FIXED: Changed GUI parent to CoreGui for executor compatibility.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -13,6 +14,13 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local workspace = workspace
+
+-- Wait for LocalPlayer to exist (crucial for executor injection)
+local player = Players.LocalPlayer
+while not player do
+    RunService.Heartbeat:Wait()
+    player = Players.LocalPlayer
+end
 
 -- Config
 local MIN_CLICK_HOLD_DURATION = 0.05
@@ -23,8 +31,7 @@ local SWIPE_SAMPLE_FPS = 60 -- How many steps to simulate in a swipe
 local SWIPE_CURVATURE_DEFAULT = 0.0 -- fraction of distance perpendicular to swipe (0..0.5 typical)
 local SWIPE_EASING = "easeInOutQuad" -- implemented easing
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local CoreGui = game:GetService("CoreGui") -- Use CoreGui for executors
 local mouse = player:GetMouse()
 
 -- State
@@ -84,8 +91,8 @@ local mainGui = Instance.new("ScreenGui")
 mainGui.Name = "MacroV2GUI"
 mainGui.IgnoreGuiInset = true
 mainGui.ResetOnSpawn = false
-mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-mainGui.Parent = playerGui
+mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global -- Use Global for CoreGui
+mainGui.Parent = CoreGui -- Parent to CoreGui for executor
 
 local keyEntry = Instance.new("Frame")
 keyEntry.Size = UDim2.new(0, 260, 0, 140)
@@ -754,7 +761,7 @@ local function toggleAutoClicker()
 
     stopAllProcesses() -- Stop everything else
     autoClickEnabled = true
-    btnAutoClicker.Text = "Auto Clicker: ON"
+    btnAutoClickter.Text = "Auto Clicker: ON"
     
     task.spawn(function()
         local nextTime = tick()
@@ -887,7 +894,7 @@ btnApplyOffsets.MouseButton1Click:Connect(function()
         sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
         -- Reset text to last valid
         offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
-        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 1GET00) .. "%"
+        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
     end
 end)
 
