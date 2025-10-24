@@ -2,17 +2,26 @@
 -- Put this as a LocalScript in StarterPlayerScripts or StarterGui
 --
 -- Fixes/Improvements:
--- 1. Added master stopAllProcesses() function to prevent conflicts.
--- 2. Added wait for LocalPlayer to support executor injection (e.g., Delta).
+-- 1. DEFINITIVE FIX (Race Condition): Added a wait loop for 'game.GetService'
+--    to ensure it exists before being called. This fixes the persistent
+--    "attempt to call a nil value" error on script injection.
+-- 2. Added master stopAllProcesses() function to prevent conflicts.
 -- 3. Changed GUI parent to CoreGui for executor compatibility.
 -- 4. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
--- 5. CRITICAL FIX: Re-implemented VirtualInputManager (safeSend) functions, as
---    this is what the user's environment supports.
--- 6. CRITICAL FIX: Kept the GuiInset translation in simulateClick/Swipe to fix
+-- 5. Re-implemented VirtualInputManager (safeSend) functions as this is what
+--    the user's environment supports.
+-- 6. Kept the GuiInset translation in simulateClick/Swipe to fix
 --    the coordinate mismatch.
--- 7. Removed all incorrect mouse/isrbxactive globals.
--- 8. Set viewport fallback to 2400x1080.
 
+-- NEW FIX: Wait for game.GetService to be available
+-- This fixes the "attempt to call a nil value" race condition
+-- by ensuring the service locator exists before we try to call it.
+-- We use global wait() as it's available before RunService.
+while not (game and game.GetService) do
+    wait(0.05)
+end
+
+-- Now it's safe to call GetService
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
@@ -22,6 +31,7 @@ local workspace = workspace
 -- Wait for LocalPlayer to exist (crucial for executor injection)
 local player = Players.LocalPlayer
 while not player do
+    -- We can safely use RunService here because we know GetService worked
     RunService.Heartbeat:Wait()
     player = Players.LocalPlayer
 end
@@ -551,7 +561,7 @@ end
 local function isOverOurGUI(pos)
     -- Use UserInputService:GetGuiObjectsAtPosition to detect GUI under the touch/mouse
     local x, y = math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5)
-    pcall(function()
+    local success, result = pcall(function()
         local objs = UserInputService:GetGuiObjectsAtPosition(x, y)
         if #objs == 0 then return false end
         for _, o in ipairs(objs) do
@@ -560,7 +570,8 @@ local function isOverOurGUI(pos)
             end
         end
     end)
-    return false
+    -- if pcall fails (e.g., GetGuiObjectsAtPosition is restricted), default to false
+    return success and result or false
 end
 
 local function stopRecording()
@@ -911,7 +922,7 @@ btnApplyOffsets.MouseButton1Click:Connect(function()
         sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
         -- Reset text to last valid
         offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
-        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 1YOffsetRaw.value * 100) .. "%"
+        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
     end
 end)
 
