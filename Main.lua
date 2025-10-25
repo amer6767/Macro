@@ -1,4 +1,4 @@
-<!-- This is Main.lua
+-- This is Main.lua
 -- This is the ONLY script you execute in Delta.
 -- It will check the key, then load the UI and Core modules.
 
