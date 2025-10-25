@@ -103,16 +103,20 @@ end)
 -- --- Module Loader ---
 local function loadModules()
     sendNotification("Loading Modules", "Fetching UI...")
-    local uiScript, uiErr = pcall(function() return game:HttpGet(UI_MODULE_URL) end)
-    if not uiScript or uiErr then
-        sendNotification("UI Load Failed", tostring(uiErr))
+    
+    -- FIXED PCALL LOGIC
+    local success, uiScript = pcall(function() return game:HttpGet(UI_MODULE_URL) end)
+    if not success then
+        sendNotification("UI Load Failed", tostring(uiScript)) -- uiScript is the error message
         return
     end
     
     sendNotification("Loading Modules", "Fetching Core...")
-    local coreScript, coreErr = pcall(function() return game:HttpGet(CORE_MODULE_URL) end)
-    if not coreScript or coreErr then
-        sendNotification("Core Load Failed", tostring(coreErr))
+    
+    -- FIXED PCALL LOGIC
+    local success, coreScript = pcall(function() return game:HttpGet(CORE_MODULE_URL) end)
+    if not success then
+        sendNotification("Core Load Failed", tostring(coreScript)) -- coreScript is the error message
         return
     end
 
@@ -122,8 +126,8 @@ local function loadModules()
         sendNotification("UI Compile Failed", tostring(uiLoadErr))
         return
     end
-    local uiSuccess, uiRunErr = pcall(uiFunc)
-    if not uiSuccess then
+    local success, uiRunErr = pcall(uiFunc)
+    if not success then
         sendNotification("UI Run Failed", tostring(uiRunErr))
         return
     end
@@ -134,8 +138,8 @@ local function loadModules()
         sendNotification("Core Compile Failed", tostring(coreLoadErr))
         return
     end
-    local coreSuccess, coreRunErr = pcall(coreFunc)
-    if not coreSuccess then
+    local success, coreRunErr = pcall(coreFunc)
+    if not success then
         sendNotification("Core Run Failed", tostring(coreRunErr))
         return
     end
