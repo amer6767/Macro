@@ -25,7 +25,7 @@ mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
-mainFrame.Visible = false -- Main.lua will make this visible
+mainFrame.Visible = false -- Core.lua will make this visible
 local frameCorner = Instance.new("UICorner", mainFrame)
 frameCorner.CornerRadius = UDim.new(0, 12)
 
@@ -91,7 +91,7 @@ contentArea.BackgroundTransparency = 1
 autoContent = Instance.new("Frame", contentArea)
 autoContent.Size = UDim2.new(1, 0, 1, 0)
 autoContent.BackgroundTransparency = 1
-autoContent.Visible = true
+autoContent.Visible = true -- Will be controlled by Core.lua
 
 recordContent = Instance.new("Frame", contentArea)
 recordContent.Size = UDim2.new(1, 0, 1, 0)
@@ -214,7 +214,7 @@ toggleGuiBtn.TextSize = 14
 toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
 toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleGuiBtn.ZIndex = 1000
-toggleGuiBtn.Visible = false -- Main.lua will make this visible
+toggleGuiBtn.Visible = false -- Core.lua will make this visible
 toggleGuiBtn.Active = true
 local toggleCorner = Instance.new("UICorner", toggleGuiBtn)
 toggleCorner.CornerRadius = UDim.new(0, 6)
@@ -255,32 +255,4 @@ end
 makeDraggable(mainFrame, dragLayer)
 makeDraggable(toggleGuiBtn, toggleGuiBtn)
 
-
--- Tab switching is local to the UI, so we can connect it.
-tabAutoClicker.MouseButton1Click:Connect(function() 
-    autoContent.Visible = true
-    recordContent.Visible = false
-    settingsContent.Visible = false
-    tabAutoClicker.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    tabRecorder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-end)
-tabRecorder.MouseButton1Click:Connect(function() 
-    autoContent.Visible = false
-    recordContent.Visible = true
-    settingsContent.Visible = false
-    tabAutoClicker.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    tabRecorder.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    tabSettings.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-end)
-tabSettings.MouseButton1Click:Connect(function() 
-    autoContent.Visible = false
-    recordContent.Visible = false
-    settingsContent.Visible = true
-    tabAutoClicker.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    tabRecorder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-end)
-
--- Set initial state
-tabAutoClicker.BackgroundColor3 = Color3.fromRGB(60, 60, 60) -- Set "Auto" as active
+-- NOTE: Tab switching logic is now in Core_Module.lua
