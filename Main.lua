@@ -220,6 +220,27 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
     }
 end
 
+-- --- FIX FOR POSITION MISALIGNMENT ---
+local function GetGuiInset()
+    -- Fetches the top-bar inset (usually 36 pixels)
+    local success, result = pcall(function()
+        return StarterGui:GetGuiInset()
+    end)
+    if success and result then
+        return result
+    end
+    return Vector2.new(0, 0) -- Fallback if call fails
+end
+
+-- Helper to convert recorded viewport coordinates to absolute VIM coordinates
+local function ViewportToAbsolute(viewportPos)
+    local inset = GetGuiInset()
+    -- VIM expects absolute screen coordinates, but input.Position
+    -- gives viewport coordinates (below the top bar). We add the inset.
+    return viewportPos + inset
+end
+-- --- END OF FIX ---
+
 -- --- VIM (Click Engine) ---
 local VirtualInputManager
 local vmAvailable do
@@ -261,20 +282,23 @@ end
 local function simulateClick(pixelPos)
     if not pixelPos then return end
     
+    -- FIX: Convert viewport coordinates to absolute coordinates for VIM
+    local effectivePos = ViewportToAbsolute(pixelPos)
+    
     -- No offsets, use position directly
-    safeSendMouseMove(pixelPos.X, pixelPos.Y)
+    safeSendMouseMove(effectivePos.X, effectivePos.Y)
     for _ = 1, 3 do RunService.Heartbeat:Wait() end
-    safeSendMouseButton(pixelPos.X, pixelPos.Y, 0, true)
+    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, true)
     task.wait(MIN_CLICK_HOLD_DURATION)
-    safeSendMouseButton(pixelPos.X, pixelPos.Y, 0, false)
+    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, false)
 end
 
 local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
     if not startPixel or not endPixel then return end
 
-    -- No offsets, use positions directly
-    local startPos = startPixel
-    local endPos = endPixel
+    -- FIX: Convert viewport coordinates to absolute coordinates for VIM
+    local startPos = ViewportToAbsolute(startPixel)
+    local endPos = ViewportToAbsolute(endPixel)
 
     local dx = endPos.X - startPos.X
     local dy = endPos.Y - startPos.Y
