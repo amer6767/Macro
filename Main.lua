@@ -1,8 +1,9 @@
 -- This is the COMBINED Macro Script (Recorder Only)
 -- Execute this single file in Delta.
 -- Key, AutoClicker, and Settings have been removed.
--- DEFINITIVE FIX: Hardcoded the 36-pixel GuiInset. 
--- The pcall() to fetch it was failing silently in the executor.
+-- DEFINITIVE FIX v2: Hardcoded a (44, 36) inset.
+-- The pcall() fails, and (0, 36) was wrong for the X-axis.
+-- 44px is a standard "safe area" inset for mobile.
 
 -- --- Wait for Services ---
 while not (game and game.GetService and game.HttpGet) do
@@ -222,10 +223,10 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
     }
 end
 
--- --- DEFINITIVE FIX: Hardcode the 36px Inset ---
+-- --- DEFINITIVE FIX v2: Hardcode a (44, 36) Inset ---
 -- The pcall() to StarterGui:GetGuiInset() fails in executors.
--- We must hardcode the standard 36-pixel offset.
-local HARDCODED_INSET = Vector2.new(0, 36)
+-- We hardcode a 36px Y offset (Top Bar) and a 44px X offset (Mobile Safe Area).
+local HARDCODED_INSET = Vector2.new(44, 36)
 
 -- Helper to convert recorded viewport coordinates to absolute VIM coordinates
 local function ViewportToAbsolute(viewportPos)
@@ -417,7 +418,7 @@ local function startRecording()
         local delay = now - recordStartTime
         recordStartTime = now
         
-        -- Get Viewport coordinates
+        -- Get Viewfport coordinates
         local endPos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
         local moved = (endPos - data.startPos).Magnitude
 
