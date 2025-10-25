@@ -2,24 +2,21 @@
 -- Put this as a LocalScript in StarterPlayerScripts or StarterGui
 --
 -- Fixes/Improvements:
--- 1. DEFINITIVE FIX (Race Condition): Added a wait loop for 'game.GetService'
---    to ensure it exists before being called. This fixes the persistent
---    "attempt to call a nil value" error on script injection.
--- 2. DEFINITIVE FIX (No Clicks): Based on user's "patched" reference script.
---    a) VIM is no longer at UserInputService. It is now fetched via
---       game:GetService("VirtualInputManager").
---    b) Updated safeSend... functions to use this new VIM path.
---    c) Updated safeSend... functions to use deviceId '0' instead of '1'.
--- 3. REMOVED the 'GuiInset' calculation. The executor's VIM
---    expects Viewport coordinates, not Absolute. The inset was the bug.
--- 4. Added master stopAllProcesses() function to prevent conflicts.
--- 5. Changed GUI parent to CoreGui for executor compatibility.
--- 6. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
+-- 1. DEFINITIVE FIX (Hardcoded Resolution): ViewportSize is now
+--    hardcoded to 384x854 to create a stable, predictable
+--    coordinate system, bypassing unreliable environment reports.
+-- 2. DEFINITIVE FIX (Race Condition): Added a wait loop for 'game.GetService'
+--    to ensure it exists before being called.
+-- 3. DEFINITIVE FIX (No Clicks):
+--    a) VIM is now fetched via game:GetService("VirtualInputManager").
+--    b) VIM functions now use deviceId '0'.
+-- 4. REMOVED the 'GuiInset' calculation. VIM expects Viewport coordinates.
+-- 5. Added master stopAllProcesses() function to prevent conflicts.
+-- 6. Changed GUI parent to CoreGui for executor compatibility.
+-- 7. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
 
 -- NEW FIX: Wait for game.GetService to be available
 -- This fixes the "attempt to call a nil value" race condition
--- by ensuring the service locator exists before we try to call it.
--- We use global wait() as it's available before RunService.
 while not (game and game.GetService) do
     wait(0.05)
 end
@@ -34,7 +31,6 @@ local workspace = workspace
 -- Wait for LocalPlayer to exist (crucial for executor injection)
 local player = Players.LocalPlayer
 while not player do
-    -- We can safely use RunService here because we know GetService worked
     RunService.Heartbeat:Wait()
     player = Players.LocalPlayer
 end
@@ -54,7 +50,7 @@ local mouse = player:GetMouse()
 -- State
 local autoClickEnabled = false
 local clickInterval = 0.2
-local clickPosition = Vector2.new(300, 300) -- stored in pixels for quick UI use; normalized on-the-fly when needed
+local clickPosition = Vector2.new(192, 427) -- Default to center of 384x854
 local waitingForPosition = false
 
 local isRecording = false
@@ -402,12 +398,15 @@ end
 
 -- Viewport helpers
 local function getViewportSize()
-    local cam = workspace.CurrentCamera
-    if cam and cam.ViewportSize then
-        return cam.ViewportSize
-    end
-    -- Fallback size updated as requested
-    return Vector2.new(2400, 1080)
+    -- local cam = workspace.CurrentCamera -- <<< REMOVED DYNAMIC CHECK
+    -- if cam and cam.ViewportSize then -- <<< REMOVED DYNAMIC CHECK
+    --     return cam.ViewportSize
+    -- end
+    
+    -- DEFINITIVE FIX: Hardcode viewport to user-specified resolution (384x854).
+    -- This creates a stable coordinate system for all calculations,
+    -- bypassing unreliable environment reporting.
+    return Vector2.new(384, 854)
 end
 
 -- Convert pixel coordinates (e.g., 300, 500) to normalized (e.g., 0.2, 0.4)
@@ -484,7 +483,7 @@ local function applyEasing(name, t)
     return (EASINGS[name] and EASINGS[name](t)) or t
 end
 
--- Simulate click (tap) - REVERTED to VirtualInputManager
+-- Simulate click (tap)
 local function simulateClick(norm)
     if not norm then return end
     
@@ -503,7 +502,7 @@ local function simulateClick(norm)
     safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, false)
 end
 
--- Simulate swipe (drag) - REVERTED to VirtualInputManager
+-- Simulate swipe (drag)
 local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
     if not startNorm or not endNorm then return end
 
