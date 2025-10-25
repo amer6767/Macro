@@ -4,12 +4,13 @@
 -- It finds the global UI elements and connects its functions to them.
 
 -- --- Services & Config ---
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local workspace = workspace
-local Players = game:GetService("Players")
 local player = Players.LocalPlayer
+local mouse = player:GetMouse()
 
 local MIN_CLICK_HOLD_DURATION = 0.05
 local SWIPE_MIN_PIXELS = 8
@@ -18,7 +19,6 @@ local SWIPE_CURVATURE_DEFAULT = 0.0
 local SWIPE_EASING = "easeInOutQuad"
 
 -- --- State Variables ---
--- These are local to the Core module
 local autoClickEnabled = false
 local clickInterval = 0.2
 local clickPosition = Vector2.new(500, 500)
@@ -77,12 +77,13 @@ local function sendNotification(title, text)
     end)
 end
 
--- This function is now local, as it's only called by the tab buttons
 local function selectTab(tabName)
-    -- Assumes UI elements are global
     autoContent.Visible = tabName == "auto"
     recordContent.Visible = tabName == "record"
     settingsContent.Visible = tabName == "settings"
+    tabAutoClicker.BackgroundColor3 = tabName == "auto" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
+    tabRecorder.BackgroundColor3 = tabName == "record" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
+    tabSettings.BackgroundColor3 = tabName == "settings" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
 end
 
 local function getViewportSize()
@@ -93,7 +94,6 @@ local function getViewportSize()
     return Vector2.new(1920, 1080)
 end
 
--- toNormalized/fromNormalized are only used for % offsets
 local function toNormalized(pos)
     local vs = getViewportSize()
     if vs.X == 0 or vs.Y == 0 then return Vector2.new(0,0) end
@@ -148,7 +148,11 @@ end
 -- --- Easing ---
 local EASINGS = {}
 EASINGS.easeInOutQuad = function(t)
-    if t < 0.5 then return 2 * t * t else return -1 + (4 - 2 * t) * t end
+    if t < 0.5 then
+        return 2 * t * t
+    else
+        return -1 + (4 - 2 * t) * t
+    end
 end
 local function applyEasing(name, t)
     return (EASINGS[name] and EASINGS[name](t)) or t
@@ -345,6 +349,7 @@ local function toggleReplay()
     end)
 end
 
+-- --- Replay Loop ---
 local function stopReplayLoop()
     if not isReplayingLoop then return end
     isReplayingLoop = false
@@ -380,10 +385,15 @@ local function stopAutoClicker()
 end
 
 local function toggleAutoClicker()
-    if autoClickEnabled then stopAutoClicker() return end
+    if autoClickEnabled then
+        stopAutoClicker()
+        return
+    end
+
     stopAllProcesses()
     autoClickEnabled = true
     btnAutoClicker.Text = "Auto Clicker: ON"
+    
     task.spawn(function()
         local nextTime = tick()
         while autoClickEnabled do
@@ -405,7 +415,9 @@ end
 local function stopSetPosition()
     if not waitingForPosition then return end
     waitingForPosition = false
-    if btnSetPosition.Text ~= "Set Position" then btnSetPosition.Text = "Set Position" end
+    if btnSetPosition.Text ~= "Set Position" then
+        btnSetPosition.Text = "Set Position"
+    end
     if positionSetConnection then
         local connToDisconnect = positionSetConnection
         positionSetConnection = nil
@@ -416,89 +428,109 @@ local function stopSetPosition()
 end
 
 local function setClickPosition()
-    if waitingForPosition then stopSetPosition() return end
+    if waitingForPosition then
+        stopSetPosition()
+        return
+    end
+    
     stopAllProcesses()
     waitingForPosition = true
     btnSetPosition.Text = "Tap anywhere..."
+    
     positionSetConnection = UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
         if not waitingForPosition or gameProcessedEvent then return end
         local ut = input.UserInputType
+        
         if (ut == Enum.UserInputType.MouseButton1 or ut == Enum.UserInputType.Touch) and input.UserInputState == Enum.UserInputState.Begin then
             local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
             if isOverOurGUI(pos) then return end
+            
             clickPosition = pos
             stopSetPosition()
+            
             btnSetPosition.Text = "Position Set!"
             task.delay(1, function()
-                if btnSetPosition.Text == "Position Set!" then btnSetPosition.Text = "Set Position" end
+                if btnSetPosition.Text == "Position Set!" then
+                    btnSetPosition.Text = "Set Position"
+                end
             end)
         end
     end)
 end
 
 -- --- Stop All ---
-local function stopAllProcesses()
+function stopAllProcesses()
     stopAutoClicker()
-    stopSetPosition()
     stopRecording()
     stopReplay()
     stopReplayLoop()
-end
-
--- --- Offset / Settings Logic ---
-local function parseOffset(text)
-    local num, suffix = text:match("^(-?[%d%.]+)(%%?)$")
-    num = tonumber(num)
-    if not num then return { mode = "px", value = 0 } end
-    if suffix == "%" then
-        return { mode = "percent", value = num / 100 }
-    else
-        return { mode = "px", value = num }
-    end
-end
-
-local function applySettings()
-    activeXOffsetRaw = parseOffset(offsetXInput.Text or "0")
-    activeYOffsetRaw = parseOffset(offsetYInput.Text or "0")
-    
-    -- Update placeholders to show current value
-    offsetXInput.Text = tostring(activeXOffsetRaw.mode == "px" and activeXOffsetRaw.value or (activeXOffsetRaw.value * 100) .. "%")
-    offsetYInput.Text = tostring(activeYOffsetRaw.mode == "px" and activeYOffsetRaw.value or (activeYOffsetRaw.value * 100) .. "%")
-    
-    local curve = tonumber(swipeCurveInput.Text) or (SWIPE_CURVATURE_DEFAULT * 100)
-    curve = math.clamp(curve, 0, 50)
-    swipeCurveInput.Text = tostring(curve)
-    
-    sendNotification("Settings Applied", "Offsets and swipe settings updated.")
+    stopSetPosition()
 end
 
 -- --- GUI Connections ---
--- This connects the Core functions to the global UI elements created by UI_Module.lua
-btnAutoClicker.MouseButton1Click:Connect(toggleAutoClicker)
-btnSetPosition.MouseButton1Click:Connect(setClickPosition)
-lblInterval.FocusLost:Connect(function(enterPressed)
-    if enterPressed then
-        local num = tonumber(lblInterval.Text)
-        clickInterval = (num and num > 0.001) and num or 0.2
+btnAutoClicker.MouseButton1Click:Connect(function()
+    local val = tonumber(lblInterval.Text)
+    if val and val > 0 then
+        clickInterval = val
+    else
         lblInterval.Text = tostring(clickInterval)
     end
+    toggleAutoClicker()
 end)
 
+btnSetPosition.MouseButton1Click:Connect(setClickPosition)
 btnStartRecording.MouseButton1Click:Connect(toggleRecording)
 btnReplayClicks.MouseButton1Click:Connect(toggleReplay)
 btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
-replayCountInput.FocusLost:Connect(function(enterPressed)
-    if enterPressed then
-        local num = tonumber(replayCountInput.Text)
-        replayCount = (num and num > 0) and math.floor(num) or 1
-        replayCountInput.Text = tostring(replayCount)
+
+btnApplyOffsets.MouseButton1Click:Connect(function()
+    local function parseOffsetInput(text)
+        text = tostring(text or "")
+        text = text:gsub("%s+", "")
+        if text:match("%%$") then
+            local num = tonumber(text:sub(1, -2))
+            if num then return { mode = "pct", value = num / 100 } end
+        else
+            local num = tonumber(text)
+            if num then return { mode = "px", value = num } end
+        end
+        return nil
+    end
+
+    local xRaw = parseOffsetInput(offsetXInput.Text)
+    local yRaw = parseOffsetInput(offsetYInput.Text)
+    local curve = tonumber(swipeCurveInput.Text)
+    
+    if xRaw and yRaw and curve ~= nil then
+        activeXOffsetRaw = xRaw
+        activeYOffsetRaw = yRaw
+        local curveClamped = math.clamp(curve, 0, 100) / 100
+        swipeCurveInput.Text = tostring(curveClamped * 100)
+        
+        sendNotification("Offsets Updated", ("X: %s, Y: %s, Curve: %.1f%%")
+            :format(offsetXInput.Text, offsetYInput.Text, curveClamped*100))
+    else
+        sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
+        offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
+        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
     end
 end)
-
-btnApplyOffsets.MouseButton1Click:Connect(applySettings)
 
 toggleGuiBtn.MouseButton1Click:Connect(function()
     guiHidden = not guiHidden
     mainFrame.Visible = not guiHidden
     toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
 end)
+
+-- Tab connections
+tabAutoClicker.MouseButton1Click:Connect(function() selectTab("auto") end)
+tabRecorder.MouseButton1Click:Connect(function() selectTab("record") end)
+tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
+
+-- --- Initial State ---
+selectTab("auto")
+sendNotification("MacroV2 Loaded", vmAvailable and "VIM (Patched) Found" or "CRITICAL: VIM NOT Found")
+
+-- Make GUI visible now that modules are loaded
+mainFrame.Visible = true
+toggleGuiBtn.Visible = true
