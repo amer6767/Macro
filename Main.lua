@@ -1,9 +1,7 @@
 -- This is the COMBINED Macro Script (Recorder Only)
--- Execute this single file in Delta.
--- Key, AutoClicker, and Settings have been removed.
--- DEFINITIVE FIX v2: Hardcoded a (44, 36) inset.
--- The pcall() fails, and (0, 36) was wrong for the X-axis.
--- 44px is a standard "safe area" inset for mobile.
+-- This script is NOT YET FIXED.
+-- We are waiting for the calibration (X, Y) values from InsetFinder.lua
+-- The HARDCODED_INSET value below is just a placeholder.
 
 -- --- Wait for Services ---
 while not (game and game.GetService and game.HttpGet) do
@@ -57,7 +55,7 @@ mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
 mainFrame.Visible = false -- Will be made visible at the end
 local frameCorner = Instance.new("UICorner", mainFrame)
-frameCorner.CornerRadius = UDim.new(0, 12)
+frameCorner.CornerRadius = UDim2.new(0, 12)
 
 dragLayer = Instance.new("Frame", mainFrame)
 dragLayer.Size = UDim2.new(1, 0, 0, 40)
@@ -94,7 +92,7 @@ local function createButton(text, posY, parent)
     btn.ZIndex = 3
     btn.Parent = parent
     local corner = Instance.new("UICorner", btn)
-    corner.CornerRadius = UDim.new(0, 6)
+    corner.CornerRadius = UDim2.new(0, 6)
     return btn
 end
 
@@ -115,7 +113,7 @@ replayCountInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 replayCountInput.BorderSizePixel = 0
 replayCountInput.ZIndex = 3
 local replayCorner = Instance.new("UICorner", replayCountInput)
-replayCorner.CornerRadius = UDim.new(0, 6)
+replayCorner.CornerRadius = UDim2.new(0, 6)
 
 -- --- Toggle Button ---
 toggleGuiBtn = Instance.new("TextButton", mainGui)
@@ -130,7 +128,7 @@ toggleGuiBtn.ZIndex = 1000
 toggleGuiBtn.Visible = false -- Will be made visible at the end
 toggleGuiBtn.Active = true
 local toggleCorner = Instance.new("UICorner", toggleGuiBtn)
-toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.CornerRadius = UDim2.new(0, 6)
 
 -- --- Draggability ---
 local function makeDraggable(guiObject, dragHandle)
@@ -223,10 +221,10 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
     }
 end
 
--- --- DEFINITIVE FIX v2: Hardcode a (44, 36) Inset ---
--- The pcall() to StarterGui:GetGuiInset() fails in executors.
--- We hardcode a 36px Y offset (Top Bar) and a 44px X offset (Mobile Safe Area).
-local HARDCODED_INSET = Vector2.new(44, 36)
+-- --- AWAITING CALIBRATION ---
+-- We must get the X and Y values from InsetFinder.lua
+-- and put them here. This (0, 0) is just a placeholder.
+local HARDCODED_INSET = Vector2.new(0, 0) -- <-- REPLACE THIS
 
 -- Helper to convert recorded viewport coordinates to absolute VIM coordinates
 local function ViewportToAbsolute(viewportPos)
@@ -433,7 +431,7 @@ local function startRecording()
         else
             table.insert(recordedActions, {
                 type = "tap",
-                pixelPos = data.startPos, -- Store raw Viewport pos
+                pixelPos = data.startPos, -- Store raw ViewB port pos
                 delay = delay
             })
         end
