@@ -1,7 +1,8 @@
 -- This is the COMBINED Macro Script (Recorder Only)
 -- Execute this single file in Delta.
 -- Key, AutoClicker, and Settings have been removed.
--- FIX: Reverted GuiInset fix. VIM expects Viewport coordinates.
+-- DEFINITIVE FIX: Hardcoded the 36-pixel GuiInset. 
+-- The pcall() to fetch it was failing silently in the executor.
 
 -- --- Wait for Services ---
 while not (game and game.GetService and game.HttpGet) do
@@ -221,6 +222,20 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
     }
 end
 
+-- --- DEFINITIVE FIX: Hardcode the 36px Inset ---
+-- The pcall() to StarterGui:GetGuiInset() fails in executors.
+-- We must hardcode the standard 36-pixel offset.
+local HARDCODED_INSET = Vector2.new(0, 36)
+
+-- Helper to convert recorded viewport coordinates to absolute VIM coordinates
+local function ViewportToAbsolute(viewportPos)
+    -- VIM expects absolute screen coordinates, but input.Position
+    -- gives viewport coordinates (below the top bar). We add the inset.
+    return viewportPos + HARDCODED_INSET
+end
+-- --- END OF FIX ---
+
+
 -- --- VIM (Click Engine) ---
 local VirtualInputManager
 local vmAvailable do
@@ -262,9 +277,8 @@ end
 local function simulateClick(pixelPos)
     if not pixelPos then return end
     
-    -- FIX: Removed GuiInset. We pass the raw Viewport coordinate
-    -- directly to VIM, assuming it also expects Viewport space.
-    local effectivePos = pixelPos
+    -- FIX: Convert viewport coordinates to absolute coordinates for VIM
+    local effectivePos = ViewportToAbsolute(pixelPos)
     
     safeSendMouseMove(effectivePos.X, effectivePos.Y)
     for _ = 1, 3 do RunService.Heartbeat:Wait() end
@@ -276,9 +290,9 @@ end
 local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
     if not startPixel or not endPixel then return end
 
-    -- FIX: Removed GuiInset. Pass raw Viewport coordinates.
-    local startPos = startPixel
-    local endPos = endPixel
+    -- FIX: Convert viewport coordinates to absolute coordinates for VIM
+    local startPos = ViewportToAbsolute(startPixel)
+    local endPos = ViewportToAbsolute(endPixel)
 
     local dx = endPos.X - startPos.X
     local dy = endPos.Y - startPos.Y
