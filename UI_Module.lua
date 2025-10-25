@@ -284,4 +284,3 @@ end)
 
 -- Set initial state
 tabAutoClicker.BackgroundColor3 = Color3.fromRGB(60, 60, 60) -- Set "Auto" as active
--->
