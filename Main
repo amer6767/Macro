@@ -2,18 +2,22 @@
 -- Put this as a LocalScript in StarterPlayerScripts or StarterGui
 --
 -- Fixes/Improvements:
--- 1. DEFINITIVE FIX (Hardcoded Resolution): ViewportSize is now
---    hardcoded to 384x854 to create a stable, predictable
---    coordinate system, bypassing unreliable environment reports.
--- 2. DEFINITIVE FIX (Race Condition): Added a wait loop for 'game.GetService'
+-- 1. DEFINITIVE FIX (Offset Bug): Removed all normalization (toNormalized,
+--    fromNormalized) from the core record/replay logic.
+--    The script now records RAW PIXEL coordinates and replays
+--    RAW PIXEL coordinates, creating a 1:1 match and fixing the offset.
+-- 2. `getViewportSize` is now ONLY used for percentage-based offsets
+--    in the Settings tab and uses a 1920x1080 fallback if the
+--    real camera size can't be found.
+-- 3. DEFINITIVE FIX (Race Condition): Added a wait loop for 'game.GetService'
 --    to ensure it exists before being called.
--- 3. DEFINITIVE FIX (No Clicks):
+-- 4. DEFINITIVE FIX (No Clicks):
 --    a) VIM is now fetched via game:GetService("VirtualInputManager").
 --    b) VIM functions now use deviceId '0'.
--- 4. REMOVED the 'GuiInset' calculation. VIM expects Viewport coordinates.
--- 5. Added master stopAllProcesses() function to prevent conflicts.
--- 6. Changed GUI parent to CoreGui for executor compatibility.
--- 7. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
+-- 5. REMOVED the 'GuiInset' calculation. VIM expects Viewport coordinates.
+-- 6. Added master stopAllProcesses() function to prevent conflicts.
+-- 7. Changed GUI parent to CoreGui for executor compatibility.
+-- 8. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
 
 -- NEW FIX: Wait for game.GetService to be available
 -- This fixes the "attempt to call a nil value" race condition
@@ -50,7 +54,8 @@ local mouse = player:GetMouse()
 -- State
 local autoClickEnabled = false
 local clickInterval = 0.2
-local clickPosition = Vector2.new(192, 427) -- Default to center of 384x854
+-- DEFINITIVE FIX: Storing raw pixels. Default to a reasonable center.
+local clickPosition = Vector2.new(500, 500)
 local waitingForPosition = false
 
 local isRecording = false
@@ -398,18 +403,18 @@ end
 
 -- Viewport helpers
 local function getViewportSize()
-    -- local cam = workspace.CurrentCamera -- <<< REMOVED DYNAMIC CHECK
-    -- if cam and cam.ViewportSize then -- <<< REMOVED DYNAMIC CHECK
-    --     return cam.ViewportSize
-    -- end
-    
-    -- DEFINITIVE FIX: Hardcode viewport to user-specified resolution (384x854).
-    -- This creates a stable coordinate system for all calculations,
-    -- bypassing unreliable environment reporting.
-    return Vector2.new(384, 854)
+    -- DEFINITIVE FIX: Re-enabled dynamic viewport. We need the REAL
+    -- viewport size for percentage offsets to work.
+    local cam = workspace.CurrentCamera
+    if cam and cam.ViewportSize then
+        return cam.ViewportSize
+    end
+    -- Fallback in case camera is not ready (e.g. 1920x1080)
+    return Vector2.new(1920, 1080)
 end
 
 -- Convert pixel coordinates (e.g., 300, 500) to normalized (e.g., 0.2, 0.4)
+-- THIS IS NOW *ONLY* USED FOR PERCENTAGE OFFSETS.
 local function toNormalized(pos)
     local vs = getViewportSize()
     if vs.X == 0 or vs.Y == 0 then return Vector2.new(0,0) end
@@ -417,6 +422,7 @@ local function toNormalized(pos)
 end
 
 -- Convert normalized coordinates back to pixel
+-- THIS IS NOW *ONLY* USED FOR PERCENTAGE OFFSETS.
 local function fromNormalized(norm)
     local vs = getViewportSize()
     return Vector2.new(math.clamp(norm.X * vs.X, 0, vs.X), math.clamp(norm.Y * vs.Y, 0, vs.Y))
@@ -484,15 +490,13 @@ local function applyEasing(name, t)
 end
 
 -- Simulate click (tap)
-local function simulateClick(norm)
-    if not norm then return end
+-- DEFINITIVE FIX: This function now accepts raw pixel coordinates, NOT normalized.
+local function simulateClick(pixelPos)
+    if not pixelPos then return end
     
-    -- local inset = StarterGui:GetGuiInset() -- <<< DEFINITIVE FIX: REMOVED. VIM expects Viewport coords.
-    local pixelPos = fromNormalized(norm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
     
-    -- DEFINITIVE FIX: Removed 'inset.X' and 'inset.Y'.
     local effectivePos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
 
     safeSendMouseMove(effectivePos.X, effectivePos.Y)
@@ -503,16 +507,13 @@ local function simulateClick(norm)
 end
 
 -- Simulate swipe (drag)
-local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
-    if not startNorm or not endNorm then return end
+-- DEFINITIVE FIX: This function now accepts raw pixel coordinates, NOT normalized.
+local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
+    if not startPixel or not endPixel then return end
 
-    -- local inset = StarterGui:GetGuiInset() -- <<< DEFINITIVE FIX: REMOVED. VIM expects Viewport coords.
-    local startPixel = fromNormalized(startNorm)
-    local endPixel = fromNormalized(endNorm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
     
-    -- DEFINITIVE FIX: Removed 'inset.X' and 'inset.Y'.
     local startPos = Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset)
     local endPos = Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset)
 
@@ -543,7 +544,6 @@ local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
         local baseY = startPos.Y + (endPos.Y - startPos.Y) * eased
         
         -- Apply curvature
-        -- This uses a simple triangular envelope: 0 at start, 1 at middle, 0 at end
         local curveAmount = (curvatureFraction or 0) * dist * (1 - math.abs(2 * t - 1))
         
         local x = baseX + perpX * curveAmount
@@ -568,7 +568,6 @@ local function clearActiveInputs()
 end
 
 local function isOverOurGUI(pos)
-    -- Use UserInputService:GetGuiObjectsAtPosition to detect GUI under the touch/mouse
     local x, y = math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5)
     local success, result = pcall(function()
         local objs = UserInputService:GetGuiObjectsAtPosition(x, y)
@@ -579,7 +578,6 @@ local function isOverOurGUI(pos)
             end
         end
     end)
-    -- if pcall fails (e.g., GetGuiObjectsAtPosition is restricted), default to false
     return success and result or false
 end
 
@@ -587,7 +585,6 @@ local function stopRecording()
     if not isRecording then return end
     isRecording = false
     btnStartRecording.Text = "Start Recording"
-    -- Disconnect all recording-related connections
     for k, conn in pairs(recordConnections) do
         if conn and conn.Disconnect then
             pcall(function() conn:Disconnect() end)
@@ -598,7 +595,7 @@ local function stopRecording()
 end
 
 local function startRecording()
-    stopAllProcesses() -- Stop everything else first
+    stopAllProcesses()
     isRecording = true
     recordedActions = {}
     recordStartTime = os.clock()
@@ -634,32 +631,29 @@ local function startRecording()
     -- InputEnded
     recordConnections["ended"] = UserInputService.InputEnded:Connect(function(input, gameProcessed)
         if not isRecording then return end
-        -- Do not check gameProcessed for ended, as GUI might consume it
         local data = activeInputs[input]
         if not data then return end
 
         local now = os.clock()
-        -- Calculate delay since *last* action
         local delay = now - recordStartTime
-        recordStartTime = now -- Reset start time for next delay
+        recordStartTime = now
 
         local endPos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
         local moved = (endPos - data.startPos).Magnitude
 
+        -- DEFINITIVE FIX: Store raw pixel coordinates, not normalized.
         if data.isDragging or moved >= SWIPE_MIN_PIXELS then
-            -- record swipe
             table.insert(recordedActions, {
                 type = "swipe",
-                startNorm = toNormalized(data.startPos),
-                endNorm = toNormalized(endPos),
+                startPixel = data.startPos, -- Store raw pixels
+                endPixel = endPos,         -- Store raw pixels
                 duration = math.max(0.02, now - data.startTime),
                 delay = delay
             })
         else
-            -- record tap
             table.insert(recordedActions, {
                 type = "tap",
-                norm = toNormalized(data.startPos),
+                pixelPos = data.startPos, -- Store raw pixels
                 delay = delay
             })
         end
@@ -689,8 +683,7 @@ function stopReplay()
 end
 
 local function doReplayActions(actionList)
-    for _, act in ipairs(actionList) do
-        -- Check if stopped *before* wait
+    for _, act in ipairs(actionList)
         if not isReplaying and not isReplayingLoop then break end
         
         if act.delay and act.delay > 0 then
@@ -699,16 +692,15 @@ local function doReplayActions(actionList)
             RunService.Heartbeat:Wait()
         end
         
-        -- Check if stopped *after* wait
         if not isReplaying and not isReplayingLoop then break end
 
+        -- DEFINITIVE FIX: Pass raw pixel coordinates
         if act.type == "tap" then
-            simulateClick(act.norm)
+            simulateClick(act.pixelPos)
         elseif act.type == "swipe" then
-            -- use configured curvature from settings
             local curve = tonumber(swipeCurveInput.Text) or (SWIPE_CURVATURE_DEFAULT * 100)
             curve = math.clamp(curve, 0, 100) / 100
-            simulateSwipe(act.startNorm, act.endNorm, act.duration or 0.12, curve)
+            simulateSwipe(act.startPixel, act.endPixel, act.duration or 0.12, curve)
         end
     end
 end
@@ -723,7 +715,7 @@ local function toggleReplay()
         return
     end
     
-    stopAllProcesses() -- Stop everything else
+    stopAllProcesses()
     isReplaying = true
     
     local num = tonumber(replayCountInput.Text)
@@ -738,7 +730,7 @@ local function toggleReplay()
             doReplayActions(recordedActions)
             if i < replayCount and isReplaying then task.wait(0.1) end
         end
-        stopReplay() -- Automatically stop when done
+        stopReplay()
     end)
 end
 
@@ -763,7 +755,7 @@ local function toggleReplayLoop()
         return
     end
     
-    stopAllProcesses() -- Stop everything else
+    stopAllProcesses()
     isReplayingLoop = true
     btnReplayLoop.Text = "Replay Loop: ON"
     
@@ -788,7 +780,7 @@ local function toggleAutoClicker()
         return
     end
 
-    stopAllProcesses() -- Stop everything else
+    stopAllProcesses()
     autoClickEnabled = true
     btnAutoClicker.Text = "Auto Clicker: ON"
     
@@ -798,15 +790,14 @@ local function toggleAutoClicker()
             local interval = math.max(0.001, clickInterval)
             nextTime = nextTime + interval
             
-            simulateClick(toNormalized(clickPosition))
+            -- DEFINITIVE FIX: Pass raw pixel coordinates
+            simulateClick(clickPosition)
             
             local waitTime = nextTime - tick()
             if waitTime > 0 then
                 task.wait(waitTime)
             else
-                -- If we're lagging, just yield to prevent freezing
                 RunService.Heartbeat:Wait()
-                -- And reset nextTime to avoid rapid-fire catch-up
                 nextTime = tick() 
             end
         end
@@ -822,14 +813,10 @@ local function stopSetPosition()
         btnSetPosition.Text = "Set Position"
     end
     
-    -- FIX: Delay disconnection to prevent input-sinking/race condition
-    -- This allows the input event chain to complete (e.g., for dragLayer's InputEnded)
-    -- before we destroy this connection.
     if positionSetConnection then
         local connToDisconnect = positionSetConnection
-        positionSetConnection = nil -- Clear it immediately
+        positionSetConnection = nil
         task.spawn(function()
-            -- Disconnect on the next frame
             pcall(function() connToDisconnect:Disconnect() end)
         end)
     end
@@ -837,11 +824,11 @@ end
 
 local function setClickPosition()
     if waitingForPosition then
-        stopSetPosition() -- Allow pressing again to cancel
+        stopSetPosition()
         return
     end
     
-    stopAllProcesses() -- Stop everything else
+    stopAllProcesses()
     waitingForPosition = true
     btnSetPosition.Text = "Tap anywhere..."
     
@@ -855,8 +842,9 @@ local function setClickPosition()
                 local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
                 if isOverOurGUI(pos) then return end
                 
+                -- DEFINITIVE FIX: Store raw pixel coordinates
                 clickPosition = pos
-                stopSetPosition() -- Stop and reset UI
+                stopSetPosition()
                 
                 btnSetPosition.Text = "Position Set!"
                 task.delay(1, function()
@@ -929,7 +917,6 @@ btnApplyOffsets.MouseButton1Click:Connect(function()
             :format(offsetXInput.Text, offsetYInput.Text, curveClamped*100))
     else
         sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
-        -- Reset text to last valid
         offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
         offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
     end
@@ -945,8 +932,6 @@ submitBtn.MouseButton1Click:Connect(function()
     local enteredKey = keyBox.Text
     local expectedKey = "key_not_fetched"
     
-    -- NOTE: game:HttpGet() requires HttpService to be enabled in the game settings.
-    -- Executors often provide their own 'game:HttpGet' or a global 'HttpGet'.
     local httpGet = game.HttpGet or HttpGet
     if not httpGet then
         sendNotification("Key Check Failed", "No HttpGet function found.")
@@ -978,8 +963,6 @@ end)
 copyBtn.MouseButton1Click:Connect(function()
     local keyLink = "https.loot-link.com/s?AVreZic8"
     
-    -- NOTE: setclipboard() is not a standard Roblox function
-    -- It may work in specific client environments (like Delta).
     if setclipboard then
         local success, err = pcall(function() setclipboard(keyLink) end)
         if success then
