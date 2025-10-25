@@ -124,8 +124,23 @@ local function loadModules()
         sendNotification("UI Run Failed", tostring(uiRunErr))
         return
     end
+    
+    -- *** NEW FIX: Wait for UI to be created ***
+    -- We wait until the 'mainFrame' global variable, which is created
+    -- by UI_Module.lua, is no longer nil.
+    local timeout = 5 -- 5 second timeout
+    local startTime = tick()
+    while not mainFrame and (tick() - startTime < timeout) do
+        task.wait()
+    end
+    
+    -- Check if it timed out
+    if not mainFrame then
+        sendNotification("UI Load Failed", "Timed out waiting for mainFrame.")
+        return
+    end
 
-    -- Load the Core second (to hook up functions to the GUI)
+    -- Now that the UI exists, load the Core
     local coreFunc, coreLoadErr = loadstring(coreScript)
     if not coreFunc then
         sendNotification("Core Compile Failed", tostring(coreLoadErr))
