@@ -1,6 +1,7 @@
 -- This is the COMBINED Macro Script (Recorder Only)
 -- Execute this single file in Delta.
 -- Key, AutoClicker, and Settings have been removed.
+-- FIX: Reverted GuiInset fix. VIM expects Viewport coordinates.
 
 -- --- Wait for Services ---
 while not (game and game.GetService and game.HttpGet) do
@@ -220,27 +221,6 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
     }
 end
 
--- --- FIX FOR POSITION MISALIGNMENT ---
-local function GetGuiInset()
-    -- Fetches the top-bar inset (usually 36 pixels)
-    local success, result = pcall(function()
-        return StarterGui:GetGuiInset()
-    end)
-    if success and result then
-        return result
-    end
-    return Vector2.new(0, 0) -- Fallback if call fails
-end
-
--- Helper to convert recorded viewport coordinates to absolute VIM coordinates
-local function ViewportToAbsolute(viewportPos)
-    local inset = GetGuiInset()
-    -- VIM expects absolute screen coordinates, but input.Position
-    -- gives viewport coordinates (below the top bar). We add the inset.
-    return viewportPos + inset
-end
--- --- END OF FIX ---
-
 -- --- VIM (Click Engine) ---
 local VirtualInputManager
 local vmAvailable do
@@ -282,10 +262,10 @@ end
 local function simulateClick(pixelPos)
     if not pixelPos then return end
     
-    -- FIX: Convert viewport coordinates to absolute coordinates for VIM
-    local effectivePos = ViewportToAbsolute(pixelPos)
+    -- FIX: Removed GuiInset. We pass the raw Viewport coordinate
+    -- directly to VIM, assuming it also expects Viewport space.
+    local effectivePos = pixelPos
     
-    -- No offsets, use position directly
     safeSendMouseMove(effectivePos.X, effectivePos.Y)
     for _ = 1, 3 do RunService.Heartbeat:Wait() end
     safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, true)
@@ -296,9 +276,9 @@ end
 local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
     if not startPixel or not endPixel then return end
 
-    -- FIX: Convert viewport coordinates to absolute coordinates for VIM
-    local startPos = ViewportToAbsolute(startPixel)
-    local endPos = ViewportToAbsolute(endPixel)
+    -- FIX: Removed GuiInset. Pass raw Viewport coordinates.
+    local startPos = startPixel
+    local endPos = endPixel
 
     local dx = endPos.X - startPos.X
     local dy = endPos.Y - startPos.Y
@@ -360,6 +340,8 @@ end
 local function isOverOurGUI(pos)
     local x, y = math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5)
     local success, result = pcall(function()
+        -- We record input.Position (Viewport), so we check against
+        -- GetGuiObjectsAtPosition (also Viewport). This is consistent.
         local objs = UserInputService:GetGuiObjectsAtPosition(x, y)
         if #objs == 0 then return false end
         for _, o in ipairs(objs) do
@@ -391,7 +373,10 @@ local function startRecording()
         if not isRecording or gameProcessed then return end
         local ut = input.UserInputType
         if not (ut == Enum.UserInputType.MouseButton1 or ut == Enum.UserInputType.Touch) then return end
+        
+        -- Get Viewport coordinates
         local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        
         if isOverOurGUI(pos) then return end
         activeInputs[input] = { startTime = os.clock(), startPos = pos, lastPos = pos, isDragging = false }
     end)
@@ -400,7 +385,10 @@ local function startRecording()
         if not isRecording then return end
         local data = activeInputs[input]
         if not data then return end
+        
+        -- Get Viewport coordinates
         local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        
         if not data.isDragging and (pos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then
             data.isDragging = true
         end
@@ -414,21 +402,23 @@ local function startRecording()
         local now = os.clock()
         local delay = now - recordStartTime
         recordStartTime = now
+        
+        -- Get Viewport coordinates
         local endPos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
         local moved = (endPos - data.startPos).Magnitude
 
         if data.isDragging or moved >= SWIPE_MIN_PIXELS then
             table.insert(recordedActions, {
                 type = "swipe",
-                startPixel = data.startPos,
-                endPixel = endPos,
+                startPixel = data.startPos, -- Store raw Viewport pos
+                endPixel = endPos,         -- Store raw Viewport pos
                 duration = math.max(0.02, now - data.startTime),
                 delay = delay
             })
         else
             table.insert(recordedActions, {
                 type = "tap",
-                pixelPos = data.startPos,
+                pixelPos = data.startPos, -- Store raw Viewport pos
                 delay = delay
             })
         end
@@ -458,10 +448,10 @@ local function doReplayActions(actionList)
         if not isReplaying and not isReplayingLoop then break end
 
         if act.type == "tap" then
-            simulateClick(act.pixelPos)
+            simulateClick(act.pixelPos) -- Pass raw Viewport pos
         elseif act.type == "swipe" then
             -- Use hard-coded curvature default since settings are removed
-            simulateSwipe(act.startPixel, act.endPixel, act.duration or 0.12, SWIPE_CURVATURE_DEFAULT)
+            simulateSwipe(act.startPixel, act.endPixel, act.duration or 0.12, SWIPE_CURVATURE_DEFAULT) -- Pass raw Viewport pos
         end
     end
 end
@@ -537,7 +527,7 @@ toggleGuiBtn.MouseButton1Click:Connect(function()
 end)
 
 -- --- Initial State ---
-sendNotification("Macro Recorder Loaded", vmAvailable and "VIM (PatZched) Found" or "CRITICAL: VIM NOT Found")
+sendNotification("Macro Recorder Loaded", vmAvailable and "VIM (Patched) Found" or "CRITICAL: VIM NOT Found")
 
 -- Make GUI visible now that script is loaded
 mainFrame.Visible = true
