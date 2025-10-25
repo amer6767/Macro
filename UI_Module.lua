@@ -19,6 +19,7 @@ mainGui.Parent = CoreGui
 
 -- --- Main Frame ---
 mainFrame = Instance.new("Frame", mainGui)
+mainFrame.Name = "MacroFrame" -- Give it a name to wait for
 mainFrame.Size = UDim2.new(0, 260, 0, 360)
 mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
