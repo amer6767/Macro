@@ -2,17 +2,17 @@
 -- This is the ONLY script you execute in Delta.
 -- It will check the key, then load the UI and Core modules.
 
--- --- Wait for Services ---
+-- NEW FIX: Wait for game.GetService to be available
 while not (game and game.GetService and game.HttpGet) do
     wait(0.05)
 end
 
+local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local CoreGui = game:GetService("CoreGui")
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
--- Wait for player
+-- Wait for LocalPlayer to exist
 local player = Players.LocalPlayer
 while not player do
     RunService.Heartbeat:Wait()
@@ -33,12 +33,7 @@ local function sendNotification(title, text)
 end
 
 -- --- Key System ---
-local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV2GUI_Key"
-mainGui.IgnoreGuiInset = true
-mainGui.ResetOnSpawn = false
-mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-mainGui.Parent = CoreGui
+local FONT_MAIN = Enum.Font.Gotham -- Added font definition
 
 local keyEntry = Instance.new("Frame")
 keyEntry.Size = UDim2.new(0, 260, 0, 140)
@@ -46,7 +41,7 @@ keyEntry.Position = UDim2.new(0.5, -130, 0.5, -70)
 keyEntry.AnchorPoint = Vector2.new(0.5, 0.5)
 keyEntry.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 keyEntry.BorderSizePixel = 0
-keyEntry.Parent = mainGui
+keyEntry.Parent = CoreGui -- Parent to CoreGui
 local keyEntryCorner = Instance.new("UICorner", keyEntry)
 keyEntryCorner.CornerRadius = UDim.new(0, 8)
 
@@ -56,7 +51,7 @@ keyBox.Position = UDim2.new(0.05, 0, 0, 10)
 keyBox.PlaceholderText = "Enter Key"
 keyBox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 keyBox.TextColor3 = Color3.new(1, 1, 1)
-keyBox.Font = Enum.Font.Gotham
+keyBox.Font = FONT_MAIN
 keyBox.TextSize = 16
 keyBox.BorderSizePixel = 0
 keyBox.ClearTextOnFocus = false
@@ -67,7 +62,7 @@ local submitBtn = Instance.new("TextButton", keyEntry)
 submitBtn.Size = UDim2.new(0.9, 0, 0, 30)
 submitBtn.Position = UDim2.new(0.05, 0, 0, 50)
 submitBtn.Text = "Submit Key"
-submitBtn.Font = Enum.Font.Gotham
+submitBtn.Font = FONT_MAIN
 submitBtn.TextSize = 16
 submitBtn.TextColor3 = Color3.new(1, 1, 1)
 submitBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
@@ -79,7 +74,7 @@ local copyBtn = Instance.new("TextButton", keyEntry)
 copyBtn.Size = UDim2.new(0.9, 0, 0, 30)
 copyBtn.Position = UDim2.new(0.05, 0, 0, 90)
 copyBtn.Text = "Copy Key Link"
-copyBtn.Font = Enum.Font.Gotham
+copyBtn.Font = FONT_MAIN
 copyBtn.TextSize = 16
 copyBtn.TextColor3 = Color3.fromRGB(220, 220, 220)
 copyBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
@@ -104,19 +99,17 @@ end)
 local function loadModules()
     sendNotification("Loading Modules", "Fetching UI...")
     
-    -- FIXED PCALL LOGIC
     local success, uiScript = pcall(function() return game:HttpGet(UI_MODULE_URL) end)
     if not success then
-        sendNotification("UI Load Failed", tostring(uiScript)) -- uiScript is the error message
+        sendNotification("UI Load Failed", tostring(uiScript))
         return
     end
     
     sendNotification("Loading Modules", "Fetching Core...")
     
-    -- FIXED PCALL LOGIC
     local success, coreScript = pcall(function() return game:HttpGet(CORE_MODULE_URL) end)
     if not success then
-        sendNotification("Core Load Failed", tostring(coreScript)) -- coreScript is the error message
+        sendNotification("Core Load Failed", tostring(coreScript))
         return
     end
 
@@ -144,9 +137,8 @@ local function loadModules()
         return
     end
 
-    sendNotification("Success", "Macro V2 Loaded.")
-    mainFrame.Visible = true -- Make the (now loaded) GUI visible
-    toggleGuiBtn.Visible = true
+    -- Success! The Core_Module.lua will send the final "Loaded" notification
+    -- and make the GUI visible.
 end
 
 -- --- Key Check Logic ---
@@ -155,6 +147,11 @@ submitBtn.MouseButton1Click:Connect(function()
     local expectedKey = "key_not_fetched"
     
     local httpGet = game.HttpGet or HttpGet
+    if not httpGet then
+        sendNotification("Key Check Failed", "No HttpGet function found.")
+        return
+    end
+    
     local success, response = pcall(function()
         return httpGet("https://pastebin.com/raw/v4eb6fHw", true)
     end)
@@ -162,13 +159,13 @@ submitBtn.MouseButton1Click:Connect(function()
     if success and response then
         expectedKey = response:match("%S+") or "pastebin_read_error"
     else
-        sendNotification("Key Check Failed", "Could not fetch key.")
+        sendNotification("Key Check Failed", "Could not fetch key. Check HttpService/network.")
     end
     
     if enteredKey == expectedKey or enteredKey == "happybirthday Mohamednigga" then
         sendNotification("Access Granted", "Welcome! Loading modules...")
         keyEntry:Destroy()
-        loadModules()
+        loadModules() -- Call the loader
     else
         keyBox.Text = ""
         keyBox.PlaceholderText = "Invalid key, try again"
