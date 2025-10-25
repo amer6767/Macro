@@ -255,40 +255,6 @@ end
 makeDraggable(mainFrame, dragLayer)
 makeDraggable(toggleGuiBtn, toggleGuiBtn)
 
--- --- Connect UI to Core Functions ---
--- Core.lua will be loaded after this script, so all these global UI
--- elements (btnAutoClicker, tabAutoClicker, etc.) will exist.
--- Core.lua will then be responsible for connecting functions to their
--- .MouseButton1Click events.
---
--- To make this work, we must define the connections in Core.lua,
--- but that means it has to be loaded *after* this UI module.
--- Let's try connecting them in Core.lua instead.
---
--- UPDATE: No, that's complex. Let's do it right.
--- The functions (like 'toggleAutoClicker') will be defined as
--- globals by Core.lua, so we can connect them here.
--- This requires Core.lua to be loaded FIRST.
---
--- Okay, new plan: Main.lua loads Core, then UI.
--- UI.lua will then connect to the (already existing) global functions.
-
--- btnAutoClicker.MouseButton1Click:Connect(toggleAutoClicker)
--- btnSetPosition.MouseButton1Click:Connect(setClickPosition)
--- btnStartRecording.MouseButton1Click:Connect(toggleRecording)
--- ...etc
---
--- This is a cleaner architecture but requires changing Main.lua.
---
--- FINAL DECISION: Let's stick to the original plan for simplicity.
--- Main.lua loads UI, then Core.
--- Core.lua will find the global UI elements and connect its
--- *local* functions to them. This is the most decoupled approach.
---
--- THEREFORE, this file needs no .MouseButton1Click connections,
--- *except* for the local 'makeDraggable' and tab switching.
---
--- This is cleaner.
 
 -- Tab switching is local to the UI, so we can connect it.
 tabAutoClicker.MouseButton1Click:Connect(function() 
