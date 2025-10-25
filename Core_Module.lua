@@ -83,7 +83,7 @@ local function selectTab(tabName)
     settingsContent.Visible = tabName == "settings"
     tabAutoClicker.BackgroundColor3 = tabName == "auto" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
     tabRecorder.BackgroundColor3 = tabName == "record" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = tabName == "settings" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
+    tabSettings.BackgroundColor3 = tabName == "settings" and Color3.fromRGB(60, 66, 60) or Color3.fromRGB(50, 50, 50)
 end
 
 local function getViewportSize()
@@ -392,7 +392,7 @@ local function toggleAutoClicker()
 
     stopAllProcesses()
     autoClickEnabled = true
-    btnAutoClicker.Text = "Auto Clicker: ON"
+    btnAutoClickC.Text = "Auto Clicker: ON"
     
     task.spawn(function()
         local nextTime = tick()
