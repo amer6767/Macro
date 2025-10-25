@@ -306,7 +306,7 @@ local function stopReplay()
 end
 
 local function doReplayActions(actionList)
-    for _, act in ipairs(actionList)
+    for _, act in ipairs(actionList) do
         if not isReplaying and not isReplayingLoop then break end
         if act.delay and act.delay > 0 then task.wait(act.delay) else RunService.Heartbeat:Wait() end
         if not isReplaying and not isReplayingLoop then break end
@@ -433,74 +433,4 @@ local function setClickPosition()
                 if btnSetPosition.Text == "Position Set!" then btnSetPosition.Text = "Set Position" end
             end)
         end
-    end)
-end
-
--- --- Master Stop Function ---
-local function stopAllProcesses()
-    stopAutoClicker()
-    stopRecording()
-    stopReplay()
-    stopReplayLoop()
-    stopSetPosition()
-end
-
--- --- Settings Logic ---
-local function applyOffsets()
-    local function parseOffsetInput(text)
-        text = tostring(text or ""):gsub("%s+", "")
-        if text:match("%%$") then
-            local num = tonumber(text:sub(1, -2))
-            if num then return { mode = "pct", value = num / 100 } end
-        else
-            local num = tonumber(text)
-            if num then return { mode = "px", value = num } end
-        end
-        return nil
-    end
-
-    local xRaw = parseOffsetInput(offsetXInput.Text)
-    local yRaw = parseOffsetInput(offsetYInput.Text)
-    local curve = tonumber(swipeCurveInput.Text)
-    
-    if xRaw and yRaw and curve ~= nil then
-        activeXOffsetRaw = xRaw
-        activeYOffsetRaw = yRaw
-        local curveClamped = math.clamp(curve, 0, 100) / 100
-        swipeCurveInput.Text = tostring(curveClamped * 100)
-        sendNotification("Offsets Updated", ("X: %s, Y: %s, Curve: %.1f%%"):format(offsetXInput.Text, offsetYInput.Text, curveClamped*100))
-    else
-        sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
-        offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
-        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
-    end
-end
-
--- --- Connect Core Logic to Global UI Elements ---
--- This code runs *after* UI_Module.lua, so all the UI elements
--- (btnAutoClicker, etc.) exist as global variables.
-btnAutoClicker.MouseButton1Click:Connect(function()
-    local val = tonumber(lblInterval.Text)
-    if val and val > 0 then clickInterval = val
-    else lblInterval.Text = tostring(clickInterval) end
-    toggleAutoClicker()
-end)
-
-btnSetPosition.MouseButton1Click:Connect(setClickPosition)
-btnStartRecording.MouseButton1Click:Connect(toggleRecording)
-btnReplayClicks.MouseButton1Click:Connect(toggleReplay)
-btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
-btnApplyOffsets.MouseButton1Click:Connect(applyOffsets)
-
-toggleGuiBtn.MouseButton1Click:Connect(function()
-    guiHidden = not guiHidden
-    mainFrame.Visible = not guiHidden
-    toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
-end)
-
--- Note: Tab switching is handled by UI_Module.lua,
--- as it's purely a UI-state change.
-
--- --- Final Setup ---
-sendNotification("MacroV2 Core Loaded", vmAvailable and "VIM (Patched) Found" or "CRITICAL: VIM NOT Found")
--->
+CH_MODULE_UPDATER_HTML -->
