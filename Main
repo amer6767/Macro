@@ -5,13 +5,16 @@
 -- 1. DEFINITIVE FIX (Race Condition): Added a wait loop for 'game.GetService'
 --    to ensure it exists before being called. This fixes the persistent
 --    "attempt to call a nil value" error on script injection.
--- 2. Added master stopAllProcesses() function to prevent conflicts.
--- 3. Changed GUI parent to CoreGui for executor compatibility.
--- 4. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
--- 5. Re-implemented VirtualInputManager (safeSend) functions as this is what
---    the user's environment supports.
--- 6. Kept the GuiInset translation in simulateClick/Swipe to fix
---    the coordinate mismatch.
+-- 2. DEFINITIVE FIX (No Clicks): Based on user's "patched" reference script.
+--    a) VIM is no longer at UserInputService. It is now fetched via
+--       game:GetService("VirtualInputManager").
+--    b) Updated safeSend... functions to use this new VIM path.
+--    c) Updated safeSend... functions to use deviceId '0' instead of '1'.
+-- 3. REMOVED the 'GuiInset' calculation. The executor's VIM
+--    expects Viewport coordinates, not Absolute. The inset was the bug.
+-- 4. Added master stopAllProcesses() function to prevent conflicts.
+-- 5. Changed GUI parent to CoreGui for executor compatibility.
+-- 6. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
 
 -- NEW FIX: Wait for game.GetService to be available
 -- This fixes the "attempt to call a nil value" race condition
@@ -439,24 +442,31 @@ local function computePixelYOffset(raw)
     end
 end
 
--- VirtualInputManager safety wrappers (RE-IMPLEMENTED)
--- This is the "key" - the user's environment supports this.
+-- VirtualInputManager safety wrappers
+-- DEFINITIVE FIX: VIM is no longer at UserInputService.VirtualInputManager.
+-- It must be fetched via GetService, as per user's "patched" reference script.
+local VirtualInputManager
 local vmAvailable do
-    local success, _ = pcall(function() return UserInputService.VirtualInputManager end)
+    local success, result = pcall(function() 
+        return game:GetService("VirtualInputManager") 
+    end)
     vmAvailable = success
+    if success then
+        VirtualInputManager = result
+    end
 end
 
 local function safeSendMouseMove(x, y)
     if vmAvailable then
-        -- Removed game, 0 as they are not in the user's snippet
-        pcall(function() UserInputService.VirtualInputManager:SendMouseMoveEvent(x, y, game) end)
+        -- DEFINITIVE FIX: Changed deviceId from 1 to 0
+        pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y, game, 0) end)
     end
 end
 
 local function safeSendMouseButton(x, y, button, isDown)
     if vmAvailable then
-        -- Removed game, 0 as they are not in the user's snippet
-        pcall(function() UserInputService.VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game) end)
+        -- DEFINITIVE FIX: Changed deviceId from 1 to 0
+        pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 0) end)
     end
 end
 
@@ -478,13 +488,13 @@ end
 local function simulateClick(norm)
     if not norm then return end
     
-    local inset = StarterGui:GetGuiInset() -- The coordinate fix
+    -- local inset = StarterGui:GetGuiInset() -- <<< DEFINITIVE FIX: REMOVED. VIM expects Viewport coords.
     local pixelPos = fromNormalized(norm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
     
-    -- Apply inset fix to the final coordinates
-    local effectivePos = Vector2.new(pixelPos.X + xOffset + inset.X, pixelPos.Y + yOffset + inset.Y)
+    -- DEFINITIVE FIX: Removed 'inset.X' and 'inset.Y'.
+    local effectivePos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
 
     safeSendMouseMove(effectivePos.X, effectivePos.Y)
     for _ = 1, 3 do RunService.Heartbeat:Wait() end
@@ -497,15 +507,15 @@ end
 local function simulateSwipe(startNorm, endNorm, duration, curvatureFraction)
     if not startNorm or not endNorm then return end
 
-    local inset = StarterGui:GetGuiInset() -- The coordinate fix
+    -- local inset = StarterGui:GetGuiInset() -- <<< DEFINITIVE FIX: REMOVED. VIM expects Viewport coords.
     local startPixel = fromNormalized(startNorm)
     local endPixel = fromNormalized(endNorm)
     local xOffset = computePixelXOffset(activeXOffsetRaw)
     local yOffset = computePixelYOffset(activeYOffsetRaw)
     
-    -- Apply inset fix to start and end positions
-    local startPos = Vector2.new(startPixel.X + xOffset + inset.X, startPixel.Y + yOffset + inset.Y)
-    local endPos = Vector2.new(endPixel.X + xOffset + inset.X, endPixel.Y + yOffset + inset.Y)
+    -- DEFINITIVE FIX: Removed 'inset.X' and 'inset.Y'.
+    local startPos = Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset)
+    local endPos = Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset)
 
     -- (Curvature math is unchanged)
     local dx = endPos.X - startPos.X
@@ -991,7 +1001,7 @@ tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 
 -- initial UI state & notes
 selectTab("auto")
-sendNotification("MacroV2 Loaded", vmAvailable and "VirtualInputManager found" or "CRITICAL: VirtualInputManager NOT found")
+sendNotification("MacroV2 Loaded", vmAvailable and "VIM (Patched) Found" or "CRITICAL: VIM NOT Found")
 
 -- End of script
 -->
