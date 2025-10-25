@@ -1,6 +1,6 @@
--- This is the COMBINED Macro Script
+-- This is the COMBINED Macro Script (Recorder Only)
 -- Execute this single file in Delta.
--- Key system and module loading have been removed.
+-- Key, AutoClicker, and Settings have been removed.
 
 -- --- Wait for Services ---
 while not (game and game.GetService and game.HttpGet) do
@@ -30,13 +30,12 @@ local function sendNotification(title, text)
     end)
 end
 
--- --- START OF UI_Module.lua CODE ---
+-- --- START OF UI CODE ---
 
 local FONT_MAIN = Enum.Font.Gotham
 local FONT_BOLD = Enum.Font.GothamBold
 
 -- --- Main ScreenGui ---
--- 'mainGui' will be a global variable in the loadstring environment.
 mainGui = Instance.new("ScreenGui")
 mainGui.Name = "MacroV2GUI"
 mainGui.IgnoreGuiInset = true
@@ -46,14 +45,14 @@ mainGui.Parent = CoreGui
 
 -- --- Main Frame ---
 mainFrame = Instance.new("Frame", mainGui)
-mainFrame.Name = "MacroFrame" -- Give it a name to wait for
-mainFrame.Size = UDim2.new(0, 260, 0, 360)
+mainFrame.Name = "MacroFrame"
+mainFrame.Size = UDim2.new(0, 260, 0, 220) -- Reduced height
 mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
-mainFrame.Visible = false -- Core.lua will make this visible
+mainFrame.Visible = false -- Will be made visible at the end
 local frameCorner = Instance.new("UICorner", mainFrame)
 frameCorner.CornerRadius = UDim.new(0, 12)
 
@@ -66,70 +65,17 @@ dragLayer.Active = true
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 40)
 title.BackgroundTransparency = 1
-title.Text = "Macro V2"
+title.Text = "Macro Recorder" -- Renamed title
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = FONT_BOLD
 title.TextSize = 22
 title.ZIndex = 2
 
--- --- Tab Bar ---
-tabBar = Instance.new("Frame", mainFrame)
-tabBar.Size = UDim2.new(1, 0, 0, 40)
-tabBar.Position = UDim2.new(0, 0, 0, 40)
-tabBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-
-tabAutoClicker = Instance.new("TextButton", tabBar)
-tabAutoClicker.Size = UDim2.new(0, 75, 1, 0)
-tabAutoClicker.Text = "Auto"
-tabAutoClicker.Font = FONT_MAIN
-tabAutoClicker.TextSize = 14
-tabAutoClicker.TextColor3 = Color3.new(1, 1, 1)
-tabAutoClicker.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabAutoCorner = Instance.new("UICorner", tabAutoClicker)
-tabAutoCorner.CornerRadius = UDim.new(0, 4)
-
-tabRecorder = Instance.new("TextButton", tabBar)
-tabRecorder.Size = UDim2.new(0, 75, 1, 0)
-tabRecorder.Position = UDim2.new(0, 75, 0, 0)
-tabRecorder.Text = "Record"
-tabRecorder.Font = FONT_MAIN
-tabRecorder.TextSize = 14
-tabRecorder.TextColor3 = Color3.new(1, 1, 1)
-tabRecorder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabRecordCorner = Instance.new("UICorner", tabRecorder)
-tabRecordCorner.CornerRadius = UDim.new(0, 4)
-
-tabSettings = Instance.new("TextButton", tabBar)
-tabSettings.Size = UDim2.new(0, 75, 1, 0)
-tabSettings.Position = UDim2.new(0, 150, 0, 0)
-tabSettings.Text = "Settings"
-tabSettings.Font = FONT_MAIN
-tabSettings.TextSize = 14
-tabSettings.TextColor3 = Color3.new(1, 1, 1)
-tabSettings.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabSettingsCorner = Instance.new("UICorner", tabSettings)
-tabSettingsCorner.CornerRadius = UDim.new(0, 4)
-
--- --- Content Areas ---
+-- --- Content Area (No tabs needed) ---
 contentArea = Instance.new("Frame", mainFrame)
-contentArea.Size = UDim2.new(1, 0, 1, -80)
-contentArea.Position = UDim2.new(0, 0, 0, 80)
+contentArea.Size = UDim2.new(1, 0, 1, -40) -- Fills space below title
+contentArea.Position = UDim2.new(0, 0, 0, 40)
 contentArea.BackgroundTransparency = 1
-
-autoContent = Instance.new("Frame", contentArea)
-autoContent.Size = UDim2.new(1, 0, 1, 0)
-autoContent.BackgroundTransparency = 1
-autoContent.Visible = true -- Will be controlled by Core.lua
-
-recordContent = Instance.new("Frame", contentArea)
-recordContent.Size = UDim2.new(1, 0, 1, 0)
-recordContent.BackgroundTransparency = 1
-recordContent.Visible = false
-
-settingsContent = Instance.new("Frame", contentArea)
-settingsContent.Size = UDim2.new(1, 0, 1, 0)
-settingsContent.BackgroundTransparency = 1
-settingsContent.Visible = false
 
 -- --- Button Factory ---
 local function createButton(text, posY, parent)
@@ -149,28 +95,12 @@ local function createButton(text, posY, parent)
     return btn
 end
 
--- --- Auto Tab Content ---
-btnAutoClicker = createButton("Auto Clicker: OFF", 10, autoContent)
-btnSetPosition = createButton("Set Position", 50, autoContent)
-lblInterval = Instance.new("TextBox", autoContent)
-lblInterval.Size = UDim2.new(0.85, 0, 0, 30)
-lblInterval.Position = UDim2.new(0.075, 0, 0, 90)
-lblInterval.PlaceholderText = "Click Interval (sec)"
-lblInterval.Text = "0.2" -- Default
-lblInterval.Font = FONT_MAIN
-lblInterval.TextSize = 14
-lblInterval.TextColor3 = Color3.fromRGB(255, 255, 255)
-lblInterval.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-lblInterval.BorderSizePixel = 0
-local lblIntervalCorner = Instance.new("UICorner", lblInterval)
-lblIntervalCorner.CornerRadius = UDim.new(0, 6)
+-- --- Recorder Content (placed directly in contentArea) ---
+btnStartRecording = createButton("Start Recording", 10, contentArea)
+btnReplayClicks = createButton("Replay Clicks", 50, contentArea)
+btnReplayLoop = createButton("Replay Loop: OFF", 90, contentArea)
 
--- --- Record Tab Content ---
-btnStartRecording = createButton("Start Recording", 10, recordContent)
-btnReplayClicks = createButton("Replay Clicks", 50, recordContent)
-btnReplayLoop = createButton("Replay Loop: OFF", 90, recordContent)
-
-replayCountInput = Instance.new("TextBox", recordContent)
+replayCountInput = Instance.new("TextBox", contentArea)
 replayCountInput.Size = UDim2.new(0.85, 0, 0, 30)
 replayCountInput.Position = UDim2.new(0.075, 0, 0, 130)
 replayCountInput.PlaceholderText = "Replay Amount (default 1)"
@@ -184,54 +114,6 @@ replayCountInput.ZIndex = 3
 local replayCorner = Instance.new("UICorner", replayCountInput)
 replayCorner.CornerRadius = UDim.new(0, 6)
 
--- --- Settings Tab Content ---
-offsetXInput = Instance.new("TextBox", settingsContent)
-offsetXInput.Size = UDim2.new(0.85, 0, 0, 30)
-offsetXInput.Position = UDim2.new(0.075, 0, 0, 10)
-offsetXInput.PlaceholderText = "Set X Offset (px or % e.g. 10 or 2%)"
-offsetXInput.Text = "0"
-offsetXInput.Font = FONT_MAIN
-offsetXInput.TextSize = 16
-offsetXInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-offsetXInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-offsetXInput.BorderSizePixel = 0
-offsetXInput.ClearTextOnFocus = false
-offsetXInput.ZIndex = 3
-local offsetXCorner = Instance.new("UICorner", offsetXInput)
-offsetXCorner.CornerRadius = UDim.new(0, 6)
-
-offsetYInput = Instance.new("TextBox", settingsContent)
-offsetYInput.Size = UDim2.new(0.85, 0, 0, 30)
-offsetYInput.Position = UDim2.new(0.075, 0, 0, 50)
-offsetYInput.PlaceholderText = "Set Y Offset (px or % e.g. -5 or -1%)"
-offsetYInput.Text = "0"
-offsetYInput.Font = FONT_MAIN
-offsetYInput.TextSize = 16
-offsetYInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-offsetYInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-offsetYInput.BorderSizePixel = 0
-offsetYInput.ClearTextOnFocus = false
-offsetYInput.ZIndex = 3
-local offsetYCorner = Instance.new("UICorner", offsetYInput)
-offsetYCorner.CornerRadius = UDim.new(0, 6)
-
-swipeCurveInput = Instance.new("TextBox", settingsContent)
-swipeCurveInput.Size = UDim2.new(0.85, 0, 0, 30)
-swipeCurveInput.Position = UDim2.new(0.075, 0, 0, 90)
-swipeCurveInput.PlaceholderText = "Swipe Curvature (0..50%)"
-swipeCurveInput.Text = "0" -- Default
-swipeCurveInput.Font = FONT_MAIN
-swipeCurveInput.TextSize = 16
-swipeCurveInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-swipeCurveInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-swipeCurveInput.BorderSizePixel = 0
-swipeCurveInput.ClearTextOnFocus = false
-swipeCurveInput.ZIndex = 3
-local swipeCorner = Instance.new("UICorner", swipeCurveInput)
-swipeCorner.CornerRadius = UDim.new(0, 6)
-
-btnApplyOffsets = createButton("Apply Offsets & Swipe Curve", 130, settingsContent)
-
 -- --- Toggle Button ---
 toggleGuiBtn = Instance.new("TextButton", mainGui)
 toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30)
@@ -242,7 +124,7 @@ toggleGuiBtn.TextSize = 14
 toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
 toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleGuiBtn.ZIndex = 1000
-toggleGuiBtn.Visible = false -- Core.lua will make this visible
+toggleGuiBtn.Visible = false -- Will be made visible at the end
 toggleGuiBtn.Active = true
 local toggleCorner = Instance.new("UICorner", toggleGuiBtn)
 toggleCorner.CornerRadius = UDim.new(0, 6)
@@ -283,24 +165,19 @@ end
 makeDraggable(mainFrame, dragLayer)
 makeDraggable(toggleGuiBtn, toggleGuiBtn)
 
--- --- END OF UI_Module.lua CODE ---
+-- --- END OF UI CODE ---
 
 
--- --- START OF Core_Module.lua CODE ---
+-- --- START OF CORE CODE ---
 
 -- --- Config ---
 local MIN_CLICK_HOLD_DURATION = 0.05
 local SWIPE_MIN_PIXELS = 8
 local SWIPE_SAMPLE_FPS = 60
-local SWIPE_CURVATURE_DEFAULT = 0.0
+local SWIPE_CURVATURE_DEFAULT = 0.0 -- Hard-coded curvature
 local SWIPE_EASING = "easeInOutQuad"
 
 -- --- State Variables ---
-local autoClickEnabled = false
-local clickInterval = 0.2
-local clickPosition = Vector2.new(500, 500)
-local waitingForPosition = false
-
 local isRecording = false
 local recordedActions = {}
 local recordStartTime = 0
@@ -313,11 +190,7 @@ local currentReplayThread = nil
 local isReplayingLoop = false
 local currentReplayLoopThread = nil
 
-local activeXOffsetRaw = { mode = "px", value = 0 }
-local activeYOffsetRaw = { mode = "px", value = 0 }
-
 local guiHidden = false
-local positionSetConnection = nil
 
 -- --- task Shim ---
 if type(task) ~= "table" or type(task.spawn) ~= "function" then
@@ -345,53 +218,6 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
             end
         end
     }
-end
-
--- --- Helper Functions ---
--- (sendNotification is already defined at the top)
-
-local function selectTab(tabName)
-    autoContent.Visible = tabName == "auto"
-    recordContent.Visible = tabName == "record"
-    settingsContent.Visible = tabName == "settings"
-    tabAutoClicker.BackgroundColor3 = tabName == "auto" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-    tabRecorder.BackgroundColor3 = tabName == "record" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = tabName == "settings" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-end
-
-local function getViewportSize()
-    local cam = workspace.CurrentCamera
-    if cam and cam.ViewportSize then
-        return cam.ViewportSize
-    end
-    return Vector2.new(1920, 1080)
-end
-
-local function toNormalized(pos)
-    local vs = getViewportSize()
-    if vs.X == 0 or vs.Y == 0 then return Vector2.new(0,0) end
-    return Vector2.new(pos.X / vs.X, pos.Y / vs.Y)
-end
-
-local function fromNormalized(norm)
-    local vs = getViewportSize()
-    return Vector2.new(math.clamp(norm.X * vs.X, 0, vs.X), math.clamp(norm.Y * vs.Y, 0, vs.Y))
-end
-
-local function computePixelXOffset(raw)
-    if raw.mode == "px" then
-        return raw.value
-    else
-        return raw.value * getViewportSize().X
-    end
-end
-
-local function computePixelYOffset(raw)
-    if raw.mode == "px" then
-        return raw.value
-    else
-        return raw.value * getViewportSize().Y
-    end
 end
 
 -- --- VIM (Click Engine) ---
@@ -434,23 +260,21 @@ end
 -- --- Simulation Functions (The "Engine") ---
 local function simulateClick(pixelPos)
     if not pixelPos then return end
-    local xOffset = computePixelXOffset(activeXOffsetRaw)
-    local yOffset = computePixelYOffset(activeYOffsetRaw)
-    local effectivePos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
-
-    safeSendMouseMove(effectivePos.X, effectivePos.Y)
+    
+    -- No offsets, use position directly
+    safeSendMouseMove(pixelPos.X, pixelPos.Y)
     for _ = 1, 3 do RunService.Heartbeat:Wait() end
-    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, true)
+    safeSendMouseButton(pixelPos.X, pixelPos.Y, 0, true)
     task.wait(MIN_CLICK_HOLD_DURATION)
-    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, false)
+    safeSendMouseButton(pixelPos.X, pixelPos.Y, 0, false)
 end
 
 local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
     if not startPixel or not endPixel then return end
-    local xOffset = computePixelXOffset(activeXOffsetRaw)
-    local yOffset = computePixelYOffset(activeYOffsetRaw)
-    local startPos = Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset)
-    local endPos = Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset)
+
+    -- No offsets, use positions directly
+    local startPos = startPixel
+    local endPos = endPixel
 
     local dx = endPos.X - startPos.X
     local dy = endPos.Y - startPos.Y
@@ -484,37 +308,23 @@ end
 
 -- --- Stop All ---
 local function stopAllProcesses()
-    -- This function needs to be defined *before* it's used
-    -- So we declare it here, and define it properly after
-    -- all the stop...() functions exist.
-    
-    -- Forward-declare functions to stop processes
-    local stopAutoClicker_impl
     local stopRecording_impl
     local stopReplay_impl
     local stopReplayLoop_impl
-    local stopSetPosition_impl
 
-    -- Define the main function
     function stopAllProcesses()
-        if stopAutoClicker_impl then stopAutoClicker_impl() end
         if stopRecording_impl then stopRecording_impl() end
         if stopReplay_impl then stopReplay_impl() end
         if stopReplayLoop_impl then stopReplayLoop_impl() end
-        if stopSetPosition_impl then stopSetPosition_impl() end
     end
     
-    -- Return a function to assign implementations
     return function(impls)
-        stopAutoClicker_impl = impls.stopAutoClicker
         stopRecording_impl = impls.stopRecording
         stopReplay_impl = impls.stopReplay
         stopReplayLoop_impl = impls.stopReplayLoop
-        stopSetPosition_impl = impls.stopSetPosition
     end
 end
 
--- Create stopAllProcesses and get the 'assigner' function
 local assignStopFunctions = stopAllProcesses()
 
 -- --- Recording Logic ---
@@ -626,9 +436,8 @@ local function doReplayActions(actionList)
         if act.type == "tap" then
             simulateClick(act.pixelPos)
         elseif act.type == "swipe" then
-            local curve = tonumber(swipeCurveInput.Text) or (SWIPE_CURVATURE_DEFAULT * 100)
-            curve = math.clamp(curve, 0, 100) / 100
-            simulateSwipe(act.startPixel, act.endPixel, act.duration or 0.12, curve)
+            -- Use hard-coded curvature default since settings are removed
+            simulateSwipe(act.startPixel, act.endPixel, act.duration or 0.12, SWIPE_CURVATURE_DEFAULT)
         end
     end
 end
@@ -685,145 +494,17 @@ local function toggleReplayLoop()
     end)
 end
 
--- --- Autoclicker Logic ---
-local function stopAutoClicker()
-    if not autoClickEnabled then return end
-    autoClickEnabled = false
-    btnAutoClicker.Text = "Auto Clicker: OFF"
-end
-
-local function toggleAutoClicker()
-    if autoClickEnabled then
-        stopAutoClicker()
-        return
-    end
-
-    stopAllProcesses()
-    autoClickEnabled = true
-    btnAutoClicker.Text = "Auto Clicker: ON"
-    
-    task.spawn(function()
-        local nextTime = tick()
-        while autoClickEnabled do
-            local interval = math.max(0.001, clickInterval)
-            nextTime = nextTime + interval
-            simulateClick(clickPosition)
-            local waitTime = nextTime - tick()
-            if waitTime > 0 then
-                task.wait(waitTime)
-            else
-                RunService.Heartbeat:Wait()
-                nextTime = tick() 
-            end
-        end
-    end)
-end
-
--- --- Set Position Logic ---
-local function stopSetPosition()
-    if not waitingForPosition then return end
-    waitingForPosition = false
-    if btnSetPosition.Text ~= "Set Position" then
-        btnSetPosition.Text = "Set Position"
-    end
-    if positionSetConnection then
-        local connToDisconnect = positionSetConnection
-        positionSetConnection = nil
-        task.spawn(function()
-            pcall(function() connToDisconnect:Disconnect() end)
-        end)
-    end
-end
-
-local function setClickPosition()
-    if waitingForPosition then
-        stopSetPosition()
-        return
-    end
-    
-    stopAllProcesses()
-    waitingForPosition = true
-    btnSetPosition.Text = "Tap anywhere..."
-    
-    positionSetConnection = UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-        if not waitingForPosition or gameProcessedEvent then return end
-        local ut = input.UserInputType
-        
-        if (ut == Enum.UserInputType.MouseButton1 or ut == Enum.UserInputType.Touch) and input.UserInputState == Enum.UserInputState.Begin then
-            local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
-            if isOverOurGUI(pos) then return end
-            
-            clickPosition = pos
-            stopSetPosition()
-            
-            btnSetPosition.Text = "Position Set!"
-            task.delay(1, function()
-                if btnSetPosition.Text == "Position Set!" then
-                    btnSetPosition.Text = "Set Position"
-                end
-            end)
-        end
-    end)
-end
-
 -- --- Assign Stop Functions ---
 assignStopFunctions({
-    stopAutoClicker = stopAutoClicker,
     stopRecording = stopRecording,
     stopReplay = stopReplay,
-    stopReplayLoop = stopReplayLoop,
-    stopSetPosition = stopSetPosition
+    stopReplayLoop = stopReplayLoop
 })
 
-
 -- --- GUI Connections ---
-btnAutoClicker.MouseButton1Click:Connect(function()
-    local val = tonumber(lblInterval.Text)
-    if val and val > 0 then
-        clickInterval = val
-    else
-        lblInterval.Text = tostring(clickInterval)
-    end
-    toggleAutoClicker()
-end)
-
-btnSetPosition.MouseButton1Click:Connect(setClickPosition)
 btnStartRecording.MouseButton1Click:Connect(toggleRecording)
 btnReplayClicks.MouseButton1Click:Connect(toggleReplay)
 btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
-
-btnApplyOffsets.MouseButton1Click:Connect(function()
-    local function parseOffsetInput(text)
-        text = tostring(text or "")
-        text = text:gsub("%s+", "")
-        if text:match("%%$") then
-            local num = tonumber(text:sub(1, -2))
-            if num then return { mode = "pct", value = num / 100 } end
-        else
-            local num = tonumber(text)
-            if num then return { mode = "px", value = num } end
-        end
-        return nil
-    end
-
-    local xRaw = parseOffsetInput(offsetXInput.Text)
-    local yRaw = parseOffsetInput(offsetYInput.Text)
-    local curve = tonumber(swipeCurveInput.Text)
-    
-    if xRaw and yRaw and curve ~= nil then
-        activeXOffsetRaw = xRaw
-        activeYOffsetRaw = yRaw
-        local curveClamped = math.clamp(curve, 0, 100) / 100
-        swipeCurveInput.Text = tostring(curveClamped * 100)
-        
-        sendNotification("Offsets Updated", ("X: %s, Y: %s, Curve: %.1f%%")
-            :format(offsetXInput.Text, offsetYInput.Text, curveClamped*100))
-    else
-        sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
-        offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
-        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
-    end
-end)
 
 toggleGuiBtn.MouseButton1Click:Connect(function()
     guiHidden = not guiHidden
@@ -831,17 +512,11 @@ toggleGuiBtn.MouseButton1Click:Connect(function()
     toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
 end)
 
--- Tab connections
-tabAutoClicker.MouseButton1Click:Connect(function() selectTab("auto") end)
-tabRecorder.MouseButton1Click:Connect(function() selectTab("record") end)
-tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
-
 -- --- Initial State ---
-selectTab("auto")
-sendNotification("MacroV2 Loaded", vmAvailable and "VIM (Patched) Found" or "CRITICAL: VIM NOT Found")
+sendNotification("Macro Recorder Loaded", vmAvailable and "VIM (PatZched) Found" or "CRITICAL: VIM NOT Found")
 
--- Make GUI visible now that modules are loaded
+-- Make GUI visible now that script is loaded
 mainFrame.Visible = true
 toggleGuiBtn.Visible = true
 
--- --- END OF Core_Module.lua CODE ---
+-- --- END OF CORE CODE ---
