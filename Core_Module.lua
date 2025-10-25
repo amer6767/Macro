@@ -433,4 +433,72 @@ local function setClickPosition()
                 if btnSetPosition.Text == "Position Set!" then btnSetPosition.Text = "Set Position" end
             end)
         end
-CH_MODULE_UPDATER_HTML -->
+    end)
+end
+
+-- --- Stop All ---
+local function stopAllProcesses()
+    stopAutoClicker()
+    stopSetPosition()
+    stopRecording()
+    stopReplay()
+    stopReplayLoop()
+end
+
+-- --- Offset / Settings Logic ---
+local function parseOffset(text)
+    local num, suffix = text:match("^(-?[%d%.]+)(%%?)$")
+    num = tonumber(num)
+    if not num then return { mode = "px", value = 0 } end
+    if suffix == "%" then
+        return { mode = "percent", value = num / 100 }
+    else
+        return { mode = "px", value = num }
+    end
+end
+
+local function applySettings()
+    activeXOffsetRaw = parseOffset(offsetXInput.Text or "0")
+    activeYOffsetRaw = parseOffset(offsetYInput.Text or "0")
+    
+    -- Update placeholders to show current value
+    offsetXInput.Text = tostring(activeXOffsetRaw.mode == "px" and activeXOffsetRaw.value or (activeXOffsetRaw.value * 100) .. "%")
+    offsetYInput.Text = tostring(activeYOffsetRaw.mode == "px" and activeYOffsetRaw.value or (activeYOffsetRaw.value * 100) .. "%")
+    
+    local curve = tonumber(swipeCurveInput.Text) or (SWIPE_CURVATURE_DEFAULT * 100)
+    curve = math.clamp(curve, 0, 50)
+    swipeCurveInput.Text = tostring(curve)
+    
+    sendNotification("Settings Applied", "Offsets and swipe settings updated.")
+end
+
+-- --- GUI Connections ---
+-- This connects the Core functions to the global UI elements created by UI_Module.lua
+btnAutoClicker.MouseButton1Click:Connect(toggleAutoClicker)
+btnSetPosition.MouseButton1Click:Connect(setClickPosition)
+lblInterval.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        local num = tonumber(lblInterval.Text)
+        clickInterval = (num and num > 0.001) and num or 0.2
+        lblInterval.Text = tostring(clickInterval)
+    end
+end)
+
+btnStartRecording.MouseButton1Click:Connect(toggleRecording)
+btnReplayClicks.MouseButton1Click:Connect(toggleReplay)
+btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
+replayCountInput.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        local num = tonumber(replayCountInput.Text)
+        replayCount = (num and num > 0) and math.floor(num) or 1
+        replayCountInput.Text = tostring(replayCount)
+    end
+end)
+
+btnApplyOffsets.MouseButton1Click:Connect(applySettings)
+
+toggleGuiBtn.MouseButton1Click:Connect(function()
+    guiHidden = not guiHidden
+    mainFrame.Visible = not guiHidden
+    toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
+end)
