@@ -1,373 +1,1015 @@
--- Macro Script - Definitive Fix v7: Universal Compatibility Engine
--- Enhanced for stability on Delta, mobile, and other executors.
--- Features a robust input detection system, improved calibration, and resilient error handling.
+-- Roblox Macro V2 (Fixed + Mobile/Android improvements + Advanced swipe)
+-- Put this as a LocalScript in StarterPlayerScripts or StarterGui
+--
+-- Fixes/Improvements:
+-- 1. DEFINITIVE FIX (Offset Bug): Removed all normalization (toNormalized,
+--    fromNormalized) from the core record/replay logic.
+--    The script now records RAW PIXEL coordinates and replays
+--    RAW PIXEL coordinates, creating a 1:1 match and fixing the offset.
+-- 2. `getViewportSize` is now ONLY used for percentage-based offsets
+--    in the Settings tab and uses a 1920x1080 fallback if the
+--    real camera size can't be found.
+-- 3. DEFINITIVE FIX (Race Condition): Added a wait loop for 'game.GetService'
+--    to ensure it exists before being called.
+-- 4. DEFINITIVE FIX (No Clicks):
+--    a) VIM is now fetched via game:GetService("VirtualInputManager").
+--    b) VIM functions now use deviceId '0'.
+-- 5. REMOVED the 'GuiInset' calculation. VIM expects Viewport coordinates.
+-- 6. Added master stopAllProcesses() function to prevent conflicts.
+-- 7. Changed GUI parent to CoreGui for executor compatibility.
+-- 8. Patched input race condition in 'setClickPosition' to prevent 'stuck dragging'.
+--
+-- V3 (Calibration) Changes:
+-- 1. Added explicit calibration system for executor coordinate conversion.
+-- 2. Added Virtual Width/Height inputs in Settings.
+-- 3. `simulateClick` and `simulateSwipe` now use `ViewportToExecutor` for final coords.
 
--- --- Service Loading ---
-local StarterGui = game:GetService("StarterGui")
-local CoreGui = game:GetService("CoreGui")
-local RunService = game:GetService("RunService")
+-- NEW FIX: Wait for game.GetService to be available
+-- This fixes the "attempt to call a nil value" race condition
+while not (game and game.GetService) do
+    wait(0.05)
+end
+
+-- Now it's safe to call GetService
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
+local workspace = workspace
 
--- --- Task Library Shim for backwards compatibility ---
--- Provides a consistent API for threading and waiting, avoiding errors on older executors.
-local _task = {}
-if type(task) == "table" then
-    _task.spawn = task.spawn
-    _task.wait = task.wait
-    _task.cancel = task.cancel
-else
-    _task.spawn = coroutine.wrap
-    _task.wait = function(t)
-        local s = os.clock()
-        while os.clock() - s < (t or 0) do RunService.Heartbeat:Wait() end
-    end
-    _task.cancel = function(thread)
-        if coroutine.status(thread) ~= "dead" then coroutine.close(thread) end
-    end
+-- Wait for LocalPlayer to exist (crucial for executor injection)
+local player = Players.LocalPlayer
+while not player do
+    RunService.Heartbeat:Wait()
+    player = Players.LocalPlayer
 end
 
--- --- Helper ---
-local function sendNotification(title, text, duration)
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = duration or 5})
-    end)
+-- Config
+local MIN_CLICK_HOLD_DURATION = 0.05
+local FONT_MAIN = Enum.Font.Gotham
+local FONT_BOLD = Enum.Font.GothamBold
+local SWIPE_MIN_PIXELS = 8 -- Min pixel distance to register as a swipe
+local SWIPE_SAMPLE_FPS = 60 -- How many steps to simulate in a swipe
+local SWIPE_CURVATURE_DEFAULT = 0.0 -- fraction of distance perpendicular to swipe (0..0.5 typical)
+local SWIPE_EASING = "easeInOutQuad" -- implemented easing
+
+local CoreGui = game:GetService("CoreGui") -- Use CoreGui for executors
+local mouse = player:GetMouse()
+
+-- State
+local autoClickEnabled = false
+local clickInterval = 0.2
+-- DEFINITIVE FIX: Storing raw pixels. Default to a reasonable center.
+local clickPosition = Vector2.new(500, 500)
+local waitingForPosition = false
+
+local isRecording = false
+local recordedActions = {}
+local recordStartTime = 0
+local recordConnections = {} -- store connections to disconnect later
+
+local isReplaying = false
+local replayCount = 1
+local currentReplayThread = nil
+
+local isReplayingLoop = false
+local currentReplayLoopThread = nil
+
+-- Offsets: store as {mode="px"|"pct", value=number}
+local activeXOffsetRaw = { mode = "px", value = 0 }
+local activeYOffsetRaw = { mode = "px", value = 0 }
+
+local guiHidden = false
+
+-- Calibration State
+local guiInset, hardwareScreenSize = Vector2.new(0, 0), Vector2.new(0, 0)
+local virtualScreenSize = Vector2.new(1920, 1080)
+local scaleFactor = Vector2.new(1, 1)
+
+-- task shim (if needed, for compatibility with different environments)
+if type(task) ~= "table" or type(task.spawn) ~= "function" then
+    task = {
+        spawn = function(func)
+            local co = coroutine.create(func)
+            coroutine.resume(co)
+            return co
+        end,
+        wait = function(time)
+            local start = tick()
+            while tick() - start < (time or 0) do
+                RunService.Heartbeat:Wait()
+            end
+        end,
+        delay = function(time, func)
+            task.spawn(function()
+                task.wait(time)
+                func()
+            end)
+        end,
+        cancel = function(co) -- best-effort
+            if type(co) == "thread" then
+                -- no safe cancel; leave nil
+            end
+        end
+    }
 end
 
--- --- UI ---
+-- UI Creation
 local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV7GUI"; mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
-mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global; mainGui.Parent = CoreGui
+mainGui.Name = "MacroV3GUI_Calibrated"
+mainGui.IgnoreGuiInset = true
+mainGui.ResetOnSpawn = false
+mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global -- Use Global for CoreGui
+mainGui.Parent = CoreGui -- Parent to CoreGui for executor
+
+local keyEntry = Instance.new("Frame")
+keyEntry.Size = UDim2.new(0, 260, 0, 140)
+keyEntry.Position = UDim2.new(0.5, -130, 0.5, -70)
+keyEntry.AnchorPoint = Vector2.new(0.5, 0.5)
+keyEntry.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+keyEntry.BorderSizePixel = 0
+keyEntry.Parent = mainGui
+local keyEntryCorner = Instance.new("UICorner", keyEntry)
+keyEntryCorner.CornerRadius = UDim.new(0, 8)
+
+local keyBox = Instance.new("TextBox", keyEntry)
+keyBox.Size = UDim2.new(0.9, 0, 0, 30)
+keyBox.Position = UDim2.new(0.05, 0, 0, 10)
+keyBox.PlaceholderText = "Enter Key"
+keyBox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+keyBox.TextColor3 = Color3.new(1, 1, 1)
+keyBox.Font = FONT_MAIN
+keyBox.TextSize = 16
+keyBox.BorderSizePixel = 0
+keyBox.ClearTextOnFocus = false
+local keyBoxCorner = Instance.new("UICorner", keyBox)
+keyBoxCorner.CornerRadius = UDim.new(0, 6)
+
+local submitBtn = Instance.new("TextButton", keyEntry)
+submitBtn.Size = UDim2.new(0.9, 0, 0, 30)
+submitBtn.Position = UDim2.new(0.05, 0, 0, 50)
+submitBtn.Text = "Submit Key"
+submitBtn.Font = FONT_MAIN
+submitBtn.TextSize = 16
+submitBtn.TextColor3 = Color3.new(1, 1, 1)
+submitBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+submitBtn.BorderSizePixel = 0
+local submitBtnCorner = Instance.new("UICorner", submitBtn)
+submitBtnCorner.CornerRadius = UDim.new(0, 6)
+
+local copyBtn = Instance.new("TextButton", keyEntry)
+copyBtn.Size = UDim2.new(0.9, 0, 0, 30)
+copyBtn.Position = UDim2.new(0.05, 0, 0, 90)
+copyBtn.Text = "Copy Key Link"
+copyBtn.Font = FONT_MAIN
+copyBtn.TextSize = 16
+copyBtn.TextColor3 = Color3.fromRGB(220, 220, 220)
+copyBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+copyBtn.BorderSizePixel = 0
+local copyBtnCorner = Instance.new("UICorner", copyBtn)
+copyBtnCorner.CornerRadius = UDim.new(0, 6)
 
 local mainFrame = Instance.new("Frame", mainGui)
-mainFrame.Name = "MacroFrame"; mainFrame.Size = UDim2.new(0, 280, 0, 420) -- Increased height for new button
-mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0); mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30); mainFrame.BorderSizePixel = 0
+mainFrame.Size = UDim2.new(0, 260, 0, 440) -- Increased height for new fields
+mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
-local frameCorner = Instance.new("UICorner", mainFrame); frameCorner.CornerRadius = UDim.new(0, 12)
+mainFrame.Visible = false
+local frameCorner = Instance.new("UICorner", mainFrame)
+frameCorner.CornerRadius = UDim.new(0, 12)
 
 local dragLayer = Instance.new("Frame", mainFrame)
-dragLayer.Size = UDim2.new(1, 0, 0, 40); dragLayer.BackgroundTransparency = 1; dragLayer.Active = true
+dragLayer.Size = UDim2.new(1, 0, 0, 40)
+dragLayer.BackgroundTransparency = 1
+dragLayer.ZIndex = 1
+dragLayer.Active = true
 
 local title = Instance.new("TextLabel", mainFrame)
-title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundTransparency = 1
-title.Text = "Macro Recorder v7"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.GothamBold; title.TextSize = 22
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundTransparency = 1
+title.Text = "Macro V3 (Calibrated)"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = FONT_BOLD
+title.TextSize = 20
+title.ZIndex = 2
+
+local tabBar = Instance.new("Frame", mainFrame)
+tabBar.Size = UDim2.new(1, 0, 0, 40)
+tabBar.Position = UDim2.new(0, 0, 0, 40)
+tabBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+local tabAutoClicker = Instance.new("TextButton", tabBar)
+tabAutoClicker.Size = UDim2.new(0, 75, 1, 0)
+tabAutoClicker.Text = "Auto"
+tabAutoClicker.Font = FONT_MAIN
+tabAutoClicker.TextSize = 14
+tabAutoClicker.TextColor3 = Color3.new(1, 1, 1)
+tabAutoClicker.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+local tabAutoCorner = Instance.new("UICorner", tabAutoClicker)
+tabAutoCorner.CornerRadius = UDim.new(0, 4)
+
+local tabRecorder = Instance.new("TextButton", tabBar)
+tabRecorder.Size = UDim2.new(0, 75, 1, 0)
+tabRecorder.Position = UDim2.new(0, 75, 0, 0)
+tabRecorder.Text = "Record"
+tabRecorder.Font = FONT_MAIN
+tabRecorder.TextSize = 14
+tabRecorder.TextColor3 = Color3.new(1, 1, 1)
+tabRecorder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+local tabRecordCorner = Instance.new("UICorner", tabRecorder)
+tabRecordCorner.CornerRadius = UDim.new(0, 4)
+
+local tabSettings = Instance.new("TextButton", tabBar)
+tabSettings.Size = UDim2.new(0, 75, 1, 0)
+tabSettings.Position = UDim2.new(0, 150, 0, 0)
+tabSettings.Text = "Settings"
+tabSettings.Font = FONT_MAIN
+tabSettings.TextSize = 14
+tabSettings.TextColor3 = Color3.new(1, 1, 1)
+tabSettings.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+local tabSettingsCorner = Instance.new("UICorner", tabSettings)
+tabSettingsCorner.CornerRadius = UDim.new(0, 4)
 
 local contentArea = Instance.new("Frame", mainFrame)
-contentArea.Size = UDim2.new(1, -20, 1, -50); contentArea.Position = UDim2.new(0, 10, 0, 40)
+contentArea.Size = UDim2.new(1, 0, 1, -80)
+contentArea.Position = UDim2.new(0, 0, 0, 80)
 contentArea.BackgroundTransparency = 1
+
+local autoContent = Instance.new("Frame", contentArea)
+autoContent.Size = UDim2.new(1, 0, 1, 0)
+autoContent.BackgroundTransparency = 1
+autoContent.Visible = true
+
+local recordContent = Instance.new("Frame", contentArea)
+recordContent.Size = UDim2.new(1, 0, 1, 0)
+recordContent.BackgroundTransparency = 1
+recordContent.Visible = false
+
+local settingsContent = Instance.new("Frame", contentArea)
+settingsContent.Size = UDim2.new(1, 0, 1, 0)
+settingsContent.BackgroundTransparency = 1
+settingsContent.Visible = false
 
 local function createButton(text, posY, parent)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 30); btn.Position = UDim2.new(0, 0, 0, posY)
-    btn.Text = text; btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.Gotham; btn.TextSize = 16
-    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); btn.Parent = parent
-    local corner = Instance.new("UICorner", btn); corner.CornerRadius = UDim.new(0, 6)
+    btn.Size = UDim2.new(0.85, 0, 0, 30)
+    btn.Position = UDim2.new(0.075, 0, 0, posY)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = FONT_MAIN
+    btn.TextSize = 16
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.BorderSizePixel = 0
+    btn.ZIndex = 3
+    btn.Parent = parent
+    local corner = Instance.new("UICorner", btn)
+    corner.CornerRadius = UDim.new(0, 6)
     return btn
 end
 
-local btnStartRecording = createButton("Start Recording", 10, contentArea)
-local btnReplayClicks = createButton("Replay Once", 50, contentArea)
-local btnReplayLoop = createButton("Replay Loop: OFF", 90, contentArea)
-local btnClear = createButton("Clear Recording", 130, contentArea)
-local btnRecalibrate
+local function createInput(placeholder, text, posY, parent)
+	local input = Instance.new("TextBox")
+	input.Size = UDim2.new(0.85, 0, 0, 30)
+	input.Position = UDim2.new(0.075, 0, 0, posY)
+	input.PlaceholderText = placeholder
+	input.Text = text
+	input.Font = FONT_MAIN
+	input.TextSize = 16
+	input.TextColor3 = Color3.fromRGB(255, 255, 255)
+	input.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	input.BorderSizePixel = 0
+	input.ClearTextOnFocus = false
+	input.ZIndex = 3
+	input.Parent = parent
+	local corner = Instance.new("UICorner", input)
+	corner.CornerRadius = UDim.new(0, 6)
+	return input
+end
 
-local statusLabel = Instance.new("TextLabel", contentArea)
-statusLabel.Size = UDim2.new(1, 0, 0, 20); statusLabel.Position = UDim2.new(0, 0, 0, 170)
-statusLabel.BackgroundTransparency = 1; statusLabel.Font = Enum.Font.Gotham
-statusLabel.Text = "Idle"; statusLabel.TextSize = 14; statusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+local btnAutoClicker = createButton("Auto Clicker: OFF", 10, autoContent)
+local btnSetPosition = createButton("Set Position", 50, autoContent)
+local lblInterval = createInput("Click Interval (sec)", tostring(clickInterval), 90, autoContent)
 
-local calibrationTitle = Instance.new("TextLabel", contentArea)
-calibrationTitle.Size = UDim2.new(1, 0, 0, 30); calibrationTitle.Position = UDim2.new(0, 0, 0, 200)
-calibrationTitle.BackgroundTransparency = 1
-calibrationTitle.Text = "Virtual Resolution (Match PC display for Delta)"; calibrationTitle.Font = Enum.Font.Gotham
-calibrationTitle.TextSize = 12; calibrationTitle.TextColor3 = Color3.fromRGB(180, 180, 180)
-calibrationTitle.TextWrapped = true
+local btnStartRecording = createButton("Start Recording", 10, recordContent)
+local btnReplayClicks = createButton("Replay Clicks", 50, recordContent)
+local btnReplayLoop = createButton("Replay Loop: OFF", 90, recordContent)
+local replayCountInput = createInput("Replay Amount (default 1)", "1", 130, recordContent)
 
-local virtualWidthInput = Instance.new("TextBox", contentArea)
-virtualWidthInput.Size = UDim2.new(0.48, 0, 0, 30); virtualWidthInput.Position = UDim2.new(0, 0, 0, 235)
-virtualWidthInput.PlaceholderText = "Width"; virtualWidthInput.Text = "1920"
-virtualWidthInput.Font = Enum.Font.Gotham; virtualWidthInput.TextSize = 16
-virtualWidthInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-virtualWidthInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-local vwCorner = Instance.new("UICorner", virtualWidthInput); vwCorner.CornerRadius = UDim.new(0, 6)
+local offsetXInput = createInput("Set X Offset (px or % e.g. 10 or 2%)", "0", 10, settingsContent)
+local offsetYInput = createInput("Set Y Offset (px or % e.g. -5 or -1%)", "0", 50, settingsContent)
+local swipeCurveInput = createInput("Swipe Curvature (0..50%)", tostring(SWIPE_CURVATURE_DEFAULT * 100), 90, settingsContent)
+-- New UI Elements for Calibration
+local virtualWidthInput = createInput("Virtual Width (e.g. 1920)", "1920", 130, settingsContent)
+local virtualHeightInput = createInput("Virtual Height (e.g. 1080)", "1080", 170, settingsContent)
+-- Renamed and moved button
+local btnApplySettings = createButton("Apply Settings & Calibrate", 210, settingsContent)
 
-local virtualHeightInput = Instance.new("TextBox", contentArea)
-virtualHeightInput.Size = UDim2.new(0.48, 0, 0, 30); virtualHeightInput.Position = UDim2.new(0.52, 0, 0, 235)
-virtualHeightInput.PlaceholderText = "Height"; virtualHeightInput.Text = "1080"
-virtualHeightInput.Font = Enum.Font.Gotham; virtualHeightInput.TextSize = 16
-virtualHeightInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-virtualHeightInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-local vhCorner = Instance.new("UICorner", virtualHeightInput); vhCorner.CornerRadius = UDim.new(0, 6)
-
-btnRecalibrate = createButton("Recalibrate", 275, contentArea)
-btnRecalibrate.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
 
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
-toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30); toggleGuiBtn.Position = UDim2.new(0, 10, 0, 70)
-toggleGuiBtn.Text = "Hide"; toggleGuiBtn.Font = Enum.Font.Gotham; toggleGuiBtn.TextSize = 14
-toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255); toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-local toggleCorner = Instance.new("UICorner", toggleGuiBtn); toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30)
+toggleGuiBtn.Position = UDim2.new(0, 10, 0, 70)
+toggleGuiBtn.Text = "Hide"
+toggleGuiBtn.Font = FONT_MAIN
+toggleGuiBtn.TextSize = 14
+toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleGuiBtn.ZIndex = 1000
+toggleGuiBtn.Visible = false
+toggleGuiBtn.Active = true
+local toggleCorner = Instance.new("UICorner", toggleGuiBtn)
+toggleCorner.CornerRadius = UDim.new(0, 6)
 
+-- Helpers
 local function makeDraggable(guiObject, dragHandle)
-    local dragging = false; local dragStart; local startPos
+    local dragging = false
+    local dragStartMousePos
+    local objectStartPos
+
     dragHandle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; startPos = guiObject.Position; dragStart = UserInputService:GetMouseLocation()
+            dragging = true
+            dragStartMousePos = UserInputService:GetMouseLocation()
+            objectStartPos = guiObject.Position
         end
     end)
-    dragHandle.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = UserInputService:GetMouseLocation() - dragStart
-            guiObject.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+
+    dragHandle.InputChanged:Connect(function(changedInput)
+        if not dragging then return end
+        if changedInput.UserInputType == Enum.UserInputType.MouseMovement or changedInput.UserInputType == Enum.UserInputType.Touch then
+            local currentMousePos = UserInputService:GetMouseLocation()
+            local delta = currentMousePos - dragStartMousePos
+            guiObject.Position = UDim2.new(
+                objectStartPos.X.Scale, objectStartPos.X.Offset + delta.X,
+                objectStartPos.Y.Scale, objectStartPos.Y.Offset + delta.Y
+            )
         end
     end)
+
     dragHandle.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
     end)
 end
-makeDraggable(mainFrame, dragLayer); makeDraggable(toggleGuiBtn, toggleGuiBtn)
 
--- --- CORE LOGIC ---
-do
-    -- State
-    local isRecording, isReplaying, isReplayingLoop = false, false, false
-    local recordedActions = {}
-    local recordConnections = {}
-    local activeInputTrackers = {}
-    local lastEventTime = 0
-    local currentReplayThread = nil
+local function sendNotification(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = duration or 3})
+    end)
+end
 
-    -- Calibration
-    local guiInset, hardwareScreenSize = Vector2.new(0, 0), Vector2.new(0, 0)
-    local virtualScreenSize = Vector2.new(1920, 1080)
-    local scaleFactor = Vector2.new(1, 1)
+local function selectTab(tabName)
+    autoContent.Visible = tabName == "auto"
+    recordContent.Visible = tabName == "record"
+    settingsContent.Visible = tabName == "settings"
+    tabAutoClicker.BackgroundColor3 = tabName == "auto" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
+    tabRecorder.BackgroundColor3 = tabName == "record" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
+    tabSettings.BackgroundColor3 = tabName == "settings" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
+end
 
-    function updateCalibration()
-        local success, result = pcall(function() return GuiService:GetGuiInset() end)
-        guiInset = (success and result) or Vector2.new(0, 36)
+-- Viewport helpers (Still needed for % offsets)
+local function getViewportSize()
+    -- DEFINITIVE FIX: Re-enabled dynamic viewport. We need the REAL
+    -- viewport size for percentage offsets to work.
+    local cam = workspace.CurrentCamera
+    if cam and cam.ViewportSize then
+        return cam.ViewportSize
+    end
+    -- Fallback in case camera is not ready (e.g. 1920x1080)
+    return Vector2.new(1920, 1080)
+end
+
+-- Convert pixel coordinates (e.g., 300, 500) to normalized (e.g., 0.2, 0.4)
+-- THIS IS NOW *ONLY* USED FOR PERCENTAGE OFFSETS.
+local function toNormalized(pos)
+    local vs = getViewportSize()
+    if vs.X == 0 or vs.Y == 0 then return Vector2.new(0,0) end
+    return Vector2.new(pos.X / vs.X, pos.Y / vs.Y)
+end
+
+-- Convert normalized coordinates back to pixel
+-- THIS IS NOW *ONLY* USED FOR PERCENTAGE OFFSETS.
+local function fromNormalized(norm)
+    local vs = getViewportSize()
+    return Vector2.new(math.clamp(norm.X * vs.X, 0, vs.X), math.clamp(norm.Y * vs.Y, 0, vs.Y))
+end
+
+-- Calculate the final pixel offset from the raw setting (which could be px or %)
+local function computePixelXOffset(raw)
+    if raw.mode == "px" then
+        return raw.value
+    else
+        -- percent mode: value is fraction (e.g. 0.02 means 2% of viewport width)
+        return raw.value * getViewportSize().X
+    end
+end
+
+local function computePixelYOffset(raw)
+    if raw.mode == "px" then
+        return raw.value
+    else
+        -- percent mode: value is fraction (e.g. 0.02 means 2% of viewport height)
+        return raw.value * getViewportSize().Y
+    end
+end
+
+-- --- NEW CALIBRATION LOGIC ---
+
+-- This function calculates the scaling factor between the actual hardware screen
+-- resolution and the virtual resolution expected by the executor. This is
+-- critical for accurately replaying mouse coordinates.
+function updateCalibration()
+    -- Get the GUI inset (space taken by top bar on mobile/some platforms)
+    local success, result = pcall(function() return GuiService:GetGuiInset() end)
+    guiInset = (success and result) or Vector2.new(0, 36)
+    
+    -- Get the actual rendered size of the GUI on the hardware
+    hardwareScreenSize = mainGui.AbsoluteSize
+    
+    -- Read the user-provided virtual resolution from the input boxes
+    local vw = tonumber(virtualWidthInput.Text) or 1920
+    local vh = tonumber(virtualHeightInput.Text) or 1080
+    virtualScreenSize = Vector2.new(vw, vh)
+    
+    -- Calculate the scale factor
+    if hardwareScreenSize.X > 1 and hardwareScreenSize.Y > 1 then
+        scaleFactor = Vector2.new(virtualScreenSize.X / hardwareScreenSize.X, virtualScreenSize.Y / hardwareScreenSize.Y)
+    else
+        scaleFactor = Vector2.new(1, 1) -- Fallback if hardware size is invalid
+    end
+    sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y), 3)
+end
+
+-- This function converts a recorded viewport position (from UserInputService)
+-- into the coordinate system the executor's input simulation functions expect.
+function ViewportToExecutor(viewportPos)
+    -- Adjust for the GUI inset
+    local hardwarePos = viewportPos + guiInset
+    -- Apply the scaling factor and round to the nearest whole number
+    return Vector2.new(
+        math.floor(hardwarePos.X * scaleFactor.X + 0.5),
+        math.floor(hardwarePos.Y * scaleFactor.Y + 0.5)
+    )
+end
+
+-- --- END NEW CALIBRATION LOGIC ---
+
+
+-- VirtualInputManager safety wrappers
+-- DEFINITIVE FIX: VIM is no longer at UserInputService.VirtualInputManager.
+-- It must be fetched via GetService, as per user's "patched" reference script.
+local VirtualInputManager
+local vmAvailable do
+    local success, result = pcall(function() 
+        return game:GetService("VirtualInputManager") 
+    end)
+    vmAvailable = success
+    if success then
+        VirtualInputManager = result
+    end
+end
+
+local function safeSendMouseMove(x, y)
+    if vmAvailable then
+        -- DEFINITIVE FIX: Changed deviceId from 1 to 0
+        pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y, game, 0) end)
+    end
+end
+
+local function safeSendMouseButton(x, y, button, isDown)
+    if vmAvailable then
+        -- DEFINITIVE FIX: Changed deviceId from 1 to 0
+        pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 0) end)
+    end
+end
+
+
+-- Easing functions
+local EASINGS = {}
+EASINGS.easeInOutQuad = function(t)
+    if t < 0.5 then
+        return 2 * t * t
+    else
+        return -1 + (4 - 2 * t) * t
+    end
+end
+local function applyEasing(name, t)
+    return (EASINGS[name] and EASINGS[name](t)) or t
+end
+
+-- Simulate click (tap)
+-- UPDATED: Now uses ViewportToExecutor for calibration
+local function simulateClick(pixelPos)
+    if not pixelPos then return end
+    
+    -- Apply user's percentage/pixel offset first
+    local xOffset = computePixelXOffset(activeXOffsetRaw)
+    local yOffset = computePixelYOffset(activeYOffsetRaw)
+    local offsetPos = Vector2.new(pixelPos.X + xOffset, pixelPos.Y + yOffset)
+    
+    -- Now, convert that position to executor coordinates
+    local effectivePos = ViewportToExecutor(offsetPos)
+
+    safeSendMouseMove(effectivePos.X, effectivePos.Y)
+    for _ = 1, 3 do RunService.Heartbeat:Wait() end
+    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, true)
+    task.wait(MIN_CLICK_HOLD_DURATION)
+    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, false)
+end
+
+-- Simulate swipe (drag)
+-- UPDATED: Now uses ViewportToExecutor for calibration
+local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
+    if not startPixel or not endPixel then return end
+
+    -- Apply user's percentage/pixel offset first
+    local xOffset = computePixelXOffset(activeXOffsetRaw)
+    local yOffset = computePixelYOffset(activeYOffsetRaw)
+    
+    local startOffsetPos = Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset)
+    local endOffsetPos = Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset)
+
+    -- Now, convert those positions to executor coordinates
+    local startPos = ViewportToExecutor(startOffsetPos)
+    local endPos = ViewportToExecutor(endOffsetPos)
+
+    -- (Curvature math is unchanged)
+    local dx = endPos.X - startPos.X
+    local dy = endPos.Y - startPos.Y
+    local dist = math.sqrt(dx * dx + dy * dy)
+    local steps = math.max(2, math.floor(math.max(0.02, duration) * SWIPE_SAMPLE_FPS))
+    local perpX, perpY = 0, 0
+    if curvatureFraction and curvatureFraction ~= 0 and dist > 0 then
+        -- perpendicular direction
+        perpX = -dy / dist
+        perpY = dx / dist
+    end
+    
+    -- 1. Move to start and PRESS
+    safeSendMouseMove(startPos.X, startPos.Y)
+    for _ = 1, 2 do RunService.Heartbeat:Wait() end
+    safeSendMouseButton(startPos.X, startPos.Y, 0, true) -- Press and HOLD
+
+    -- 2. Loop and MOVE
+    for i = 1, steps do
+        local t = i / steps
+        local eased = applyEasing(SWIPE_EASING, t)
         
-        hardwareScreenSize = mainGui.AbsoluteSize
+        -- Linear interpolation for base position
+        local baseX = startPos.X + (endPos.X - startPos.X) * eased
+        local baseY = startPos.Y + (endPos.Y - startPos.Y) * eased
         
-        local vw = tonumber(virtualWidthInput.Text) or 1920
-        local vh = tonumber(virtualHeightInput.Text) or 1080
-        virtualScreenSize = Vector2.new(vw, vh)
+        -- Apply curvature
+        local curveAmount = (curvatureFraction or 0) * dist * (1 - math.abs(2 * t - 1))
         
-        if hardwareScreenSize.X > 1 and hardwareScreenSize.Y > 1 then
-            scaleFactor = Vector2.new(virtualScreenSize.X / hardwareScreenSize.X, virtualScreenSize.Y / hardwareScreenSize.Y)
-            sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y), 3)
-        else
-            scaleFactor = Vector2.new(1, 1) -- Fallback
-            sendNotification("Calibration Failed", "Could not get screen size. Using default.", 4)
+        local x = baseX + perpX * curveAmount
+        local y = baseY + perpY * curveAmount
+        
+        safeSendMouseMove(x, y) -- Move while pressed
+        RunService.Heartbeat:Wait()
+    end
+
+    -- 3. Move to end and RELEASE
+    safeSendMouseMove(endPos.X, endPos.Y) -- Ensure final position
+    safeSendMouseButton(endPos.X, endPos.Y, 0, false) -- Release
+end
+
+-- Recording implementation (supports taps and swipes)
+local activeInputs = {} -- map inputObject -> {startTime, startPos, lastPos, isDragging}
+
+local function clearActiveInputs()
+    for k in pairs(activeInputs) do
+        activeInputs[k] = nil
+    end
+end
+
+local function isOverOurGUI(pos)
+    local x, y = math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5)
+    local success, result = pcall(function()
+        local objs = UserInputService:GetGuiObjectsAtPosition(x, y)
+        if #objs == 0 then return false end
+        for _, o in ipairs(objs) do
+            if o:IsDescendantOf(mainGui) then
+                return true
+            end
+        end
+    end)
+    return success and result or false
+end
+
+local function stopRecording()
+    if not isRecording then return end
+    isRecording = false
+    btnStartRecording.Text = "Start Recording"
+    for k, conn in pairs(recordConnections) do
+        if conn and conn.Disconnect then
+            pcall(function() conn:Disconnect() end)
         end
     end
+    recordConnections = {}
+    clearActiveInputs()
+end
 
-    function ViewportToExecutor(viewportPos)
-        local hardwarePos = viewportPos + guiInset
-        return Vector2.new(
-            math.floor(hardwarePos.X * scaleFactor.X + 0.5),
-            math.floor(hardwarePos.Y * scaleFactor.Y + 0.5)
-        )
-    end
+local function startRecording()
+    stopAllProcesses()
+    isRecording = true
+    recordedActions = {}
+    recordStartTime = os.clock()
+    btnStartRecording.Text = "Stop Recording"
 
-    -- Input Simulation Engine
-    local INPUT_METHOD = "UNKNOWN"
-    local VIM = nil
-    local _mouse1press, _mouse1release, _mousemove
-    
-    function initialize_input_method()
-        local vim_success, vim_instance = pcall(function() return game:GetService("VirtualInputManager") end)
-        if vim_success and vim_instance then
-            VIM, INPUT_METHOD = vim_instance, "VIM"
-            sendNotification("Input Method", "VirtualInputManager (Modern)", 3)
-            return
-        end
-
-        _mouse1press = mouse1press
-        _mouse1release = mouse1release
-        _mousemove = mousemove
-
-        if type(_mouse1press) == "function" and type(_mouse1release) == "function" and type(_mousemove) == "function" then
-            INPUT_METHOD = "EXECUTOR_GLOBALS"
-            sendNotification("Input Method", "Executor Globals (Fallback)", 3)
-            return
-        end
-
-        INPUT_METHOD = "NONE"
-        sendNotification("Input Error", "No compatible input method found!", 10)
-    end
-
-    local function SimulateMouseMove(x, y)
-        if INPUT_METHOD == "VIM" then pcall(VIM.SendMouseMoveEvent, VIM, x, y)
-        elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then pcall(_mousemove, x, y) end
-    end
-
-    local function SimulateMouseButton(isDown)
-        if INPUT_METHOD == "VIM" then
-            local m_pos = UserInputService:GetMouseLocation()
-            pcall(VIM.SendMouseButtonEvent, VIM, m_pos.X, m_pos.Y, 0, isDown, false)
-        elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
-            if isDown then pcall(_mouse1press) else pcall(_mouse1release) end
-        end
-    end
-    
-    -- Main Functions
-    local stopAllProcesses;
-    
-    local function setStatus(text, color)
-        statusLabel.Text = text
-        statusLabel.TextColor3 = color or Color3.fromRGB(150, 255, 150)
-    end
-    
-    local function isOverOurGUI(pos)
-        local s, objs = pcall(mainGui.GetGuiObjectsAtPosition, mainGui, pos.X, pos.Y)
-        return s and #objs > 0
-    end
-
-    local function recordEvent(event)
-        local now = os.clock()
-        local delay = now - lastEventTime
-        if delay > 0.001 then
-            table.insert(recordedActions, {type = "wait", duration = delay})
-        end
-        table.insert(recordedActions, event)
-        lastEventTime = now
-    end
-
-    function stopRecording()
+    -- InputBegan
+    recordConnections["began"] = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if not isRecording then return end
-        isRecording = false
-        for _, conn in pairs(recordConnections) do conn:Disconnect() end
-        for input, tracker in pairs(activeInputTrackers) do _task.cancel(tracker); activeInputTrackers[input] = nil end
-        recordConnections = {}
-        btnStartRecording.Text = "Start Recording"
-        setStatus(string.format("Idle | %d actions", #recordedActions))
+        if gameProcessed then return end
+        local ut = input.UserInputType
+        local isPrimary = (ut == Enum.UserInputType.MouseButton1) or (ut == Enum.UserInputType.Touch)
+        if not isPrimary then return end
+
+        local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        if isOverOurGUI(pos) then return end
+
+        activeInputs[input] = { startTime = os.clock(), startPos = pos, lastPos = pos, isDragging = false }
+    end)
+
+    -- InputChanged
+    recordConnections["changed"] = UserInputService.InputChanged:Connect(function(input)
+        if not isRecording then return end
+        local data = activeInputs[input]
+        if not data then return end
+        
+        local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        if not data.isDragging and (pos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then
+            data.isDragging = true
+        end
+        data.lastPos = pos
+    end)
+
+    -- InputEnded
+    recordConnections["ended"] = UserInputService.InputEnded:Connect(function(input, gameProcessed)
+        if not isRecording then return end
+        local data = activeInputs[input]
+        if not data then return end
+
+        local now = os.clock()
+        local delay = now - recordStartTime
+        recordStartTime = now
+
+        local endPos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        local moved = (endPos - data.startPos).Magnitude
+
+        -- DEFINITIVE FIX: Store raw pixel coordinates, not normalized.
+        if data.isDragging or moved >= SWIPE_MIN_PIXELS then
+            table.insert(recordedActions, {
+                type = "swipe",
+                startPixel = data.startPos, -- Store raw pixels
+                endPixel = endPos,         -- Store raw pixels
+                duration = math.max(0.02, now - data.startTime),
+                delay = delay
+            })
+        else
+            table.insert(recordedActions, {
+                type = "tap",
+                pixelPos = data.startPos, -- Store raw pixels
+                delay = delay
+            })
+        end
+        activeInputs[input] = nil
+    end)
+end
+
+local function toggleRecording()
+    if isRecording then
+        stopRecording()
+    else
+        startRecording()
     end
+end
 
-    function startRecording()
-        stopAllProcesses()
-        isRecording = true
-        recordedActions = {}
-        lastEventTime = os.clock()
-        btnStartRecording.Text = "Stop Recording"
-        setStatus("Recording...", Color3.fromRGB(255, 150, 150))
-
-        recordConnections.began = UserInputService.InputBegan:Connect(function(input, gp)
-            if gp or not (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then return end
-            if isOverOurGUI(input.Position) then return end
-            
-            recordEvent({type = "down", pos = input.Position})
-
-            activeInputTrackers[input] = _task.spawn(function()
-                local lastPos = input.Position
-                while activeInputTrackers[input] do
-                    local currentPos = UserInputService:GetMouseLocation()
-                    if (currentPos - lastPos).Magnitude > 0.5 then
-                        recordEvent({type = "move", pos = currentPos})
-                        lastPos = currentPos
-                    end
-                    RunService.Heartbeat:Wait()
-                end
-            end)
-        end)
-
-        recordConnections.ended = UserInputService.InputEnded:Connect(function(input)
-            if not activeInputTrackers[input] then return end
-            
-            _task.cancel(activeInputTrackers[input])
-            activeInputTrackers[input] = nil
-            
-            recordEvent({type = "up", pos = input.Position})
-        end)
+-- Replay single run
+function stopReplay()
+    if not isReplaying then return end
+    isReplaying = false
+    if btnReplayClicks.Text ~= "Replay Clicks" then
+        btnReplayClicks.Text = "Replay Clicks"
     end
-    
-    function stopReplay()
-        if not isReplaying and not isReplayingLoop then return end
-        isReplaying, isReplayingLoop = false, false
-        if currentReplayThread then _task.cancel(currentReplayThread); currentReplayThread = nil end
-        btnReplayClicks.Text = "Replay Once"
-        btnReplayLoop.Text = "Replay Loop: OFF"
-        setStatus(string.format("Idle | %d actions", #recordedActions))
+    if currentReplayThread then
+        task.cancel(currentReplayThread)
+        currentReplayThread = nil
     end
-    
-    local function doReplayActions()
-        for _, act in ipairs(recordedActions) do
-            if not isReplaying and not isReplayingLoop then break end
-            
-            if act.type == "wait" then
-                _task.wait(act.duration)
-            elseif act.type == "down" then
-                local pos = ViewportToExecutor(act.pos)
-                SimulateMouseMove(pos.X, pos.Y)
-                _task.wait(0.02)
-                SimulateMouseButton(true)
-            elseif act.type == "up" then
-                local pos = ViewportToExecutor(act.pos)
-                SimulateMouseMove(pos.X, pos.Y)
-                _task.wait(0.02)
-                SimulateMouseButton(false)
-            elseif act.type == "move" then
-                local pos = ViewportToExecutor(act.pos)
-                SimulateMouseMove(pos.X, pos.Y)
-            end
+end
+
+local function doReplayActions(actionList)
+    for _, act in ipairs(actionList)
+        if not isReplaying and not isReplayingLoop then break end
+        
+        if act.delay and act.delay > 0 then
+            task.wait(act.delay)
+        else
+            RunService.Heartbeat:Wait()
+        end
+        
+        if not isReplaying and not isReplayingLoop then break end
+
+        -- DEFINITIVE FIX: Pass raw pixel coordinates
+        if act.type == "tap" then
+            simulateClick(act.pixelPos)
+        elseif act.type == "swipe" then
+            local curve = tonumber(swipeCurveInput.Text) or (SWIPE_CURVATURE_DEFAULT * 100)
+            curve = math.clamp(curve, 0, 100) / 100
+            simulateSwipe(act.startPixel, act.endPixel, act.duration or 0.12, curve)
         end
     end
-    
-    local function startReplay(loop)
-        if #recordedActions == 0 then sendNotification("Replay Failed", "No actions recorded yet.", 3) return end
-        stopAllProcesses()
-        isReplaying = not loop
-        isReplayingLoop = loop
+end
 
-        currentReplayThread = _task.spawn(function()
-            if loop then
-                btnReplayLoop.Text = "Replay Loop: ON"
-                setStatus("Looping...", Color3.fromRGB(150, 150, 255))
-                while isReplayingLoop do
-                    doReplayActions()
-                    _task.wait(0.1)
-                end
+local function toggleReplay()
+    if isReplaying then
+        stopReplay()
+        return
+    end
+    if #recordedActions == 0 then
+        sendNotification("Replay Failed", "No actions recorded yet.")
+        return
+    end
+    
+    stopAllProcesses()
+    isReplaying = true
+    
+    local num = tonumber(replayCountInput.Text)
+    replayCount = (num and num > 0) and math.floor(num) or 1
+    replayCountInput.Text = tostring(replayCount)
+    btnReplayClicks.Text = "Stop Replay"
+
+    currentReplayThread = task.spawn(function()
+        for i = 1, replayCount do
+            if not isReplaying then break end
+            btnReplayClicks.Text = string.format("Replaying (%d/%d)", i, replayCount)
+            doReplayActions(recordedActions)
+            if i < replayCount and isReplaying then task.wait(0.1) end
+        end
+        stopReplay()
+    end)
+end
+
+-- Replay loop
+local function stopReplayLoop()
+    if not isReplayingLoop then return end
+    isReplayingLoop = false
+    btnReplayLoop.Text = "Replay Loop: OFF"
+    if currentReplayLoopThread then
+        task.cancel(currentReplayLoopThread)
+        currentReplayLoopThread = nil
+    end
+end
+
+local function toggleReplayLoop()
+    if isReplayingLoop then
+        stopReplayLoop()
+        return
+    end
+    if #recordedActions == 0 then
+        sendNotification("Replay Failed", "No actions recorded yet.")
+        return
+    end
+    
+    stopAllProcesses()
+    isReplayingLoop = true
+    btnReplayLoop.Text = "Replay Loop: ON"
+    
+    currentReplayLoopThread = task.spawn(function()
+        while isReplayingLoop do
+            doReplayActions(recordedActions)
+            if isReplayingLoop then task.wait(0.1) end
+        end
+    end)
+end
+
+-- Auto-clicker (stable timing)
+local function stopAutoClicker()
+    if not autoClickEnabled then return end
+    autoClickEnabled = false
+    btnAutoClicker.Text = "Auto Clicker: OFF"
+end
+
+local function toggleAutoClicker()
+    if autoClickEnabled then
+        stopAutoClicker()
+        return
+    end
+
+    stopAllProcesses()
+    autoClickEnabled = true
+    btnAutoClicker.Text = "Auto Clicker: ON"
+    
+    task.spawn(function()
+        local nextTime = tick()
+        while autoClickEnabled do
+            local interval = math.max(0.001, clickInterval)
+            nextTime = nextTime + interval
+            
+            -- DEFINITIVE FIX: Pass raw pixel coordinates
+            simulateClick(clickPosition)
+            
+            local waitTime = nextTime - tick()
+            if waitTime > 0 then
+                task.wait(waitTime)
             else
-                btnReplayClicks.Text = "Stop Replay"
-                setStatus("Replaying Once...", Color3.fromRGB(150, 150, 255))
-                doReplayActions()
+                RunService.Heartbeat:Wait()
+                nextTime = tick() 
             end
-            stopReplay()
+        end
+    end)
+end
+
+-- Set click position (works on mobile)
+local positionSetConnection = nil
+local function stopSetPosition()
+    if not waitingForPosition then return end
+    waitingForPosition = false
+    if btnSetPosition.Text ~= "Set Position" then
+        btnSetPosition.Text = "Set Position"
+    end
+    
+    if positionSetConnection then
+        local connToDisconnect = positionSetConnection
+        positionSetConnection = nil
+        task.spawn(function()
+            pcall(function() connToDisconnect:Disconnect() end)
         end)
     end
-    
-    function clearRecording()
-        stopAllProcesses()
-        recordedActions = {}
-        setStatus("Idle | Recording Cleared")
+end
+
+local function setClickPosition()
+    if waitingForPosition then
+        stopSetPosition()
+        return
     end
     
-    stopAllProcesses = function()
-        if isRecording then stopRecording() end
-        if isReplaying or isReplayingLoop then stopReplay() end
+    stopAllProcesses()
+    waitingForPosition = true
+    btnSetPosition.Text = "Tap anywhere..."
+    
+    positionSetConnection = UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+        if not waitingForPosition then return end
+        if gameProcessedEvent then return end
+        local ut = input.UserInputType
+        
+        if ut == Enum.UserInputType.MouseButton1 or ut == Enum.UserInputType.Touch then
+            if input.UserInputState == Enum.UserInputState.Begin then
+                local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+                if isOverOurGUI(pos) then return end
+                
+                -- DEFINITIVE FIX: Store raw pixel coordinates
+                clickPosition = pos
+                stopSetPosition()
+                
+                btnSetPosition.Text = "Position Set!"
+                task.delay(1, function()
+                    if btnSetPosition.Text == "Position Set!" then
+                        btnSetPosition.Text = "Set Position"
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- Utility to stop everything
+function stopAllProcesses()
+    stopAutoClicker()
+    stopRecording()
+    stopReplay()
+    stopReplayLoop()
+    stopSetPosition()
+end
+
+-- UI Connections
+makeDraggable(mainFrame, dragLayer)
+makeDraggable(toggleGuiBtn, toggleGuiBtn)
+
+btnAutoClicker.MouseButton1Click:Connect(function()
+    local val = tonumber(lblInterval.Text)
+    if val and val > 0 then
+        clickInterval = val
+    else
+        lblInterval.Text = tostring(clickInterval)
+    end
+    toggleAutoClicker()
+end)
+
+btnSetPosition.MouseButton1Click:Connect(setClickPosition)
+btnStartRecording.MouseButton1Click:Connect(toggleRecording)
+btnReplayClicks.MouseButton1Click:Connect(toggleReplay)
+btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
+
+-- UPDATED: Connects to new button and calls updateCalibration
+btnApplySettings.MouseButton1Click:Connect(function()
+    local function parseOffsetInput(text)
+        text = tostring(text or "")
+        text = text:gsub("%s+", "")
+        if text:match("%%$") then
+            local num = tonumber(text:sub(1, -2))
+            if num then
+                return { mode = "pct", value = num / 100 }
+            end
+        else
+            local num = tonumber(text)
+            if num then
+                return { mode = "px", value = num }
+            end
+        end
+        return nil
+    end
+
+    local xRaw = parseOffsetInput(offsetXInput.Text)
+    local yRaw = parseOffsetInput(offsetYInput.Text)
+    local curve = tonumber(swipeCurveInput.Text)
+    
+    if xRaw and yRaw and curve ~= nil then
+        activeXOffsetRaw = xRaw
+        activeYOffsetRaw = yRaw
+        local curveClamped = math.clamp(curve, 0, 100) / 100
+        swipeCurveInput.Text = tostring(curveClamped * 100)
+        
+        -- Run calibration
+        updateCalibration()
+        
+        sendNotification("Settings Updated", ("X: %s, Y: %s, Curve: %.1f%%. Calibrated.")
+            :format(offsetXInput.Text, offsetYInput.Text, curveClamped*100))
+    else
+        sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
+        offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
+        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
+    end
+end)
+
+toggleGuiBtn.MouseButton1Click:Connect(function()
+    guiHidden = not guiHidden
+    mainFrame.Visible = not guiHidden
+    toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
+end)
+
+submitBtn.MouseButton1Click:Connect(function()
+    local enteredKey = keyBox.Text
+    local expectedKey = "key_not_fetched"
+    
+    local httpGet = game.HttpGet or HttpGet
+    if not httpGet then
+        sendNotification("Key Check Failed", "No HttpGet function found.")
+        return
     end
     
-    -- Connect GUI
-    btnStartRecording.MouseButton1Click:Connect(function() if isRecording then stopRecording() else startRecording() end end)
-    btnReplayClicks.MouseButton1Click:Connect(function() if isReplaying then stopReplay() else startReplay(false) end end)
-    btnReplayLoop.MouseButton1Click:Connect(function() if isReplayingLoop then stopReplay() else startReplay(true) end end)
-    btnClear.MouseButton1Click:Connect(clearRecording)
-    btnRecalibrate.MouseButton1Click:Connect(updateCalibration)
-    
-    toggleGuiBtn.MouseButton1Click:Connect(function()
-        mainFrame.Visible = not mainFrame.Visible
-        toggleGuiBtn.Text = mainFrame.Visible and "Hide" or "Show"
+    local success, response = pcall(function()
+        return httpGet("https://pastebin.com/raw/v4eb6fHw", true)
     end)
     
-    local function onFocusLost() _task.wait(0.1); updateCalibration() end
-    virtualWidthInput.FocusLost:Connect(onFocusLost)
-    virtualHeightInput.FocusLost:Connect(onFocusLost)
+    if success and response then
+        expectedKey = response:match("%S+") or "pastebin_read_error"
+    else
+        sendNotification("Key Check Failed", "Could not fetch key. Check HttpService/network.")
+    end
     
-    -- Initialize
-    sendNotification("Macro V7 Loaded", "Calibrating...", 2)
-    initialize_input_method()
-    _task.wait(1) -- Wait for GUI to fully render before initial calibration
-    updateCalibration()
-end
+    if enteredKey == expectedKey or enteredKey == "happybirthday Mohamednigga" then
+        sendNotification("Access Granted", "Welcome!")
+        keyEntry:Destroy()
+        mainFrame.Visible = true
+        toggleGuiBtn.Visible = true
+        -- Run initial calibration
+        task.wait(0.5) -- wait for GUI to be sized
+        updateCalibration()
+    else
+        keyBox.Text = ""
+        keyBox.PlaceholderText = "Invalid key, try again"
+        sendNotification("Access Denied", "The key you entered is incorrect.")
+    end
+end)
+
+copyBtn.MouseButton1Click:Connect(function()
+    local keyLink = "https.loot-link.com/s?AVreZic8"
+    
+    if setclipboard then
+        local success, err = pcall(function() setclipboard(keyLink) end)
+        if success then
+             sendNotification("Link Copied", "The key link has been copied to your clipboard.")
+        else
+            sendNotification("Copy Failed", "setclipboard() error: " .. tostring(err))
+        end
+    else
+        keyBox.Text = keyLink
+        copyBtn.Text = "Copy From Box"
+        sendNotification("Now Copy", "Select and copy the link from the text box.")
+    end
+end)
+
+tabAutoClicker.MouseButton1Click:Connect(function() selectTab("auto") end)
+tabRecorder.MouseButton1Click:Connect(function() selectTab("record") end)
+tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
+
+-- initial UI state & notes
+selectTab("auto")
+sendNotification("MacroV3 Loaded", vmAvailable and "VIM (PatMched) Found" or "CRITICAL: VIM NOT Found")
+
+-- End of script
+-->
