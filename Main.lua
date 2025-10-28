@@ -1,6 +1,6 @@
--- Macro Script - Definitive Fix v6: Granular Event Engine
--- This version fixes critical bugs related to fast clicking and replay accuracy
--- by recording raw input events (down, up, move, wait) for a 1:1 playback.
+-- Macro Script - Definitive Fix v7: Mobile-Compatible & Accurate Event Engine
+-- This version fixes critical bugs related to replay accuracy and mobile touch input
+-- by simplifying the recording logic and ensuring 1:1 coordinate playback.
 
 -- --- Service Loading ---
 local Players = game:GetService("Players")
@@ -30,7 +30,7 @@ end
 
 -- --- UI ---
 local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV6GUI"; mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
+mainGui.Name = "MacroV7GUI"; mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
 mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global; mainGui.Parent = CoreGui
 
 local mainFrame = Instance.new("Frame", mainGui)
@@ -45,7 +45,7 @@ dragLayer.Size = UDim2.new(1, 0, 0, 40); dragLayer.BackgroundTransparency = 1; d
 
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundTransparency = 1
-title.Text = "Macro Recorder v6"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "Macro Recorder v7"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold; title.TextSize = 22
 
 local contentArea = Instance.new("Frame", mainFrame)
@@ -123,9 +123,9 @@ makeDraggable(mainFrame, dragLayer); makeDraggable(toggleGuiBtn, toggleGuiBtn)
 do
     -- State
     local isRecording, isReplaying, isReplayingLoop = false, false, false
+    local mouse_down_for_recording = false
     local recordedActions = {}
     local recordConnections = {}
-    local activeInputTrackers = {}
     local lastEventTime = 0
     local currentReplayThread = nil
 
@@ -138,7 +138,7 @@ do
         local success, result = pcall(function() return GuiService:GetGuiInset() end)
         guiInset = (success and result) or Vector2.new(0, 36)
         
-        hardwareScreenSize = mainGui.AbsoluteSize
+        hardwareScreenSize = Workspace.CurrentCamera.ViewportSize
         
         local vw = tonumber(virtualWidthInput.Text) or 1920
         local vh = tonumber(virtualHeightInput.Text) or 1080
@@ -178,18 +178,14 @@ do
         end
     end
 
-    local function SimulateMouseMove(x, y)
+    local function SimulateMove(x, y)
         if INPUT_METHOD == "VIM" then pcall(VIM.SendMouseMoveEvent, VIM, x, y)
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then pcall(mousemove, x, y) end
     end
 
-    local function SimulateMouseButton(isDown)
+    local function SimulateButton(x, y, isDown)
         if INPUT_METHOD == "VIM" then
-            -- Note: VIM needs position for button events, but we already moved the mouse.
-            -- We can get the current mouse pos, but for simplicity, we assume the previous move was sufficient.
-            -- The 'false' for gameProcessedEvent is critical for UI interaction.
-            local m_pos = UserInputService:GetMouseLocation()
-            pcall(VIM.SendMouseButtonEvent, VIM, m_pos.X, m_pos.Y, 0, isDown, false)
+            pcall(VIM.SendMouseButtonEvent, VIM, x, y, 0, isDown, false)
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
             if isDown then pcall(mouse1press) else pcall(mouse1release) end
         end
@@ -211,19 +207,22 @@ do
     local function recordEvent(event)
         local now = os.clock()
         local delay = now - lastEventTime
-        if delay > 0.001 then
+        if #recordedActions > 0 and delay > 0.001 then
             table.insert(recordedActions, {type = "wait", duration = delay})
         end
         table.insert(recordedActions, event)
         lastEventTime = now
+        if isRecording then
+             setStatus(string.format("Recording: %d", #recordedActions), Color3.fromRGB(255, 150, 150))
+        end
     end
 
     function stopRecording()
         if not isRecording then return end
         isRecording = false
+        mouse_down_for_recording = false
         for _, conn in pairs(recordConnections) do conn:Disconnect() end
-        for _, tracker in pairs(activeInputTrackers) do task.cancel(tracker) end
-        recordConnections, activeInputTrackers = {}, {}
+        recordConnections = {}
         btnStartRecording.Text = "Start Recording"
         setStatus(string.format("Idle | %d actions", #recordedActions))
     end
@@ -231,6 +230,7 @@ do
     function startRecording()
         stopAllProcesses()
         isRecording = true
+        mouse_down_for_recording = false
         recordedActions = {}
         lastEventTime = os.clock()
         btnStartRecording.Text = "Stop Recording"
@@ -240,29 +240,22 @@ do
             if gp or not (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then return end
             if isOverOurGUI(input.Position) then return end
             
+            mouse_down_for_recording = true
             recordEvent({type = "down", pos = input.Position})
-
-            -- Start tracking movement for this specific input
-            activeInputTrackers[input] = task.spawn(function()
-                local lastPos = input.Position
-                while activeInputTrackers[input] do
-                    local currentPos = UserInputService:GetMouseLocation()
-                    if (currentPos - lastPos).Magnitude > 0.5 then
-                        recordEvent({type = "move", pos = currentPos})
-                        lastPos = currentPos
-                    end
-                    RunService.Heartbeat:Wait()
-                end
-            end)
         end)
 
-        recordConnections.ended = UserInputService.InputEnded:Connect(function(input)
-            if not activeInputTrackers[input] then return end
-            
-            task.cancel(activeInputTrackers[input])
-            activeInputTrackers[input] = nil
-            
-            recordEvent({type = "up", pos = input.Position})
+        recordConnections.ended = UserInputService.InputEnded:Connect(function(input, gp)
+            if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and mouse_down_for_recording then
+                mouse_down_for_recording = false
+                recordEvent({type = "up", pos = input.Position})
+            end
+        end)
+
+        recordConnections.changed = UserInputService.InputChanged:Connect(function(input, gp)
+            if gp or not mouse_down_for_recording then return end
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                recordEvent({type = "move", pos = input.Position})
+            end
         end)
     end
     
@@ -281,19 +274,14 @@ do
             
             if act.type == "wait" then
                 task.wait(act.duration)
-            elseif act.type == "down" then
+            else -- Covers 'down', 'up', and 'move'
                 local pos = ViewportToExecutor(act.pos)
-                SimulateMouseMove(pos.X, pos.Y)
-                task.wait(0.02) -- Wait for mouse move to register
-                SimulateMouseButton(true)
-            elseif act.type == "up" then
-                local pos = ViewportToExecutor(act.pos)
-                SimulateMouseMove(pos.X, pos.Y)
-                task.wait(0.02)
-                SimulateMouseButton(false)
-            elseif act.type == "move" then
-                local pos = ViewportToExecutor(act.pos)
-                SimulateMouseMove(pos.X, pos.Y)
+                SimulateMove(pos.X, pos.Y)
+                
+                if act.type == "down" or act.type == "up" then
+                    task.wait(0.02) -- Small delay for move to register before click
+                    SimulateButton(pos.X, pos.Y, act.type == "down")
+                end
             end
         end
     end
@@ -348,7 +336,7 @@ do
     virtualHeightInput.FocusLost:Connect(onFocusLost)
     
     -- Initialize
-    sendNotification("Macro V6 Loaded", "Calibrating...", 2)
+    sendNotification("Macro V7 Loaded", "Calibrating...", 2)
     task.wait(0.5)
     initialize_input_method()
     updateCalibration()
