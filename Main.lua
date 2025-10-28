@@ -1,7 +1,7 @@
--- Macro Script - Definitive Fix v6.2: Universal Click Fix
--- This version incorporates an alternative click method for better compatibility
--- with various executor environments, directly addressing issues where clicks
--- were not registering during replay.
+-- Macro Script - Definitive Fix v6.3: Coordinate System Fix
+-- This version fixes a critical bug where screen coordinates were being
+-- miscalculated during replay, causing clicks to be offset or fail.
+-- Calibration is now also more reliable.
 
 -- --- Service Loading ---
 local Players = game:GetService("Players")
@@ -46,7 +46,7 @@ dragLayer.Size = UDim2.new(1, 0, 0, 40); dragLayer.BackgroundTransparency = 1; d
 
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundTransparency = 1
-title.Text = "Macro Recorder v6.2"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "Macro Recorder v6.3"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold; title.TextSize = 22
 
 local contentArea = Instance.new("Frame", mainFrame)
@@ -131,15 +131,12 @@ do
     local currentReplayThread = nil
 
     -- Calibration
-    local guiInset, hardwareScreenSize = Vector2.new(0, 0), Vector2.new(0, 0)
+    local hardwareScreenSize = Vector2.new(0, 0)
     local virtualScreenSize = Vector2.new(1920, 1080)
     local scaleFactor = Vector2.new(1, 1)
 
     function updateCalibration()
-        local success, result = pcall(function() return GuiService:GetGuiInset() end)
-        guiInset = (success and result) or Vector2.new(0, 36)
-        
-        hardwareScreenSize = mainGui.AbsoluteSize
+        hardwareScreenSize = Workspace.CurrentCamera.ViewportSize
         
         local vw = tonumber(virtualWidthInput.Text) or 1920
         local vh = tonumber(virtualHeightInput.Text) or 1080
@@ -150,14 +147,13 @@ do
         else
             scaleFactor = Vector2.new(1, 1) -- Fallback
         end
-        sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y), 3)
+        sendNotification("Calibrated", string.format("Detected: %dx%d | Scale: (%.2f, %.2f)", hardwareScreenSize.X, hardwareScreenSize.Y, scaleFactor.X, scaleFactor.Y), 4)
     end
-
-    function ViewportToExecutor(viewportPos)
-        local hardwarePos = viewportPos + guiInset
+    
+    function ScreenToExecutor(screenPos)
         return Vector2.new(
-            math.floor(hardwarePos.X * scaleFactor.X + 0.5),
-            math.floor(hardwarePos.Y * scaleFactor.Y + 0.5)
+            math.floor(screenPos.X * scaleFactor.X + 0.5),
+            math.floor(screenPos.Y * scaleFactor.Y + 0.5)
         )
     end
 
@@ -179,19 +175,20 @@ do
         end
     end
 
-    local function SimulateMouseMove(viewportPos)
+    local function SimulateMouseMove(screenPos)
         if INPUT_METHOD == "VIM" then
-            local screenPos = viewportPos + guiInset
             pcall(VIM.SendMouseMoveEvent, VIM, screenPos.X, screenPos.Y)
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
-            local executorPos = ViewportToExecutor(viewportPos)
+            local executorPos = ScreenToExecutor(screenPos)
             pcall(mousemove, executorPos.X, executorPos.Y)
         end
     end
 
-    local function SimulateMouseButton(viewportPos, isDown)
+    local function SimulateMouseButton(screenPos, isDown)
         if INPUT_METHOD == "VIM" then
-            local screenPos = viewportPos + guiInset
+            -- CRITICAL FIX: The recorded position is already a screen coordinate.
+            -- Do NOT add the GUI inset again. We use screenPos directly.
+            
             -- The user provided a working click implementation using non-standard arguments.
             -- We will prioritize this method for maximum compatibility.
             -- Signature: SendMouseButtonEvent(x, y, button, isDown, game, count)
@@ -199,7 +196,6 @@ do
             
             if not success then
                 -- Fallback to the standard documented method if the above fails.
-                -- This improves compatibility with other environments.
                 -- Signature: SendMouseButtonEvent(x, y, button, isDown, gameProcessed)
                 pcall(VIM.SendMouseButtonEvent, VIM, screenPos.X, screenPos.Y, 0, isDown, false)
             end
@@ -359,7 +355,7 @@ do
     virtualHeightInput.FocusLost:Connect(onFocusLost)
     
     -- Initialize
-    sendNotification("Macro V6.2 Loaded", "Calibrating...", 2)
+    sendNotification("Macro V6.3 Loaded", "Calibrating...", 2)
     task.wait(0.5)
     initialize_input_method()
     updateCalibration()
