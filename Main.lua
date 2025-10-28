@@ -1,6 +1,7 @@
--- Macro Script - Definitive Fix v6.1: Refactored Input Engine
--- This version fixes critical bugs related to replay accuracy by implementing
--- a robust input simulation engine that correctly handles multiple coordinate systems.
+-- Macro Script - Definitive Fix v6.2: Universal Click Fix
+-- This version incorporates an alternative click method for better compatibility
+-- with various executor environments, directly addressing issues where clicks
+-- were not registering during replay.
 
 -- --- Service Loading ---
 local Players = game:GetService("Players")
@@ -45,7 +46,7 @@ dragLayer.Size = UDim2.new(1, 0, 0, 40); dragLayer.BackgroundTransparency = 1; d
 
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundTransparency = 1
-title.Text = "Macro Recorder v6.1"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "Macro Recorder v6.2"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold; title.TextSize = 22
 
 local contentArea = Instance.new("Frame", mainFrame)
@@ -161,10 +162,6 @@ do
     end
 
     -- Input Simulation Engine
-    -- This engine handles the crucial difference between VirtualInputManager (VIM)
-    -- and legacy executor globals. VIM typically requires absolute screen coordinates,
-    -- while executor globals require coordinates scaled to a virtual resolution.
-    -- This fixes the primary cause of misaligned clicks during replay.
     local INPUT_METHOD = "UNKNOWN"
     local VIM = nil
     
@@ -184,11 +181,9 @@ do
 
     local function SimulateMouseMove(viewportPos)
         if INPUT_METHOD == "VIM" then
-            -- VIM uses absolute screen coordinates (viewport position + GUI inset)
             local screenPos = viewportPos + guiInset
             pcall(VIM.SendMouseMoveEvent, VIM, screenPos.X, screenPos.Y)
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
-            -- Executor globals use virtual coordinates (screen position scaled to virtual resolution)
             local executorPos = ViewportToExecutor(viewportPos)
             pcall(mousemove, executorPos.X, executorPos.Y)
         end
@@ -197,9 +192,19 @@ do
     local function SimulateMouseButton(viewportPos, isDown)
         if INPUT_METHOD == "VIM" then
             local screenPos = viewportPos + guiInset
-            pcall(VIM.SendMouseButtonEvent, VIM, screenPos.X, screenPos.Y, 0, isDown, false)
+            -- The user provided a working click implementation using non-standard arguments.
+            -- We will prioritize this method for maximum compatibility.
+            -- Signature: SendMouseButtonEvent(x, y, button, isDown, game, count)
+            local success, err = pcall(VIM.SendMouseButtonEvent, VIM, screenPos.X, screenPos.Y, 0, isDown, game, 1)
+            
+            if not success then
+                -- Fallback to the standard documented method if the above fails.
+                -- This improves compatibility with other environments.
+                -- Signature: SendMouseButtonEvent(x, y, button, isDown, gameProcessed)
+                pcall(VIM.SendMouseButtonEvent, VIM, screenPos.X, screenPos.Y, 0, isDown, false)
+            end
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
-            -- Globals don't need position; mousemove was just called.
+            -- Globals don't need position for click; mousemove was just called.
             if isDown then pcall(mouse1press) else pcall(mouse1release) end
         end
     end
@@ -354,7 +359,7 @@ do
     virtualHeightInput.FocusLost:Connect(onFocusLost)
     
     -- Initialize
-    sendNotification("Macro V6.1 Loaded", "Calibrating...", 2)
+    sendNotification("Macro V6.2 Loaded", "Calibrating...", 2)
     task.wait(0.5)
     initialize_input_method()
     updateCalibration()
