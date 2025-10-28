@@ -1,14 +1,6 @@
--- Macro Script - Definitive Fix v7: Robust Execution
--- This version adds critical startup and input simulation fixes for wider executor compatibility.
--- Changelog:
--- 1. Added a wait loop to prevent race conditions where 'game' is not yet available on injection.
--- 2. Replaced non-standard 'typeof' with standard 'type' for the task shim, fixing 'nil value' errors.
--- 3. Fixed input simulation to pass correctly scaled coordinates to VIM, improving replay accuracy.
-
--- Wait for game services to be available, preventing race conditions on injection.
-while not (game and game.GetService) do
-    wait(0.05)
-end
+-- Macro Script - Definitive Fix v6: Granular Event Engine
+-- This version fixes critical bugs related to fast clicking and replay accuracy
+-- by recording raw input events (down, up, move, wait) for a 1:1 playback.
 
 -- --- Service Loading ---
 local Players = game:GetService("Players")
@@ -38,7 +30,7 @@ end
 
 -- --- UI ---
 local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV7GUI"; mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
+mainGui.Name = "MacroV6GUI"; mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
 mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global; mainGui.Parent = CoreGui
 
 local mainFrame = Instance.new("Frame", mainGui)
@@ -53,7 +45,7 @@ dragLayer.Size = UDim2.new(1, 0, 0, 40); dragLayer.BackgroundTransparency = 1; d
 
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundTransparency = 1
-title.Text = "Macro Recorder v7"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "Macro Recorder v6"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold; title.TextSize = 22
 
 local contentArea = Instance.new("Frame", mainFrame)
@@ -191,13 +183,14 @@ do
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then pcall(mousemove, x, y) end
     end
 
-    local function SimulateMouseButton(isDown, x, y)
+    local function SimulateMouseButton(isDown)
         if INPUT_METHOD == "VIM" then
-            -- Pass the pre-calculated, scaled coordinates directly to the event.
-            -- Getting the mouse location here would be incorrect as it returns unscaled viewport coordinates.
-            pcall(VIM.SendMouseButtonEvent, VIM, x, y, 0, isDown, false)
+            -- Note: VIM needs position for button events, but we already moved the mouse.
+            -- We can get the current mouse pos, but for simplicity, we assume the previous move was sufficient.
+            -- The 'false' for gameProcessedEvent is critical for UI interaction.
+            local m_pos = UserInputService:GetMouseLocation()
+            pcall(VIM.SendMouseButtonEvent, VIM, m_pos.X, m_pos.Y, 0, isDown, false)
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
-            -- Legacy methods don't need coordinates for button events, they use the last mouse position.
             if isDown then pcall(mouse1press) else pcall(mouse1release) end
         end
     end
@@ -292,12 +285,12 @@ do
                 local pos = ViewportToExecutor(act.pos)
                 SimulateMouseMove(pos.X, pos.Y)
                 task.wait(0.02) -- Wait for mouse move to register
-                SimulateMouseButton(true, pos.X, pos.Y)
+                SimulateMouseButton(true)
             elseif act.type == "up" then
                 local pos = ViewportToExecutor(act.pos)
                 SimulateMouseMove(pos.X, pos.Y)
                 task.wait(0.02)
-                SimulateMouseButton(false, pos.X, pos.Y)
+                SimulateMouseButton(false)
             elseif act.type == "move" then
                 local pos = ViewportToExecutor(act.pos)
                 SimulateMouseMove(pos.X, pos.Y)
@@ -355,7 +348,7 @@ do
     virtualHeightInput.FocusLost:Connect(onFocusLost)
     
     -- Initialize
-    sendNotification("Macro V7 Loaded", "Calibrating...", 2)
+    sendNotification("Macro V6 Loaded", "Calibrating...", 2)
     task.wait(0.5)
     initialize_input_method()
     updateCalibration()
