@@ -1,8 +1,9 @@
 -- This is the COMBINED Macro Script (Recorder Only)
 -- Execute this single file in Delta.
--- DEFINITIVE FIX v4: Dynamic Scaling Calibration Engine
--- This version abandons hardcoded insets and introduces a robust,
--- dynamic calibration system to fix multiplicative coordinate errors.
+-- DEFINITIVE FIX v5: Multi-Method Input Engine
+-- Adds a compatibility layer for executors like Delta/Hydrogen that
+-- may not support VirtualInputManager. It auto-detects the best
+-- available input method and corrects previous VIM call errors.
 
 -- --- Wait for Services ---
 while not (game and game.GetService and game.HttpGet) do
@@ -27,9 +28,9 @@ end
 local mouse = player:GetMouse()
 
 -- --- Helper ---
-local function sendNotification(title, text)
+local function sendNotification(title, text, duration)
     pcall(function()
-        StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = 5})
+        StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = duration or 5})
     end)
 end
 
@@ -40,7 +41,7 @@ local FONT_BOLD = Enum.Font.GothamBold
 
 -- --- Main ScreenGui ---
 mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV4GUI"
+mainGui.Name = "MacroV5GUI"
 mainGui.IgnoreGuiInset = true
 mainGui.ResetOnSpawn = false
 mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
@@ -219,43 +220,28 @@ local virtualScreenSize = Vector2.new(1920, 1080)
 local scaleFactor = Vector2.new(1, 1)
 
 local function updateCalibration()
-    -- 1. Get GuiInset (the device's "safe area" or "black bars")
     local success, result = pcall(function() return GuiService:GetGuiInset() end)
     guiInset = (success and result) or Vector2.new(0, 0)
-
-    -- 2. Get Hardware Screen Size by measuring a temporary full-screen frame
     local measurer = Instance.new("Frame")
     measurer.Size = UDim2.new(1, 0, 1, 0)
     measurer.IgnoreGuiInset = true
     measurer.Parent = mainGui
-    task.wait() -- Wait a frame for size to be calculated
+    task.wait()
     hardwareScreenSize = measurer.AbsoluteSize
     measurer:Destroy()
-    
-    -- 3. Get Virtual Screen Size from UI inputs
     local vw = tonumber(virtualWidthInput.Text) or 1920
     local vh = tonumber(virtualHeightInput.Text) or 1080
     virtualScreenSize = Vector2.new(vw, vh)
-
-    -- 4. Calculate the final multiplicative scaling factor
     if hardwareScreenSize.X > 1 and hardwareScreenSize.Y > 1 then
-        scaleFactor = Vector2.new(
-            virtualScreenSize.X / hardwareScreenSize.X,
-            virtualScreenSize.Y / hardwareScreenSize.Y
-        )
+        scaleFactor = Vector2.new(virtualScreenSize.X / hardwareScreenSize.X, virtualScreenSize.Y / hardwareScreenSize.Y)
     else
-        scaleFactor = Vector2.new(1, 1) -- Fallback
+        scaleFactor = Vector2.new(1, 1)
     end
-    
     sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y))
 end
 
--- The definitive coordinate conversion function.
 local function ViewportToExecutor(viewportPos)
-    -- Step 1: Convert from Viewport space (where input is recorded) to Hardware space
     local hardwarePos = viewportPos + guiInset
-    
-    -- Step 2: Scale from Hardware space to the Executor's Virtual space
     local executorPos = Vector2.new(
         math.floor(hardwarePos.X * scaleFactor.X + 0.5),
         math.floor(hardwarePos.Y * scaleFactor.Y + 0.5)
@@ -263,11 +249,51 @@ local function ViewportToExecutor(viewportPos)
     return executorPos
 end
 
--- --- VIM (Click Engine) ---
-local VirtualInputManager
-local vmAvailable do local s,r = pcall(function() return game:GetService("VirtualInputManager") end) vmAvailable = s if s then VirtualInputManager = r end end
-local function safeSendMouseMove(x, y) if vmAvailable then pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y, game, 0) end) end end
-local function safeSendMouseButton(x, y, button, isDown) if vmAvailable then pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 0) end) end end
+-- --- MULTI-METHOD INPUT ENGINE ---
+-- This new engine detects the best way to send inputs based on the executor.
+local INPUT_METHOD = "UNKNOWN"
+local VIM = nil
+
+local function initialize_input_method()
+    local vim_success, vim_instance = pcall(function() return game:GetService("VirtualInputManager") end)
+    if vim_success and vim_instance then
+        VIM = vim_instance
+        INPUT_METHOD = "VIM"
+        sendNotification("Input Method", "VirtualInputManager (Modern)")
+        return
+    end
+    
+    if mouse1press and mouse1release and mousemove then
+        INPUT_METHOD = "EXECUTOR_GLOBALS"
+        sendNotification("Input Method", "Executor Globals (Fallback)")
+        return
+    end
+    
+    sendNotification("Input Method", "ERROR: No compatible input method found!", 10)
+    INPUT_METHOD = "NONE"
+end
+
+-- Abstracted input functions
+local function SendMouseMove(x, y)
+    if INPUT_METHOD == "VIM" then
+        pcall(function() VIM:SendMouseMoveEvent(x, y) end)
+    elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
+        pcall(mousemove, x, y)
+    end
+end
+
+local function SendMouseButton(x, y, isDown)
+    if INPUT_METHOD == "VIM" then
+        -- CRITICAL FIX: The 5th argument 'gameProcessedEvent' must be a boolean (false).
+        pcall(function() VIM:SendMouseButtonEvent(x, y, 0, isDown, false) end)
+    elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
+        if isDown then
+            pcall(mouse1press)
+        else
+            pcall(mouse1release)
+        end
+    end
+end
 
 -- --- Easing ---
 local EASINGS = {easeInOutQuad = function(t) return t < 0.5 and 2 * t * t or -1 + (4 - 2 * t) * t end}
@@ -275,33 +301,37 @@ local function applyEasing(name, t) return (EASINGS[name] and EASINGS[name](t)) 
 
 -- --- Simulation Functions (The "Engine") ---
 local function simulateClick(pixelPos)
-    if not pixelPos then return end
+    if not pixelPos or INPUT_METHOD == "NONE" then return end
     local effectivePos = ViewportToExecutor(pixelPos)
-    safeSendMouseMove(effectivePos.X, effectivePos.Y)
+    SendMouseMove(effectivePos.X, effectivePos.Y)
     task.wait(0.01)
-    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, true)
+    SendMouseButton(effectivePos.X, effectivePos.Y, true)
     task.wait(MIN_CLICK_HOLD_DURATION)
-    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, false)
+    SendMouseButton(effectivePos.X, effectivePos.Y, false)
 end
 
 local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
-    if not startPixel or not endPixel then return end
+    if not startPixel or not endPixel or INPUT_METHOD == "NONE" then return end
     local startPos = ViewportToExecutor(startPixel)
     local endPos = ViewportToExecutor(endPixel)
     local dx = endPos.X - startPos.X; local dy = endPos.Y - startPos.Y
     local dist = math.sqrt(dx * dx + dy * dy); local steps = math.max(2, math.floor(math.max(0.02, duration) * SWIPE_SAMPLE_FPS))
     local perpX, perpY = 0, 0
     if curvatureFraction and curvatureFraction ~= 0 and dist > 0 then perpX = -dy / dist; perpY = dx / dist end
-    safeSendMouseMove(startPos.X, startPos.Y); task.wait(0.01)
-    safeSendMouseButton(startPos.X, startPos.Y, 0, true)
+    
+    SendMouseMove(startPos.X, startPos.Y); task.wait(0.01)
+    SendMouseButton(startPos.X, startPos.Y, true)
+    
     for i = 1, steps do
         local t = i / steps; local eased = applyEasing(SWIPE_EASING, t)
         local baseX = startPos.X + (endPos.X - startPos.X) * eased; local baseY = startPos.Y + (endPos.Y - startPos.Y) * eased
         local curveAmount = (curvatureFraction or 0) * dist * (1 - math.abs(2 * t - 1))
         local x = baseX + perpX * curveAmount; local y = baseY + perpY * curveAmount
-        safeSendMouseMove(x, y); RunService.Heartbeat:Wait()
+        SendMouseMove(x, y); RunService.Heartbeat:Wait()
     end
-    safeSendMouseMove(endPos.X, endPos.Y); safeSendMouseButton(endPos.X, endPos.Y, 0, false)
+    
+    SendMouseMove(endPos.X, endPos.Y)
+    SendMouseButton(endPos.X, endPos.Y, false)
 end
 
 -- --- Stop All ---
@@ -405,10 +435,11 @@ virtualWidthInput.FocusLost:Connect(onFocusLost)
 virtualHeightInput.FocusLost:Connect(onFocusLost)
 
 -- --- Initial State ---
-sendNotification("Macro Recorder Loaded", vmAvailable and "Dynamic Scaling Engine Active" or "CRITICAL: VIM NOT Found")
+sendNotification("Macro Recorder Loaded", "Initializing...")
 mainFrame.Visible = true
 toggleGuiBtn.Visible = true
 task.wait(0.5) -- Wait for GUI to fully render before initial calibration
+initialize_input_method()
 updateCalibration()
 
 -- --- END OF CORE CODE ---
