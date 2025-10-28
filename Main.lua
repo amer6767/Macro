@@ -1,24 +1,31 @@
--- Macro Script - Definitive Fix v6: Granular Event Engine
--- This version fixes critical bugs related to fast clicking and replay accuracy
--- by recording raw input events (down, up, move, wait) for a 1:1 playback.
+-- Macro Script - Definitive Fix v7: Universal Compatibility Engine
+-- Enhanced for stability on Delta, mobile, and other executors.
+-- Features a robust input detection system, improved calibration, and resilient error handling.
 
 -- --- Service Loading ---
-local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
-local Workspace = game:GetService("Workspace")
 
-local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
-
--- --- task Shim for compatibility ---
-if type(task) ~= "table" then task = {
-    spawn = coroutine.wrap,
-    wait = function(t) local s = tick() while tick() - s < (t or 0) do RunService.Heartbeat:Wait() end end,
-    cancel = function(thread) if coroutine.status(thread) ~= "dead" then coroutine.close(thread) end end
-} end
+-- --- Task Library Shim for backwards compatibility ---
+-- Provides a consistent API for threading and waiting, avoiding errors on older executors.
+local _task = {}
+if type(task) == "table" then
+    _task.spawn = task.spawn
+    _task.wait = task.wait
+    _task.cancel = task.cancel
+else
+    _task.spawn = coroutine.wrap
+    _task.wait = function(t)
+        local s = os.clock()
+        while os.clock() - s < (t or 0) do RunService.Heartbeat:Wait() end
+    end
+    _task.cancel = function(thread)
+        if coroutine.status(thread) ~= "dead" then coroutine.close(thread) end
+    end
+end
 
 -- --- Helper ---
 local function sendNotification(title, text, duration)
@@ -29,11 +36,11 @@ end
 
 -- --- UI ---
 local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV6GUI"; mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
+mainGui.Name = "MacroV7GUI"; mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
 mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global; mainGui.Parent = CoreGui
 
 local mainFrame = Instance.new("Frame", mainGui)
-mainFrame.Name = "MacroFrame"; mainFrame.Size = UDim2.new(0, 280, 0, 380)
+mainFrame.Name = "MacroFrame"; mainFrame.Size = UDim2.new(0, 280, 0, 420) -- Increased height for new button
 mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0); mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30); mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
@@ -44,7 +51,7 @@ dragLayer.Size = UDim2.new(1, 0, 0, 40); dragLayer.BackgroundTransparency = 1; d
 
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundTransparency = 1
-title.Text = "Macro Recorder v6"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "Macro Recorder v7"; title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold; title.TextSize = 22
 
 local contentArea = Instance.new("Frame", mainFrame)
@@ -65,6 +72,7 @@ local btnStartRecording = createButton("Start Recording", 10, contentArea)
 local btnReplayClicks = createButton("Replay Once", 50, contentArea)
 local btnReplayLoop = createButton("Replay Loop: OFF", 90, contentArea)
 local btnClear = createButton("Clear Recording", 130, contentArea)
+local btnRecalibrate
 
 local statusLabel = Instance.new("TextLabel", contentArea)
 statusLabel.Size = UDim2.new(1, 0, 0, 20); statusLabel.Position = UDim2.new(0, 0, 0, 170)
@@ -72,13 +80,14 @@ statusLabel.BackgroundTransparency = 1; statusLabel.Font = Enum.Font.Gotham
 statusLabel.Text = "Idle"; statusLabel.TextSize = 14; statusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
 
 local calibrationTitle = Instance.new("TextLabel", contentArea)
-calibrationTitle.Size = UDim2.new(1, 0, 0, 20); calibrationTitle.Position = UDim2.new(0, 0, 0, 200)
+calibrationTitle.Size = UDim2.new(1, 0, 0, 30); calibrationTitle.Position = UDim2.new(0, 0, 0, 200)
 calibrationTitle.BackgroundTransparency = 1
-calibrationTitle.Text = "Executor Virtual Resolution (IMPORTANT)"; calibrationTitle.Font = Enum.Font.Gotham
+calibrationTitle.Text = "Virtual Resolution (Match PC display for Delta)"; calibrationTitle.Font = Enum.Font.Gotham
 calibrationTitle.TextSize = 12; calibrationTitle.TextColor3 = Color3.fromRGB(180, 180, 180)
+calibrationTitle.TextWrapped = true
 
 local virtualWidthInput = Instance.new("TextBox", contentArea)
-virtualWidthInput.Size = UDim2.new(0.48, 0, 0, 30); virtualWidthInput.Position = UDim2.new(0, 0, 0, 225)
+virtualWidthInput.Size = UDim2.new(0.48, 0, 0, 30); virtualWidthInput.Position = UDim2.new(0, 0, 0, 235)
 virtualWidthInput.PlaceholderText = "Width"; virtualWidthInput.Text = "1920"
 virtualWidthInput.Font = Enum.Font.Gotham; virtualWidthInput.TextSize = 16
 virtualWidthInput.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -86,12 +95,15 @@ virtualWidthInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 local vwCorner = Instance.new("UICorner", virtualWidthInput); vwCorner.CornerRadius = UDim.new(0, 6)
 
 local virtualHeightInput = Instance.new("TextBox", contentArea)
-virtualHeightInput.Size = UDim2.new(0.48, 0, 0, 30); virtualHeightInput.Position = UDim2.new(0.52, 0, 0, 225)
+virtualHeightInput.Size = UDim2.new(0.48, 0, 0, 30); virtualHeightInput.Position = UDim2.new(0.52, 0, 0, 235)
 virtualHeightInput.PlaceholderText = "Height"; virtualHeightInput.Text = "1080"
 virtualHeightInput.Font = Enum.Font.Gotham; virtualHeightInput.TextSize = 16
 virtualHeightInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 virtualHeightInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 local vhCorner = Instance.new("UICorner", virtualHeightInput); vhCorner.CornerRadius = UDim.new(0, 6)
+
+btnRecalibrate = createButton("Recalibrate", 275, contentArea)
+btnRecalibrate.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
 
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
 toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30); toggleGuiBtn.Position = UDim2.new(0, 10, 0, 70)
@@ -145,10 +157,11 @@ do
         
         if hardwareScreenSize.X > 1 and hardwareScreenSize.Y > 1 then
             scaleFactor = Vector2.new(virtualScreenSize.X / hardwareScreenSize.X, virtualScreenSize.Y / hardwareScreenSize.Y)
+            sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y), 3)
         else
             scaleFactor = Vector2.new(1, 1) -- Fallback
+            sendNotification("Calibration Failed", "Could not get screen size. Using default.", 4)
         end
-        sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y), 3)
     end
 
     function ViewportToExecutor(viewportPos)
@@ -162,35 +175,41 @@ do
     -- Input Simulation Engine
     local INPUT_METHOD = "UNKNOWN"
     local VIM = nil
+    local _mouse1press, _mouse1release, _mousemove
     
     function initialize_input_method()
         local vim_success, vim_instance = pcall(function() return game:GetService("VirtualInputManager") end)
         if vim_success and vim_instance then
             VIM, INPUT_METHOD = vim_instance, "VIM"
             sendNotification("Input Method", "VirtualInputManager (Modern)", 3)
-        elseif mouse1press and mouse1release and mousemove then
+            return
+        end
+
+        _mouse1press = mouse1press
+        _mouse1release = mouse1release
+        _mousemove = mousemove
+
+        if type(_mouse1press) == "function" and type(_mouse1release) == "function" and type(_mousemove) == "function" then
             INPUT_METHOD = "EXECUTOR_GLOBALS"
             sendNotification("Input Method", "Executor Globals (Fallback)", 3)
-        else
-            INPUT_METHOD = "NONE"
-            sendNotification("Input Error", "No compatible input method found!", 10)
+            return
         end
+
+        INPUT_METHOD = "NONE"
+        sendNotification("Input Error", "No compatible input method found!", 10)
     end
 
     local function SimulateMouseMove(x, y)
         if INPUT_METHOD == "VIM" then pcall(VIM.SendMouseMoveEvent, VIM, x, y)
-        elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then pcall(mousemove, x, y) end
+        elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then pcall(_mousemove, x, y) end
     end
 
     local function SimulateMouseButton(isDown)
         if INPUT_METHOD == "VIM" then
-            -- Note: VIM needs position for button events, but we already moved the mouse.
-            -- We can get the current mouse pos, but for simplicity, we assume the previous move was sufficient.
-            -- The 'false' for gameProcessedEvent is critical for UI interaction.
             local m_pos = UserInputService:GetMouseLocation()
             pcall(VIM.SendMouseButtonEvent, VIM, m_pos.X, m_pos.Y, 0, isDown, false)
         elseif INPUT_METHOD == "EXECUTOR_GLOBALS" then
-            if isDown then pcall(mouse1press) else pcall(mouse1release) end
+            if isDown then pcall(_mouse1press) else pcall(_mouse1release) end
         end
     end
     
@@ -221,8 +240,8 @@ do
         if not isRecording then return end
         isRecording = false
         for _, conn in pairs(recordConnections) do conn:Disconnect() end
-        for _, tracker in pairs(activeInputTrackers) do task.cancel(tracker) end
-        recordConnections, activeInputTrackers = {}, {}
+        for input, tracker in pairs(activeInputTrackers) do _task.cancel(tracker); activeInputTrackers[input] = nil end
+        recordConnections = {}
         btnStartRecording.Text = "Start Recording"
         setStatus(string.format("Idle | %d actions", #recordedActions))
     end
@@ -241,8 +260,7 @@ do
             
             recordEvent({type = "down", pos = input.Position})
 
-            -- Start tracking movement for this specific input
-            activeInputTrackers[input] = task.spawn(function()
+            activeInputTrackers[input] = _task.spawn(function()
                 local lastPos = input.Position
                 while activeInputTrackers[input] do
                     local currentPos = UserInputService:GetMouseLocation()
@@ -258,7 +276,7 @@ do
         recordConnections.ended = UserInputService.InputEnded:Connect(function(input)
             if not activeInputTrackers[input] then return end
             
-            task.cancel(activeInputTrackers[input])
+            _task.cancel(activeInputTrackers[input])
             activeInputTrackers[input] = nil
             
             recordEvent({type = "up", pos = input.Position})
@@ -268,7 +286,7 @@ do
     function stopReplay()
         if not isReplaying and not isReplayingLoop then return end
         isReplaying, isReplayingLoop = false, false
-        if currentReplayThread then task.cancel(currentReplayThread); currentReplayThread = nil end
+        if currentReplayThread then _task.cancel(currentReplayThread); currentReplayThread = nil end
         btnReplayClicks.Text = "Replay Once"
         btnReplayLoop.Text = "Replay Loop: OFF"
         setStatus(string.format("Idle | %d actions", #recordedActions))
@@ -279,16 +297,16 @@ do
             if not isReplaying and not isReplayingLoop then break end
             
             if act.type == "wait" then
-                task.wait(act.duration)
+                _task.wait(act.duration)
             elseif act.type == "down" then
                 local pos = ViewportToExecutor(act.pos)
                 SimulateMouseMove(pos.X, pos.Y)
-                task.wait(0.02) -- Wait for mouse move to register
+                _task.wait(0.02)
                 SimulateMouseButton(true)
             elseif act.type == "up" then
                 local pos = ViewportToExecutor(act.pos)
                 SimulateMouseMove(pos.X, pos.Y)
-                task.wait(0.02)
+                _task.wait(0.02)
                 SimulateMouseButton(false)
             elseif act.type == "move" then
                 local pos = ViewportToExecutor(act.pos)
@@ -303,13 +321,13 @@ do
         isReplaying = not loop
         isReplayingLoop = loop
 
-        currentReplayThread = task.spawn(function()
+        currentReplayThread = _task.spawn(function()
             if loop then
                 btnReplayLoop.Text = "Replay Loop: ON"
                 setStatus("Looping...", Color3.fromRGB(150, 150, 255))
                 while isReplayingLoop do
                     doReplayActions()
-                    task.wait(0.1)
+                    _task.wait(0.1)
                 end
             else
                 btnReplayClicks.Text = "Stop Replay"
@@ -336,19 +354,20 @@ do
     btnReplayClicks.MouseButton1Click:Connect(function() if isReplaying then stopReplay() else startReplay(false) end end)
     btnReplayLoop.MouseButton1Click:Connect(function() if isReplayingLoop then stopReplay() else startReplay(true) end end)
     btnClear.MouseButton1Click:Connect(clearRecording)
+    btnRecalibrate.MouseButton1Click:Connect(updateCalibration)
     
     toggleGuiBtn.MouseButton1Click:Connect(function()
         mainFrame.Visible = not mainFrame.Visible
         toggleGuiBtn.Text = mainFrame.Visible and "Hide" or "Show"
     end)
     
-    local function onFocusLost() task.wait(0.1); updateCalibration() end
+    local function onFocusLost() _task.wait(0.1); updateCalibration() end
     virtualWidthInput.FocusLost:Connect(onFocusLost)
     virtualHeightInput.FocusLost:Connect(onFocusLost)
     
     -- Initialize
-    sendNotification("Macro V6 Loaded", "Calibrating...", 2)
-    task.wait(0.5)
+    sendNotification("Macro V7 Loaded", "Calibrating...", 2)
     initialize_input_method()
+    _task.wait(1) -- Wait for GUI to fully render before initial calibration
     updateCalibration()
 end
