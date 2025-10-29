@@ -1,4 +1,4 @@
--- Roblox Smart Detection & Calibration Suite v1.0
+-- Roblox Smart Detection & Calibration Suite v1.1
 -- Implements a multi-layered detection system with visual feedback, analytics, and a guided calibration assistant.
 -- Based on the specification for a comprehensive system to understand and optimize click detection reliability.
 
@@ -55,8 +55,13 @@ function DetectionSuite:CreateUI()
     detectionArea.AnchorPoint = Vector2.new(0.5, 0.5); detectionArea.BorderSizePixel = 3
     detectionArea.BorderColor3 = Color3.fromRGB(0, 255, 0); detectionArea.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
     detectionArea.BackgroundTransparency = 0.9
+    detectionArea.ClipsDescendants = true
     self.UI.DetectionArea = detectionArea
     
+    -- Enhancements from feedback
+    self:CreateZones()
+    self:CreateGrid()
+
     -- 1.3: Add Control Panel
     local controlPanel = Instance.new("Frame", overlay)
     controlPanel.Size = UDim2.new(0, 200, 0, 150); controlPanel.Position = UDim2.new(1, -210, 0, 10)
@@ -93,6 +98,43 @@ function DetectionSuite:CreateUI()
     overlay.Parent = CoreGui
 end
 
+function DetectionSuite:CreateGrid()
+    local grid = Instance.new("Frame", self.UI.DetectionArea)
+    grid.Name = "GridContainer"
+    grid.Size = UDim2.fromScale(1, 1)
+    grid.BackgroundTransparency = 1
+    
+    for x = 0, 1920, 100 do
+        local line = Instance.new("Frame", grid)
+        line.Size = UDim2.new(0, 1, 1, 0)
+        line.Position = UDim2.new(0, x, 0, 0)
+        line.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        line.BackgroundTransparency = 0.85
+        line.BorderSizePixel = 0
+    end
+    
+    for y = 0, 1080, 100 do
+        local line = Instance.new("Frame", grid)
+        line.Size = UDim2.new(1, 0, 0, 1)
+        line.Position = UDim2.new(0, 0, 0, y)
+        line.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        line.BackgroundTransparency = 0.85
+        line.BorderSizePixel = 0
+    end
+end
+
+function DetectionSuite:CreateZones()
+    local safeZone = Instance.new("Frame", self.UI.DetectionArea)
+    safeZone.Name = "SafeZone"
+    safeZone.Size = UDim2.fromOffset(1600, 880)
+    safeZone.Position = UDim2.fromScale(0.5, 0.5)
+    safeZone.AnchorPoint = Vector2.new(0.5, 0.5)
+    safeZone.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    safeZone.BackgroundTransparency = 0.95
+    safeZone.BorderSizePixel = 0
+    self.UI.SafeZone = safeZone
+end
+
 -- --- Smart Detection Logic (Phase 2) ---
 function DetectionSuite:IsInDetectionArea(position)
     local area = self.UI.DetectionArea
@@ -100,15 +142,34 @@ function DetectionSuite:IsInDetectionArea(position)
     return relativePos.X >= 0 and relativePos.X <= area.AbsoluteSize.X and relativePos.Y >= 0 and relativePos.Y <= area.AbsoluteSize.Y
 end
 
+function DetectionSuite:CalculateAverageLatency()
+    local S = self.State
+    if #S.LatencyData == 0 then return 0 end
+    local totalLatency = 0
+    for _, latency in ipairs(S.LatencyData) do
+        totalLatency = totalLatency + latency
+    end
+    return (totalLatency / #S.LatencyData) * 1000 -- Convert to ms
+end
+
 function DetectionSuite:UpdateStats()
     local S = self.State
     S.TotalClicks = S.SuccessfulClicks + S.FailedClicks
     local successRate = (S.TotalClicks > 0) and (S.SuccessfulClicks / S.TotalClicks * 100) or 100
-    self.UI.ClickCounter.Text = string.format("Successful: %d | Failed: %d | Rate: %.1f%%", S.SuccessfulClicks, S.FailedClicks, successRate)
     
-    if successRate < 80 then self.UI.ClickCounter.TextColor3 = Color3.fromRGB(255, 80, 80)
-    elseif successRate < 95 then self.UI.ClickCounter.TextColor3 = Color3.fromRGB(255, 200, 80)
-    else self.UI.ClickCounter.TextColor3 = Color3.fromRGB(80, 255, 80) end
+    local avgLatency = #S.LatencyData > 0 and self:CalculateAverageLatency() or 0
+    self.UI.ClickCounter.Text = string.format(
+        "Success: %d | Failed: %d | Rate: %.1f%% | Latency: %.1fms", 
+        S.SuccessfulClicks, S.FailedClicks, successRate, avgLatency
+    )
+    
+    if successRate < 80 then 
+        self.UI.ClickCounter.TextColor3 = Color3.fromRGB(255, 80, 80)
+    elseif successRate < 95 then 
+        self.UI.ClickCounter.TextColor3 = Color3.fromRGB(255, 200, 80)
+    else 
+        self.UI.ClickCounter.TextColor3 = Color3.fromRGB(80, 255, 80) 
+    end
 end
 
 function DetectionSuite:LogClick(position)
