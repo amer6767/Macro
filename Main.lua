@@ -52,6 +52,7 @@ local isReplayingLoop, currentReplayLoopThread = false, nil
 local activeXOffsetRaw = { mode = "px", value = 0 }
 local activeYOffsetRaw = { mode = "px", value = 0 }
 local guiHidden = false
+local bestClickSignature = nil
 
 -- Calibration State
 local guiInset, hardwareScreenSize = Vector2.new(0, 0), Vector2.new(0, 0)
@@ -305,8 +306,61 @@ local function safeSendMouseMove(x, y)
 end
 
 local function safeSendMouseButton(x, y, button, isDown)
-    if vmAvailable then
-        pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, false) end)
+    if not vmAvailable then return end
+    
+    -- Try 6-parameter signature first (works on Delta/Hydrogen)
+    local success = pcall(function() 
+        VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 1) 
+    end)
+    if success then return end
+    
+    -- Try 5-parameter with 'game'
+    success = pcall(function() 
+        VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game) 
+    end)
+    if success then return end
+    
+    -- Try 5-parameter with 'false'
+    pcall(function() 
+        VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, false) 
+    end)
+end
+
+-- Add this new function after safeSendMouseButton
+local function performAutoClick(x, y)
+    if bestClickSignature then
+        pcall(bestClickSignature, x, y)
+        return
+    end
+    
+    -- Try different signatures and cache the working one
+    local signatures = {
+        -- 6 parameters
+        function(x, y) 
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+        end,
+        -- 5 parameters with game
+        function(x, y) 
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game)
+        end,
+        -- 5 parameters with false
+        function(x, y) 
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, false)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, false)
+        end,
+    }
+    
+    for i, sig in ipairs(signatures) do
+        if pcall(sig, x, y) then 
+            bestClickSignature = sig
+            print("[AUTO CLICK] Signature", i, "works!")
+            return 
+        end
     end
 end
 
@@ -507,15 +561,33 @@ local function toggleAutoClicker()
     autoClickEnabled = true
     btnAutoClicker.Text = "Auto Clicker: ON"
     task.spawn(function()
-        local nextTime = tick()
+        local clickCount = 0
         while autoClickEnabled do
-            local interval = math.max(0.001, clickInterval)
-            nextTime = nextTime + interval
-            simulateClick(clickPosition)
-            local waitTime = nextTime - tick()
-            if waitTime > 0 then task.wait(waitTime) else RunService.Heartbeat:Wait(); nextTime = tick() end
+            local interval = math.max(0.05, clickInterval)
+            
+            -- Apply calibration to click position
+            local targetPos = clickPosition
+            local offsetPos = Vector2.new(
+                targetPos.X + computePixelXOffset(activeXOffsetRaw), 
+                targetPos.Y + computePixelYOffset(activeYOffsetRaw)
+            )
+            local effectivePos = ViewportToExecutor(offsetPos)
+            
+            if vmAvailable and VirtualInputManager then
+                performAutoClick(effectivePos.X, effectivePos.Y)
+                clickCount = clickCount + 1
+                if clickCount % 10 == 0 then
+                    btnAutoClicker.Text = string.format("Clicks: %d", clickCount)
+                end
+            else
+                stopAutoClicker()
+                break
+            end
+            
+            task.wait(interval)
         end
     end)
+    sendNotification("Auto Clicker", string.format("Started (%.2fs interval)", clickInterval))
 end
 
 -- Set Click Position Logic
@@ -649,25 +721,59 @@ task.spawn(function()
     end
 end)
 
-
---[[
--- QUICK VIM TEST SCRIPT
+-- VIM TEST SCRIPT (Uncomment to test)
 task.spawn(function()
-    task.wait(5)
-    print("Testing VIM...")
-    if vmAvailable and VirtualInputManager then
-        print("VIM exists!")
-        pcall(function()
-            VirtualInputManager:SendMouseMoveEvent(500, 500)
-            print("Move success!")
-            task.wait(0.1)
-            VirtualInputManager:SendMouseButtonEvent(500, 500, 0, true, false)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(500, 500, 0, false, false)
-            print("Click success!")
-        end)
-    else
-        print("VIM NOT AVAILABLE!")
+    task.wait(3)
+    print("=== VIM TEST STARTING ===")
+    
+    if not vmAvailable then
+        print("[FAIL] vmAvailable is false")
+        return
     end
+    
+    if not VirtualInputManager then
+        print("[FAIL] VirtualInputManager is nil")
+        return
+    end
+    
+    print("[OK] VIM exists!")
+    
+    -- Test mouse move
+    local moveSuccess = pcall(function() 
+        VirtualInputManager:SendMouseMoveEvent(500, 500) 
+    end)
+    print(moveSuccess and "[OK] Mouse move works!" or "[FAIL] Mouse move failed!")
+    
+    task.wait(0.2)
+    
+    -- Test click signature 1
+    print("[TEST] Trying 6-param signature...")
+    local click1 = pcall(function() 
+        VirtualInputManager:SendMouseButtonEvent(500, 500, 0, true, game, 1)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(500, 500, 0, false, game, 1)
+    end)
+    
+    if click1 then
+        print("[OK] 6-param signature works!")
+        sendNotification("VIM Test", "6-param signature works!")
+    else
+        print("[FAIL] 6-param failed, trying 5-param...")
+        
+        local click2 = pcall(function() 
+            VirtualInputManager:SendMouseButtonEvent(500, 500, 0, true, game)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(500, 500, 0, false, game)
+        end)
+        
+        if click2 then
+            print("[OK] 5-param signature works!")
+            sendNotification("VIM Test", "5-param signature works!")
+        else
+            print("[FAIL] Both signatures failed!")
+            sendNotification("VIM Test", "All signatures failed!", 10)
+        end
+    end
+    
+    print("=== VIM TEST COMPLETE ===")
 end)
-]]
