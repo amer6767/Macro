@@ -1,5 +1,6 @@
 -- Roblox Macro V4 (Fixed, Calibrated, Debugged)
 -- Incorporates fixes for syntax, VIM parameters, input reading, and calibration timing.
+-- This version has been patched to prevent the 'gray screen' rendering issue.
 
 -- Wait for game.GetService to be available
 while not (game and game.GetService) do
@@ -14,6 +15,15 @@ local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 local CoreGui = game:GetService("CoreGui")
 local workspace = workspace
+
+-- CLEANUP: Remove any previous instances of the script
+pcall(function()
+    local existingGUI = CoreGui:FindFirstChild("MacroV4GUI_Fixed")
+    if existingGUI then
+        existingGUI:Destroy()
+        task.wait(0.1)
+    end
+end)
 
 -- Player
 local player = Players.LocalPlayer
@@ -230,16 +240,42 @@ end
 
 -- Calibration Logic
 function updateCalibration()
+    -- Get GUI inset
     local success, result = pcall(function() return GuiService:GetGuiInset() end)
     guiInset = (success and result) or Vector2.new(0, 36)
-    hardwareScreenSize = mainGui.AbsoluteSize
+    
+    -- Get hardware screen size from existing GUI element (safer)
+    if mainGui and mainGui.AbsoluteSize and mainGui.AbsoluteSize.X > 1 then
+        hardwareScreenSize = mainGui.AbsoluteSize
+    else
+        -- Fallback: Try to get viewport size
+        local cam = workspace.CurrentCamera
+        if cam and cam.ViewportSize then
+            hardwareScreenSize = cam.ViewportSize
+        else
+            hardwareScreenSize = Vector2.new(1920, 1080)  -- Last resort fallback
+        end
+    end
+    
+    -- Read virtual resolution
     local vw, vh = tonumber(virtualWidthInput.Text) or 1920, tonumber(virtualHeightInput.Text) or 1080
     virtualScreenSize = Vector2.new(vw, vh)
+    
+    -- Calculate scale factor
     if hardwareScreenSize.X > 1 and hardwareScreenSize.Y > 1 then
-        scaleFactor = Vector2.new(virtualScreenSize.X / hardwareScreenSize.X, virtualScreenSize.Y / hardwareScreenSize.Y)
+        scaleFactor = Vector2.new(
+            virtualScreenSize.X / hardwareScreenSize.X, 
+            virtualScreenSize.Y / hardwareScreenSize.Y
+        )
     else
-        scaleFactor = Vector2.new(1, 1) -- Fallback
+        scaleFactor = Vector2.new(1, 1)
     end
+    
+    print(string.format("[CALIBRATION] Hardware: %dx%d, Virtual: %dx%d, Scale: %.2fx%.2f",
+        hardwareScreenSize.X, hardwareScreenSize.Y,
+        virtualScreenSize.X, virtualScreenSize.Y,
+        scaleFactor.X, scaleFactor.Y))
+    
     sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y), 3)
 end
 
@@ -568,12 +604,12 @@ submitBtn.MouseButton1Click:Connect(function()
         sendNotification("Access Granted", "Welcome!")
         keyEntry:Destroy()
         mainFrame.Visible = true; toggleGuiBtn.Visible = true
-        task.wait(1)
-        local measurer = Instance.new("Frame", mainGui)
-        measurer.Size = UDim2.new(1, 0, 1, 0); measurer.IgnoreGuiInset = true
-        task.wait(0.1)
-        measurer:Destroy()
-        updateCalibration()
+        
+        -- Use a non-blocking call to calibrate after the GUI is visible to prevent hangs
+        task.spawn(function()
+            task.wait(0.5) -- Wait for GUI to render and get correct AbsoluteSize
+            updateCalibration()
+        end)
     else
         keyBox.Text = ""; keyBox.PlaceholderText = "Invalid key, try again"
         sendNotification("Access Denied", "Incorrect key.")
@@ -599,6 +635,20 @@ tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 -- Initial UI state & notes
 selectTab("auto")
 task.spawn(initialize_VIM)
+
+-- EMERGENCY: Clear any stuck frames on script start
+task.spawn(function()
+    task.wait(2)  -- Wait for script to load
+    
+    -- Find and destroy any rogue full-screen frames from previous runs
+    for _, obj in ipairs(mainGui:GetChildren()) do
+        if obj:IsA("Frame") and obj.Size == UDim2.new(1, 0, 1, 0) and obj ~= mainFrame then
+            obj:Destroy()
+            print("[CLEANUP] Removed stuck frame:", obj.Name)
+        end
+    end
+end)
+
 
 --[[
 -- QUICK VIM TEST SCRIPT
