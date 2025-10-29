@@ -1,6 +1,6 @@
--- Roblox Smart Detection & Calibration Suite v3.0
--- Implements a fully automatic, zero-effort calibration system.
--- Features: Multi-layered detection, adaptive UI, analytics, heat map,
+-- Roblox Smart Detection & Calibration Suite v3.1 (Hotfix)
+-- Implements a fully automatic, zero-effort calibration system with corrected logic.
+-- Features: Corrected bounding box calculations, large default area, enhanced visual feedback,
 -- and a continuous, self-optimizing detection area that learns from user behavior.
 
 -- --- Service Loading & Compatibility ---
@@ -186,79 +186,184 @@ function DetectionSuite:InitializeHeatMap() end
 function DetectionSuite:UpdateHeatMap(position) end
 
 
--- --- Automatic Calibration System (v3.0) ---
+-- --- Automatic Calibration System (v3.1) ---
 function DetectionSuite:ApplySmartDefaults()
     local viewport = Workspace.CurrentCamera.ViewportSize
-    local centerPos = UDim2.new(0.5, -viewport.X * 0.25, 0.5, -viewport.Y * 0.25)
-    local centerSize = UDim2.fromScale(0.5, 0.5)
-    self.UI.DetectionArea.Position = centerPos
-    self.UI.DetectionArea.Size = centerSize
-    self.UI.ClickCounter.Text = "🎯 Default area set. It will auto-adjust as you click!"
+    
+    -- Set a LARGE, CENTERED default area (60% of screen)
+    local width = viewport.X * 0.6
+    local height = viewport.Y * 0.6
+    local posX = (viewport.X - width) / 2
+    local posY = (viewport.Y - height) / 2
+    
+    self.UI.DetectionArea.Position = UDim2.fromOffset(posX, posY)
+    self.UI.DetectionArea.Size = UDim2.fromOffset(width, height)
+    
+    self.UI.ClickCounter.Text = "🎯 Large default area set - ready for clicks!"
     self:CreateGrid()
+    self:CreateZones()
+    
+    print(string.format("[DEFAULT] Set area: %dx%d at (%d, %d)", width, height, posX, posY))
 end
 
 function DetectionSuite:AutoDetectTargetArea()
-    if #self.State.ClickHistory < 5 then return end
+    if #self.State.ClickHistory < 3 then 
+        self.UI.ClickCounter.Text = "Need more clicks for auto-detection..."
+        return 
+    end
     
     local minX, maxX = math.huge, -math.huge
     local minY, maxY = math.huge, -math.huge
     
+    -- Use ABSOLUTE screen positions, not relative
     for _, click in ipairs(self.State.ClickHistory) do
-        local pos = click.Position
-        minX = math.min(minX, pos.X); maxX = math.max(maxX, pos.X)
-        minY = math.min(minY, pos.Y); maxY = math.max(maxY, pos.Y)
+        minX = math.min(minX, click.Position.X)
+        maxX = math.max(maxX, click.Position.X)
+        minY = math.min(minY, click.Position.Y)
+        maxY = math.max(maxY, click.Position.Y)
     end
     
-    if maxX - minX < 50 or maxY - minY < 50 then return end -- Clicks are too close, probably not an area
+    -- Ensure minimum size and add padding
+    local padding = 40
+    local width = math.max(200, maxX - minX + padding)
+    local height = math.max(200, maxY - minY + padding)
     
-    local width = maxX - minX + 40; local height = maxY - minY + 40
-    local newPos = UDim2.fromOffset(minX - 20, minY - 20)
-    local newSize = UDim2.fromOffset(width, height)
+    -- Calculate new position with padding
+    local newPosX = math.max(0, minX - padding/2)
+    local newPosY = math.max(0, minY - padding/2)
     
-    TweenService:Create(self.UI.DetectionArea, TweenInfo.new(0.5), {Position = newPos, Size = newSize}):Play()
+    -- Don't let the area go off-screen
+    local viewport = Workspace.CurrentCamera.ViewportSize
+    if newPosX + width > viewport.X then
+        width = viewport.X - newPosX - 10
+    end
+    if newPosY + height > viewport.Y then
+        height = viewport.Y - newPosY - 10
+    end
+    
+    -- Apply with smooth animation
+    TweenService:Create(self.UI.DetectionArea, TweenInfo.new(0.8), {
+        Position = UDim2.fromOffset(newPosX, newPosY),
+        Size = UDim2.fromOffset(width, height)
+    }):Play()
+    
     self.UI.ClickCounter.Text = "✅ Auto-detected your target area!"
-    task.delay(0.5, function() self:CreateGrid() end)
+    
+    -- Update grid and zones after animation
+    task.delay(0.9, function()
+        self:CreateGrid()
+        self:CreateZones()
+    end)
+    
+    print(string.format("[AUTO-DETECT] New area: %dx%d at (%d, %d)", width, height, newPosX, newPosY))
 end
 
 function DetectionSuite:ContinuousOptimization()
     if self.Threads.Optimization then task.cancel(self.Threads.Optimization) end
+    
     self.Threads.Optimization = task.spawn(function()
+        local lastOptimization = 0
+        
         while self.State.IsTestRunning do
-            task.wait(5)
-            if #self.State.ClickHistory > 10 then
-                self:AutoDetectTargetArea()
+            task.wait(3) -- Check every 3 seconds
+            
+            -- Only optimize if we have enough data and enough time passed
+            if #self.State.ClickHistory >= 5 and os.clock() - lastOptimization > 10 then
+                local successRate = self.State.SuccessfulClicks / math.max(1, self.State.TotalClicks)
+                
+                -- Auto-adjust if success rate is low
+                if successRate < 0.6 then
+                    self.UI.ClickCounter.Text = "🔄 Auto-adjusting detection area..."
+                    self:AutoDetectTargetArea()
+                    lastOptimization = os.clock()
+                end
             end
         end
     end)
 end
 
 function DetectionSuite:ApplyMagicCalibration(sampleClicks)
+    if #sampleClicks == 0 then return end
+    
     local minX, maxX = math.huge, -math.huge
     local minY, maxY = math.huge, -math.huge
+    
     for _, pos in ipairs(sampleClicks) do
-        minX = math.min(minX, pos.X); maxX = math.max(maxX, pos.X)
-        minY = math.min(minY, pos.Y); maxY = math.max(maxY, pos.Y)
+        minX = math.min(minX, pos.X)
+        maxX = math.max(maxX, pos.X)
+        minY = math.min(minY, pos.Y)
+        maxY = math.max(maxY, pos.Y)
     end
     
-    local width = math.max(100, maxX - minX + 40)
-    local height = math.max(100, maxY - minY + 40)
-    self.UI.DetectionArea.Position = UDim2.fromOffset(minX - 20, minY - 20)
-    self.UI.DetectionArea.Size = UDim2.fromOffset(width, height)
-    self:CreateGrid()
+    -- Ensure reasonable size with padding
+    local padding = 50
+    local width = math.max(300, maxX - minX + padding)
+    local height = math.max(300, maxY - minY + padding)
+    
+    -- Calculate position with padding
+    local newPosX = math.max(10, minX - padding/2)
+    local newPosY = math.max(10, minY - padding/2)
+    
+    -- Ensure it fits on screen
+    local viewport = Workspace.CurrentCamera.ViewportSize
+    if newPosX + width > viewport.X then
+        width = viewport.X - newPosX - 10
+    end
+    if newPosY + height > viewport.Y then
+        height = viewport.Y - newPosY - 10
+    end
+    
+    -- Apply with animation
+    TweenService:Create(self.UI.DetectionArea, TweenInfo.new(0.8), {
+        Position = UDim2.fromOffset(newPosX, newPosY),
+        Size = UDim2.fromOffset(width, height)
+    }):Play()
+    
+    -- Update UI after animation
+    task.delay(0.9, function()
+        self:CreateGrid()
+        self:CreateZones()
+    end)
+    
+    print(string.format("[MAGIC] Set area: %dx%d at (%d, %d)", width, height, newPosX, newPosY))
 end
 
 function DetectionSuite:MagicCalibration()
     if self.State.IsMagicCalibrating then return end
     self.State.IsMagicCalibrating = true
     
-    if #self.State.ClickHistory >= 5 then
-        self.UI.ClickCounter.Text = "🔮 Analyzing your click history..."
+    -- Visual feedback
+    self.UI.MagicCalibrateBtn.Text = "🔄 Calibrating..."
+    self.UI.MagicCalibrateBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    
+    if #self.State.ClickHistory >= 3 then
+        self.UI.ClickCounter.Text = "🔮 Analyzing your click patterns..."
+        
+        -- Show progress animation
+        local dots = 0
+        local progress = task.spawn(function()
+            while self.State.IsMagicCalibrating do
+                dots = (dots % 3) + 1
+                self.UI.ClickCounter.Text = "Analyzing" .. string.rep(".", dots)
+                task.wait(0.5)
+            end
+        end)
+        
+        task.wait(1) -- Let user see the animation
+        
         self:AutoDetectTargetArea()
+        if progress then task.cancel(progress) end
+        
+        task.wait(0.5) -- Let animation complete
         self.State.IsMagicCalibrating = false
+        self.UI.MagicCalibrateBtn.Text = "🔮 Auto-Calibrate"
+        self.UI.MagicCalibrateBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
         return
     end
     
+    -- Quick setup mode
     self.UI.ClickCounter.Text = "Quick setup: Click 2-3 spots in your target area"
+    
     local sampleClicks = {}
     local sampleListener
     
@@ -266,22 +371,49 @@ function DetectionSuite:MagicCalibration()
         if gp or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         
         table.insert(sampleClicks, input.Position)
-        local remaining = 3 - #sampleClicks
-        self.UI.ClickCounter.Text = string.format("Quick setup: Click %d more spot(s)", remaining)
         
-        if remaining <= 0 then
+        -- Visual feedback for each click
+        local flash = Instance.new("Frame", self.UI.Overlay)
+        flash.Size = UDim2.new(0, 30, 0, 30)
+        flash.Position = UDim2.fromOffset(input.Position.X, input.Position.Y)
+        flash.AnchorPoint = Vector2.new(0.5, 0.5)
+        flash.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+        flash.BorderSizePixel = 0
+        local corner = Instance.new("UICorner", flash)
+        corner.CornerRadius = UDim.new(1, 0)
+        
+        TweenService:Create(flash, TweenInfo.new(0.5), {
+            BackgroundTransparency = 1,
+            Size = UDim2.new(0, 60, 0, 60)
+        }):Play()
+        task.delay(0.5, function() flash:Destroy() end)
+        
+        local remaining = 3 - #sampleClicks
+        if remaining > 0 then
+            self.UI.ClickCounter.Text = string.format("Quick setup: Click %d more spot(s)", remaining)
+        else
             if sampleListener then sampleListener:Disconnect(); sampleListener = nil end
             self:ApplyMagicCalibration(sampleClicks)
             self.State.IsMagicCalibrating = false
+            self.UI.MagicCalibrateBtn.Text = "🔮 Auto-Calibrate"
+            self.UI.MagicCalibrateBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
             self.UI.ClickCounter.Text = "✅ Magic calibration complete!"
         end
     end)
     
-    task.delay(8, function()
+    -- Auto-timeout with feedback
+    task.delay(10, function()
         if sampleListener then 
-            sampleListener:Disconnect()
+            sampleListener:Disconnect(); sampleListener = nil
             self.State.IsMagicCalibrating = false
-            if #sampleClicks > 0 then self:ApplyMagicCalibration(sampleClicks) else self:UpdateStats() end
+            self.UI.MagicCalibrateBtn.Text = "🔮 Auto-Calibrate"
+            self.UI.MagicCalibrateBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            
+            if #sampleClicks > 0 then 
+                self:ApplyMagicCalibration(sampleClicks) 
+            else 
+                self.UI.ClickCounter.Text = "Using default detection area"
+            end
         end
     end)
 end
@@ -301,7 +433,13 @@ end
 
 -- --- Event Handling & Initialization ---
 function DetectionSuite:Initialize()
-    if not Workspace.CurrentCamera then task.wait() end
+    if not Workspace.CurrentCamera then 
+        task.wait(1) -- Wait longer for camera
+    end
+    
+    local viewport = Workspace.CurrentCamera.ViewportSize
+    print(string.format("[INIT] Screen size: %dx%d", viewport.X, viewport.Y))
+    
     self:CreateUI()
     self:ApplySmartDefaults()
     self.State.SessionStartTime = os.clock()
