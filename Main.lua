@@ -1,779 +1,249 @@
--- Roblox Macro V4 (Fixed, Calibrated, Debugged)
--- Incorporates fixes for syntax, VIM parameters, input reading, and calibration timing.
--- This version has been patched to prevent the 'gray screen' rendering issue.
+-- Roblox Smart Detection & Calibration Suite v1.0
+-- Implements a multi-layered detection system with visual feedback, analytics, and a guided calibration assistant.
+-- Based on the specification for a comprehensive system to understand and optimize click detection reliability.
 
--- Wait for game.GetService to be available
-while not (game and game.GetService) do
-    wait(0.05)
-end
-
--- Services
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local StarterGui = game:GetService("StarterGui")
-local RunService = game:GetService("RunService")
-local GuiService = game:GetService("GuiService")
+-- --- Service Loading & Compatibility ---
 local CoreGui = game:GetService("CoreGui")
-local workspace = workspace
+local GuiService = game:GetService("GuiService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
--- CLEANUP: Remove any previous instances of the script
-pcall(function()
-    local existingGUI = CoreGui:FindFirstChild("MacroV4GUI_Fixed")
-    if existingGUI then
-        existingGUI:Destroy()
-        task.wait(0.1)
-    end
-end)
+if type(task) ~= "table" then task = {
+    spawn = coroutine.wrap,
+    wait = function(t) local s = tick() while tick() - s < (t or 0) do RunService.Heartbeat:Wait() end end,
+    cancel = function(thread) if coroutine.status(thread) ~= "dead" then coroutine.close(thread) end end
+} end
 
--- Player
 local player = Players.LocalPlayer
-while not player do
-    RunService.Heartbeat:Wait()
-    player = Players.LocalPlayer
-end
-local mouse = player:GetMouse()
+local guiInset = GuiService:GetGuiInset()
 
--- Config
-local MIN_CLICK_HOLD_DURATION = 0.05
-local FONT_MAIN = Enum.Font.Gotham
-local FONT_BOLD = Enum.Font.GothamBold
-local SWIPE_MIN_PIXELS = 8
-local SWIPE_SAMPLE_FPS = 60
-local SWIPE_CURVATURE_DEFAULT = 0.0
-local SWIPE_EASING = "easeInOutQuad"
+-- --- Main Suite ---
+local DetectionSuite = {}
+DetectionSuite.UI = {}
+DetectionSuite.State = {
+    SuccessfulClicks = 0,
+    FailedClicks = 0,
+    TotalClicks = 0,
+    LatencyData = {},
+    ClickHistory = {},
+    IsOverlayVisible = true,
+    IsTestRunning = false,
+    CalibrationStep = 0,
+    CalibrationClicks = {},
+    CurrentScale = Vector2.new(1, 1),
+    CurrentOffset = Vector2.new(0, 0)
+}
 
--- State
-local autoClickEnabled, clickInterval = false, 0.2
-local clickPosition = Vector2.new(500, 500)
-local waitingForPosition = false
-local isRecording, recordedActions, recordStartTime, recordConnections = false, {}, 0, {}
-local isReplaying, replayCount, currentReplayThread = false, 1, nil
-local isReplayingLoop, currentReplayLoopThread = false, nil
-local activeXOffsetRaw = { mode = "px", value = 0 }
-local activeYOffsetRaw = { mode = "px", value = 0 }
-local guiHidden = false
-local bestClickSignature = nil
+-- --- UI Construction (Phase 1) ---
+function DetectionSuite:CreateUI()
+    -- 1.1: Create DetectionBox GUI
+    local overlay = Instance.new("ScreenGui")
+    overlay.Name = "DetectionBoxOverlay"; overlay.ZIndexBehavior = Enum.ZIndexBehavior.Global; overlay.ResetOnSpawn = false
+    self.UI.Overlay = overlay
 
--- Calibration State
-local guiInset, hardwareScreenSize = Vector2.new(0, 0), Vector2.new(0, 0)
-local virtualScreenSize = Vector2.new(1920, 1080)
-local scaleFactor = Vector2.new(1, 1)
+    local overlayFrame = Instance.new("Frame", overlay)
+    overlayFrame.Size = UDim2.fromScale(1, 1); overlayFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    overlayFrame.BackgroundTransparency = 0.7
+    self.UI.OverlayFrame = overlayFrame
 
--- task shim
-if type(task) ~= "table" or type(task.spawn) ~= "function" then
-    task = {
-        spawn = coroutine.wrap,
-        wait = function(time)
-            local start = tick()
-            while tick() - start < (time or 0) do RunService.Heartbeat:Wait() end
-        end,
-        delay = function(time, func) task.spawn(function() task.wait(time); func() end) end,
-        cancel = function(co) if type(co) == "thread" then coroutine.close(co) end end
-    }
-end
-
--- UI Creation
-local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV4GUI_Fixed"
-mainGui.IgnoreGuiInset = true; mainGui.ResetOnSpawn = false
-mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global; mainGui.Parent = CoreGui
-
-local keyEntry = Instance.new("Frame")
-keyEntry.Size = UDim2.new(0, 260, 0, 140); keyEntry.Position = UDim2.new(0.5, -130, 0.5, -70)
-keyEntry.AnchorPoint = Vector2.new(0.5, 0.5); keyEntry.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-keyEntry.BorderSizePixel = 0; keyEntry.Parent = mainGui
-local keyEntryCorner = Instance.new("UICorner", keyEntry); keyEntryCorner.CornerRadius = UDim.new(0, 8)
-
-local keyBox = Instance.new("TextBox", keyEntry)
-keyBox.Size = UDim2.new(0.9, 0, 0, 30); keyBox.Position = UDim2.new(0.05, 0, 0, 10)
-keyBox.PlaceholderText = "Enter Key"; keyBox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-keyBox.TextColor3 = Color3.new(1, 1, 1); keyBox.Font = FONT_MAIN; keyBox.TextSize = 16
-keyBox.BorderSizePixel = 0; keyBox.ClearTextOnFocus = false
-local keyBoxCorner = Instance.new("UICorner", keyBox); keyBoxCorner.CornerRadius = UDim.new(0, 6)
-
-local submitBtn = Instance.new("TextButton", keyEntry)
-submitBtn.Size = UDim2.new(0.9, 0, 0, 30); submitBtn.Position = UDim2.new(0.05, 0, 0, 50)
-submitBtn.Text = "Submit Key"; submitBtn.Font = FONT_MAIN; submitBtn.TextSize = 16
-submitBtn.TextColor3 = Color3.new(1, 1, 1); submitBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
-submitBtn.BorderSizePixel = 0
-local submitBtnCorner = Instance.new("UICorner", submitBtn); submitBtnCorner.CornerRadius = UDim.new(0, 6)
-
-local copyBtn = Instance.new("TextButton", keyEntry)
-copyBtn.Size = UDim2.new(0.9, 0, 0, 30); copyBtn.Position = UDim2.new(0.05, 0, 0, 90)
-copyBtn.Text = "Copy Key Link"; copyBtn.Font = FONT_MAIN; copyBtn.TextSize = 16
-copyBtn.TextColor3 = Color3.fromRGB(220, 220, 220); copyBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-copyBtn.BorderSizePixel = 0
-local copyBtnCorner = Instance.new("UICorner", copyBtn); copyBtnCorner.CornerRadius = UDim.new(0, 6)
-
-local mainFrame = Instance.new("Frame", mainGui)
-mainFrame.Size = UDim2.new(0, 260, 0, 440); mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-mainFrame.AnchorPoint = Vector2.new(0.5, 0.5); mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-mainFrame.BorderSizePixel = 0; mainFrame.ClipsDescendants = true; mainFrame.Visible = false
-local frameCorner = Instance.new("UICorner", mainFrame); frameCorner.CornerRadius = UDim.new(0, 12)
-
-local dragLayer = Instance.new("Frame", mainFrame)
-dragLayer.Size = UDim2.new(1, 0, 0, 40); dragLayer.BackgroundTransparency = 1; dragLayer.ZIndex = 1; dragLayer.Active = true
-
-local title = Instance.new("TextLabel", mainFrame)
-title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundTransparency = 1; title.Text = "Macro V4 (Fixed)"
-title.TextColor3 = Color3.fromRGB(255, 255, 255); title.Font = FONT_BOLD; title.TextSize = 20; title.ZIndex = 2
-
-local tabBar = Instance.new("Frame", mainFrame)
-tabBar.Size = UDim2.new(1, 0, 0, 40); tabBar.Position = UDim2.new(0, 0, 0, 40); tabBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-
-local tabAutoClicker = Instance.new("TextButton", tabBar)
-tabAutoClicker.Size = UDim2.new(0, 75, 1, 0); tabAutoClicker.Text = "Auto"; tabAutoClicker.Font = FONT_MAIN
-tabAutoClicker.TextSize = 14; tabAutoClicker.TextColor3 = Color3.new(1, 1, 1); tabAutoClicker.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabAutoCorner = Instance.new("UICorner", tabAutoClicker); tabAutoCorner.CornerRadius = UDim.new(0, 4)
-
-local tabRecorder = Instance.new("TextButton", tabBar)
-tabRecorder.Size = UDim2.new(0, 75, 1, 0); tabRecorder.Position = UDim2.new(0, 75, 0, 0); tabRecorder.Text = "Record"
-tabRecorder.Font = FONT_MAIN; tabRecorder.TextSize = 14; tabRecorder.TextColor3 = Color3.new(1, 1, 1)
-tabRecorder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabRecordCorner = Instance.new("UICorner", tabRecorder); tabRecordCorner.CornerRadius = UDim.new(0, 4)
-
-local tabSettings = Instance.new("TextButton", tabBar)
-tabSettings.Size = UDim2.new(0, 75, 1, 0); tabSettings.Position = UDim2.new(0, 150, 0, 0); tabSettings.Text = "Settings"
-tabSettings.Font = FONT_MAIN; tabSettings.TextSize = 14; tabSettings.TextColor3 = Color3.new(1, 1, 1)
-tabSettings.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabSettingsCorner = Instance.new("UICorner", tabSettings); tabSettingsCorner.CornerRadius = UDim.new(0, 4)
-
-local contentArea = Instance.new("Frame", mainFrame)
-contentArea.Size = UDim2.new(1, 0, 1, -80); contentArea.Position = UDim2.new(0, 0, 0, 80); contentArea.BackgroundTransparency = 1
-
-local autoContent = Instance.new("Frame", contentArea)
-autoContent.Size = UDim2.new(1, 0, 1, 0); autoContent.BackgroundTransparency = 1; autoContent.Visible = true
-
-local recordContent = Instance.new("Frame", contentArea)
-recordContent.Size = UDim2.new(1, 0, 1, 0); recordContent.BackgroundTransparency = 1; recordContent.Visible = false
-
-local settingsContent = Instance.new("Frame", contentArea)
-settingsContent.Size = UDim2.new(1, 0, 1, 0); settingsContent.BackgroundTransparency = 1; settingsContent.Visible = false
-
-local function createButton(text, posY, parent)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.85, 0, 0, 30); btn.Position = UDim2.new(0.075, 0, 0, posY)
-    btn.Text = text; btn.TextColor3 = Color3.fromRGB(255, 255, 255); btn.Font = FONT_MAIN
-    btn.TextSize = 16; btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); btn.BorderSizePixel = 0
-    btn.ZIndex = 3; btn.Parent = parent
-    local corner = Instance.new("UICorner", btn); corner.CornerRadius = UDim.new(0, 6)
-    return btn
-end
-
-local function createInput(placeholder, text, posY, parent)
-	local input = Instance.new("TextBox")
-	input.Size = UDim2.new(0.85, 0, 0, 30); input.Position = UDim2.new(0.075, 0, 0, posY)
-	input.PlaceholderText = placeholder; input.Text = text; input.Font = FONT_MAIN; input.TextSize = 16
-	input.TextColor3 = Color3.fromRGB(255, 255, 255); input.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-	input.BorderSizePixel = 0; input.ClearTextOnFocus = false; input.ZIndex = 3; input.Parent = parent
-	local corner = Instance.new("UICorner", input); corner.CornerRadius = UDim.new(0, 6)
-	return input
-end
-
-local btnAutoClicker = createButton("Auto Clicker: OFF", 10, autoContent)
-local btnSetPosition = createButton("Set Position", 50, autoContent)
-local lblInterval = createInput("Click Interval (sec)", tostring(clickInterval), 90, autoContent)
-
-local btnStartRecording = createButton("Start Recording", 10, recordContent)
-local btnReplayClicks = createButton("Replay Clicks", 50, recordContent)
-local btnReplayLoop = createButton("Replay Loop: OFF", 90, recordContent)
-local replayCountInput = createInput("Replay Amount (default 1)", "1", 130, recordContent)
-
-local offsetXInput = createInput("Set X Offset (px or % e.g. 10 or 2%)", "0", 10, settingsContent)
-local offsetYInput = createInput("Set Y Offset (px or % e.g. -5 or -1%)", "0", 50, settingsContent)
-local swipeCurveInput = createInput("Swipe Curvature (0..50%)", tostring(SWIPE_CURVATURE_DEFAULT * 100), 90, settingsContent)
-local virtualWidthInput = createInput("Virtual Width (e.g. 1920)", "1920", 130, settingsContent)
-local virtualHeightInput = createInput("Virtual Height (e.g. 1080)", "1080", 170, settingsContent)
-local btnApplySettings = createButton("Apply Settings & Calibrate", 210, settingsContent)
-
-local toggleGuiBtn = Instance.new("TextButton", mainGui)
-toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30); toggleGuiBtn.Position = UDim2.new(0, 10, 0, 70)
-toggleGuiBtn.Text = "Hide"; toggleGuiBtn.Font = FONT_MAIN; toggleGuiBtn.TextSize = 14
-toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255); toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleGuiBtn.ZIndex = 1000; toggleGuiBtn.Visible = false; toggleGuiBtn.Active = true
-local toggleCorner = Instance.new("UICorner", toggleGuiBtn); toggleCorner.CornerRadius = UDim.new(0, 6)
-
--- Helpers
-local function makeDraggable(guiObject, dragHandle)
-    local dragging, dragStartMousePos, objectStartPos
-    dragHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging, dragStartMousePos, objectStartPos = true, UserInputService:GetMouseLocation(), guiObject.Position
-        end
-    end)
-    dragHandle.InputChanged:Connect(function(changedInput)
-        if dragging and (changedInput.UserInputType == Enum.UserInputType.MouseMovement or changedInput.UserInputType == Enum.UserInputType.Touch) then
-            local delta = UserInputService:GetMouseLocation() - dragStartMousePos
-            guiObject.Position = UDim2.new(objectStartPos.X.Scale, objectStartPos.X.Offset + delta.X, objectStartPos.Y.Scale, objectStartPos.Y.Offset + delta.Y)
-        end
-    end)
-    dragHandle.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-end
-
-local function sendNotification(title, text, duration)
-    pcall(function() StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = duration or 3}) end)
-end
-
-local function selectTab(tabName)
-    autoContent.Visible = (tabName == "auto")
-    recordContent.Visible = (tabName == "record")
-    settingsContent.Visible = (tabName == "settings")
-    tabAutoClicker.BackgroundColor3 = (tabName == "auto") and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-    tabRecorder.BackgroundColor3 = (tabName == "record") and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = (tabName == "settings") and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-end
-
-local function getViewportSize()
-    return (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1920, 1080)
-end
-
-local function computePixelXOffset(raw)
-    if raw.mode == "px" then return raw.value else return raw.value * getViewportSize().X end
-end
-
-local function computePixelYOffset(raw)
-    if raw.mode == "px" then return raw.value else return raw.value * getViewportSize().Y end
-end
-
--- Calibration Logic
-function updateCalibration()
-    -- Get GUI inset
-    local success, result = pcall(function() return GuiService:GetGuiInset() end)
-    guiInset = (success and result) or Vector2.new(0, 36)
+    -- 1.2: Design Detection Area
+    local detectionArea = Instance.new("Frame", overlayFrame)
+    detectionArea.Size = UDim2.new(0, 1920, 0, 1080); detectionArea.Position = UDim2.fromScale(0.5, 0.5)
+    detectionArea.AnchorPoint = Vector2.new(0.5, 0.5); detectionArea.BorderSizePixel = 3
+    detectionArea.BorderColor3 = Color3.fromRGB(0, 255, 0); detectionArea.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    detectionArea.BackgroundTransparency = 0.9
+    self.UI.DetectionArea = detectionArea
     
-    -- Get hardware screen size from existing GUI element (safer)
-    if mainGui and mainGui.AbsoluteSize and mainGui.AbsoluteSize.X > 1 then
-        hardwareScreenSize = mainGui.AbsoluteSize
-    else
-        -- Fallback: Try to get viewport size
-        local cam = workspace.CurrentCamera
-        if cam and cam.ViewportSize then
-            hardwareScreenSize = cam.ViewportSize
-        else
-            hardwareScreenSize = Vector2.new(1920, 1080)  -- Last resort fallback
-        end
+    -- 1.3: Add Control Panel
+    local controlPanel = Instance.new("Frame", overlay)
+    controlPanel.Size = UDim2.new(0, 200, 0, 150); controlPanel.Position = UDim2.new(1, -210, 0, 10)
+    controlPanel.BackgroundColor3 = Color3.fromRGB(25, 25, 25); controlPanel.BorderSizePixel = 0
+    local cpCorner = Instance.new("UICorner", controlPanel); cpCorner.CornerRadius = UDim.new(0, 8)
+    self.UI.ControlPanel = controlPanel
+
+    local function createButton(text, yPos, parent)
+        local btn = Instance.new("TextButton", parent)
+        btn.Size = UDim2.new(1, -20, 0, 30); btn.Position = UDim2.new(0.5, 0, 0, yPos); btn.AnchorPoint = Vector2.new(0.5, 0)
+        btn.Text = text; btn.TextColor3 = Color3.fromRGB(255, 255, 255); btn.Font = Enum.Font.Gotham
+        btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        local btnCorner = Instance.new("UICorner", btn); btnCorner.CornerRadius = UDim.new(0, 6)
+        return btn
     end
-    
-    -- Read virtual resolution
-    local vw, vh = tonumber(virtualWidthInput.Text) or 1920, tonumber(virtualHeightInput.Text) or 1080
-    virtualScreenSize = Vector2.new(vw, vh)
-    
-    -- Calculate scale factor
-    if hardwareScreenSize.X > 1 and hardwareScreenSize.Y > 1 then
-        scaleFactor = Vector2.new(
-            virtualScreenSize.X / hardwareScreenSize.X, 
-            virtualScreenSize.Y / hardwareScreenSize.Y
-        )
-    else
-        scaleFactor = Vector2.new(1, 1)
-    end
-    
-    print(string.format("[CALIBRATION] Hardware: %dx%d, Virtual: %dx%d, Scale: %.2fx%.2f",
-        hardwareScreenSize.X, hardwareScreenSize.Y,
-        virtualScreenSize.X, virtualScreenSize.Y,
-        scaleFactor.X, scaleFactor.Y))
-    
-    sendNotification("Calibrated", string.format("Scale: (%.2f, %.2f)", scaleFactor.X, scaleFactor.Y), 3)
+    self.UI.ToggleOverlayBtn = createButton("Hide Overlay", 10, controlPanel)
+    self.UI.StartTestBtn = createButton("Start Detection Test", 50, controlPanel)
+    self.UI.CalibrateBtn = createButton("Start Calibration", 90, controlPanel)
+
+    -- 2.1: Coordinate Display
+    local coordDisplay = Instance.new("TextLabel", overlay)
+    coordDisplay.Size = UDim2.new(0, 300, 0, 20); coordDisplay.Position = UDim2.new(0, 10, 0, 10)
+    coordDisplay.BackgroundTransparency = 1; coordDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
+    coordDisplay.Text = "Screen: (0, 0)"; coordDisplay.Font = Enum.Font.Code; coordDisplay.TextXAlignment = Enum.TextXAlignment.Left
+    self.UI.CoordDisplay = coordDisplay
+
+    -- 2.4: Click Counter
+    local clickCounter = Instance.new("TextLabel", overlay)
+    clickCounter.Size = UDim2.new(1, 0, 0, 40); clickCounter.Position = UDim2.new(0, 0, 1, -50)
+    clickCounter.BackgroundTransparency = 1; clickCounter.TextColor3 = Color3.fromRGB(255, 255, 255)
+    clickCounter.Text = "Successful: 0 | Failed: 0 | Rate: 100%"; clickCounter.Font = Enum.Font.GothamBold; clickCounter.TextSize = 24
+    self.UI.ClickCounter = clickCounter
+
+    overlay.Parent = CoreGui
 end
 
-function ViewportToExecutor(viewportPos)
-    local hardwarePos = viewportPos + guiInset
-    return Vector2.new(math.floor(hardwarePos.X * scaleFactor.X + 0.5), math.floor(hardwarePos.Y * scaleFactor.Y + 0.5))
+-- --- Smart Detection Logic (Phase 2) ---
+function DetectionSuite:IsInDetectionArea(position)
+    local area = self.UI.DetectionArea
+    local relativePos = position - area.AbsolutePosition
+    return relativePos.X >= 0 and relativePos.X <= area.AbsoluteSize.X and relativePos.Y >= 0 and relativePos.Y <= area.AbsoluteSize.Y
 end
 
--- VirtualInputManager & Simulation
-local VirtualInputManager = nil
-local vmAvailable = false
-local function initialize_VIM()
-    local success, vim_instance = pcall(function() return game:GetService("VirtualInputManager") end)
-    if success and vim_instance then
-        VirtualInputManager = vim_instance
-        vmAvailable = true
-        sendNotification("VIM Status", "VirtualInputManager Found")
-    else
-        sendNotification("VIM ERROR", "VirtualInputManager NOT FOUND - Clicks won't work!", 10)
-    end
+function DetectionSuite:UpdateStats()
+    local S = self.State
+    S.TotalClicks = S.SuccessfulClicks + S.FailedClicks
+    local successRate = (S.TotalClicks > 0) and (S.SuccessfulClicks / S.TotalClicks * 100) or 100
+    self.UI.ClickCounter.Text = string.format("Successful: %d | Failed: %d | Rate: %.1f%%", S.SuccessfulClicks, S.FailedClicks, successRate)
+    
+    if successRate < 80 then self.UI.ClickCounter.TextColor3 = Color3.fromRGB(255, 80, 80)
+    elseif successRate < 95 then self.UI.ClickCounter.TextColor3 = Color3.fromRGB(255, 200, 80)
+    else self.UI.ClickCounter.TextColor3 = Color3.fromRGB(80, 255, 80) end
 end
 
-local function safeSendMouseMove(x, y)
-    if vmAvailable then
-        pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y) end)
-    end
+function DetectionSuite:LogClick(position)
+    local wasSuccessful = self:IsInDetectionArea(position)
+    if wasSuccessful then self.State.SuccessfulClicks += 1
+    else self.State.FailedClicks += 1 end
+    
+    local flash = Instance.new("Frame", self.UI.Overlay)
+    flash.Size = UDim2.new(0, 20, 0, 20); flash.Position = UDim2.fromOffset(position.X, position.Y)
+    flash.AnchorPoint = Vector2.new(0.5, 0.5); flash.BackgroundColor3 = wasSuccessful and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    flash.BorderSizePixel = 0
+    local corner = Instance.new("UICorner", flash); corner.CornerRadius = UDim.new(1, 0)
+    
+    game:GetService("TweenService"):Create(flash, TweenInfo.new(0.5), {BackgroundTransparency = 1, Size = UDim2.new(0, 50, 0, 50)}):Play()
+    task.delay(0.5, function() flash:Destroy() end)
+    
+    self:UpdateStats()
 end
 
-local function safeSendMouseButton(x, y, button, isDown)
-    if not vmAvailable then return end
-    
-    -- Try 6-parameter signature first (works on Delta/Hydrogen)
-    local success = pcall(function() 
-        VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 1) 
-    end)
-    if success then return end
-    
-    -- Try 5-parameter with 'game'
-    success = pcall(function() 
-        VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game) 
-    end)
-    if success then return end
-    
-    -- Try 5-parameter with 'false'
-    pcall(function() 
-        VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, false) 
-    end)
+-- --- Calibration Assistant (Phase 2 & 4) ---
+function DetectionSuite:StartCalibration()
+    self.State.CalibrationStep = 1
+    self.State.CalibrationClicks = {}
+    self:UpdateCalibrationPrompt()
 end
 
--- Add this new function after safeSendMouseButton
-local function performAutoClick(x, y)
-    if bestClickSignature then
-        pcall(bestClickSignature, x, y)
-        return
-    end
+function DetectionSuite:UpdateCalibrationPrompt()
+    local step = self.State.CalibrationStep
+    local prompts = { "Click the TOP-LEFT corner of the green box.", "Click the TOP-RIGHT corner.", "Click the BOTTOM-LEFT corner.", "Calibration complete!" }
+    self.UI.ClickCounter.Text = prompts[step]
     
-    -- Try different signatures and cache the working one
-    local signatures = {
-        -- 6 parameters
-        function(x, y) 
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
-        end,
-        -- 5 parameters with game
-        function(x, y) 
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game)
-        end,
-        -- 5 parameters with false
-        function(x, y) 
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, false)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, false)
-        end,
+    local markerPos = {
+        UDim2.fromScale(0, 0),
+        UDim2.fromScale(1, 0),
+        UDim2.fromScale(0, 1)
     }
     
-    for i, sig in ipairs(signatures) do
-        if pcall(sig, x, y) then 
-            bestClickSignature = sig
-            print("[AUTO CLICK] Signature", i, "works!")
-            return 
-        end
+    if self.UI.CalibrationMarker then self.UI.CalibrationMarker:Destroy() end
+    if step <= 3 then
+        local marker = Instance.new("Frame", self.UI.DetectionArea)
+        marker.Size = UDim2.new(0, 20, 0, 20); marker.Position = markerPos[step]; marker.AnchorPoint = Vector2.new(0.5, 0.5)
+        marker.BackgroundColor3 = Color3.fromRGB(255, 50, 50); marker.BorderSizePixel = 0
+        local mCorner = Instance.new("UICorner", marker); mCorner.CornerRadius = UDim.new(1, 0)
+        self.UI.CalibrationMarker = marker
     end
 end
 
--- Easing
-local EASINGS = { easeInOutQuad = function(t) return t < 0.5 and 2 * t * t or -1 + (4 - 2 * t) * t end }
-local function applyEasing(name, t) return (EASINGS[name] and EASINGS[name](t)) or t end
-
--- Simulate Actions
-local function simulateClick(pixelPos)
-    if not pixelPos then return end
-    local offsetPos = Vector2.new(pixelPos.X + computePixelXOffset(activeXOffsetRaw), pixelPos.Y + computePixelYOffset(activeYOffsetRaw))
-    local effectivePos = ViewportToExecutor(offsetPos)
-    safeSendMouseMove(effectivePos.X, effectivePos.Y)
-    task.wait(0.01)
-    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, true)
-    task.wait(MIN_CLICK_HOLD_DURATION)
-    safeSendMouseButton(effectivePos.X, effectivePos.Y, 0, false)
-end
-
-local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
-    if not startPixel or not endPixel then return end
-    local xOffset, yOffset = computePixelXOffset(activeXOffsetRaw), computePixelYOffset(activeYOffsetRaw)
-    local startPos = ViewportToExecutor(Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset))
-    local endPos = ViewportToExecutor(Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset))
-    local dx, dy = endPos.X - startPos.X, endPos.Y - startPos.Y
-    local dist = math.sqrt(dx * dx + dy * dy)
-    local steps = math.max(2, math.floor(math.max(0.02, duration) * SWIPE_SAMPLE_FPS))
-    local perpX, perpY = 0, 0
-    if curvatureFraction and curvatureFraction ~= 0 and dist > 0 then
-        perpX, perpY = -dy / dist, dx / dist
-    end
-    safeSendMouseMove(startPos.X, startPos.Y); task.wait(0.01)
-    safeSendMouseButton(startPos.X, startPos.Y, 0, true)
-    for i = 1, steps do
-        local t = i / steps; local eased = applyEasing(SWIPE_EASING, t)
-        local baseX, baseY = startPos.X + dx * eased, startPos.Y + dy * eased
-        local curveAmount = (curvatureFraction or 0) * dist * (1 - math.abs(2 * t - 1))
-        safeSendMouseMove(baseX + perpX * curveAmount, baseY + perpY * curveAmount)
-        RunService.Heartbeat:Wait()
-    end
-    safeSendMouseMove(endPos.X, endPos.Y)
-    safeSendMouseButton(endPos.X, endPos.Y, 0, false)
-end
-
--- Recording Logic
-local activeInputs = {}
-local function clearActiveInputs() for k in pairs(activeInputs) do activeInputs[k] = nil end end
-local function isOverOurGUI(pos)
-    local success, result = pcall(function()
-        for _, o in ipairs(UserInputService:GetGuiObjectsAtPosition(pos.X, pos.Y)) do
-            if o:IsDescendantOf(mainGui) then return true end
-        end
-    end)
-    return success and result
-end
-
-local function debugRecordedActions()
-    print("=== RECORDED ACTIONS DEBUG ===")
-    print("Total actions:", #recordedActions)
-    for i, act in ipairs(recordedActions) do
-        if act.type == "tap" then
-            print(string.format("[%d] TAP at (%.0f, %.0f) delay:%.2f", i, act.pixelPos.X, act.pixelPos.Y, act.delay))
-        elseif act.type == "swipe" then
-            print(string.format("[%d] SWIPE from (%.0f, %.0f) to (%.0f, %.0f) duration:%.2f delay:%.2f", i, act.startPixel.X, act.startPixel.Y, act.endPixel.X, act.endPixel.Y, act.duration, act.delay))
-        end
-    end
-    print("=== END DEBUG ===")
-end
-
-local stopAllProcesses; -- Forward declaration
-
-local function stopRecording()
-    if not isRecording then return end
-    isRecording = false
-    btnStartRecording.Text = "Start Recording"
-    for _, conn in pairs(recordConnections) do if conn and conn.Disconnect then pcall(conn.Disconnect, conn) end end
-    recordConnections = {}
-    clearActiveInputs()
-    debugRecordedActions()
-end
-
-local function startRecording()
-    stopAllProcesses()
-    isRecording, recordedActions, recordStartTime = true, {}, os.clock()
-    btnStartRecording.Text = "Stop Recording"
-
-    recordConnections["began"] = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if not isRecording or gameProcessed then return end
-        if not (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then return end
-        local pos = Vector2.new(input.Position.X, input.Position.Y)
-        if isOverOurGUI(pos) then return end
-        activeInputs[input] = { startTime = os.clock(), startPos = pos, lastPos = pos, isDragging = false }
-    end)
-
-    recordConnections["changed"] = UserInputService.InputChanged:Connect(function(input)
-        local data = activeInputs[input]
-        if not isRecording or not data then return end
-        local pos = Vector2.new(input.Position.X, input.Position.Y)
-        if not data.isDragging and (pos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then
-            data.isDragging = true
-        end
-        data.lastPos = pos
-    end)
-
-    recordConnections["ended"] = UserInputService.InputEnded:Connect(function(input)
-        local data = activeInputs[input]
-        if not isRecording or not data then return end
-        local now, delay = os.clock(), os.clock() - recordStartTime
-        recordStartTime = now
-        local endPos = Vector2.new(input.Position.X, input.Position.Y)
-        if data.isDragging or (endPos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then
-            table.insert(recordedActions, { type = "swipe", startPixel = data.startPos, endPixel = endPos, duration = math.max(0.02, now - data.startTime), delay = delay })
-        else
-            table.insert(recordedActions, { type = "tap", pixelPos = data.startPos, delay = delay })
-        end
-        activeInputs[input] = nil
-    end)
-end
-
-local function toggleRecording()
-    if isRecording then stopRecording() else startRecording() end
-end
-
--- Replay Logic
-function stopReplay()
-    if not isReplaying then return end
-    isReplaying = false
-    btnReplayClicks.Text = "Replay Clicks"
-    if currentReplayThread then task.cancel(currentReplayThread); currentReplayThread = nil end
-end
-
-local function doReplayActions(actionList)
-    for _, act in ipairs(actionList) do
-        if not isReplaying and not isReplayingLoop then break end
-        if act.delay and act.delay > 0 then task.wait(act.delay) else RunService.Heartbeat:Wait() end
-        if not isReplaying and not isReplayingLoop then break end
-        if act.type == "tap" then
-            simulateClick(act.pixelPos)
-        elseif act.type == "swipe" then
-            local curve = tonumber(swipeCurveInput.Text) or (SWIPE_CURVATURE_DEFAULT * 100)
-            simulateSwipe(act.startPixel, act.endPixel, act.duration or 0.12, math.clamp(curve, 0, 100) / 100)
-        end
-    end
-end
-
-local function toggleReplay()
-    if isReplaying then stopReplay(); return end
-    if #recordedActions == 0 then sendNotification("Replay Failed", "No actions recorded yet."); return end
-    stopAllProcesses()
-    isReplaying = true
-    local num = tonumber(replayCountInput.Text)
-    replayCount = (num and num > 0) and math.floor(num) or 1
-    replayCountInput.Text = tostring(replayCount)
-    btnReplayClicks.Text = "Stop Replay"
-    currentReplayThread = task.spawn(function()
-        for i = 1, replayCount do
-            if not isReplaying then break end
-            btnReplayClicks.Text = string.format("Replaying (%d/%d)", i, replayCount)
-            doReplayActions(recordedActions)
-            if i < replayCount and isReplaying then task.wait(0.1) end
-        end
-        stopReplay()
-    end)
-end
-
--- Replay Loop Logic
-local function stopReplayLoop()
-    if not isReplayingLoop then return end
-    isReplayingLoop = false
-    btnReplayLoop.Text = "Replay Loop: OFF"
-    if currentReplayLoopThread then task.cancel(currentReplayLoopThread); currentReplayLoopThread = nil end
-end
-
-local function toggleReplayLoop()
-    if isReplayingLoop then stopReplayLoop(); return end
-    if #recordedActions == 0 then sendNotification("Replay Failed", "No actions recorded yet."); return end
-    stopAllProcesses()
-    isReplayingLoop = true
-    btnReplayLoop.Text = "Replay Loop: ON"
-    currentReplayLoopThread = task.spawn(function()
-        while isReplayingLoop do
-            doReplayActions(recordedActions)
-            if isReplayingLoop then task.wait(0.1) end
-        end
-    end)
-end
-
--- Auto-Clicker Logic
-local function stopAutoClicker()
-    if not autoClickEnabled then return end
-    autoClickEnabled = false
-    btnAutoClicker.Text = "Auto Clicker: OFF"
-end
-
-local function toggleAutoClicker()
-    if autoClickEnabled then stopAutoClicker(); return end
-    stopAllProcesses()
-    autoClickEnabled = true
-    btnAutoClicker.Text = "Auto Clicker: ON"
-    task.spawn(function()
-        local clickCount = 0
-        while autoClickEnabled do
-            local interval = math.max(0.05, clickInterval)
-            
-            -- Apply calibration to click position
-            local targetPos = clickPosition
-            local offsetPos = Vector2.new(
-                targetPos.X + computePixelXOffset(activeXOffsetRaw), 
-                targetPos.Y + computePixelYOffset(activeYOffsetRaw)
-            )
-            local effectivePos = ViewportToExecutor(offsetPos)
-            
-            if vmAvailable and VirtualInputManager then
-                performAutoClick(effectivePos.X, effectivePos.Y)
-                clickCount = clickCount + 1
-                if clickCount % 10 == 0 then
-                    btnAutoClicker.Text = string.format("Clicks: %d", clickCount)
-                end
-            else
-                stopAutoClicker()
-                break
-            end
-            
-            task.wait(interval)
-        end
-    end)
-    sendNotification("Auto Clicker", string.format("Started (%.2fs interval)", clickInterval))
-end
-
--- Set Click Position Logic
-local positionSetConnection = nil
-local function stopSetPosition()
-    if not waitingForPosition then return end
-    waitingForPosition = false
-    btnSetPosition.Text = "Set Position"
-    if positionSetConnection then positionSetConnection:Disconnect(); positionSetConnection = nil end
-end
-
-local function setClickPosition()
-    if waitingForPosition then stopSetPosition(); return end
-    stopAllProcesses()
-    waitingForPosition = true
-    btnSetPosition.Text = "Tap anywhere..."
-    positionSetConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if waitingForPosition and not gameProcessed and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-            local pos = Vector2.new(input.Position.X, input.Position.Y)
-            if isOverOurGUI(pos) then return end
-            clickPosition = pos
-            stopSetPosition()
-            btnSetPosition.Text = "Position Set!"
-            task.delay(1, function() if btnSetPosition.Text == "Position Set!" then btnSetPosition.Text = "Set Position" end end)
-        end
-    end)
-end
-
--- Utility
-stopAllProcesses = function()
-    stopAutoClicker(); stopRecording(); stopReplay(); stopReplayLoop(); stopSetPosition()
-end
-
--- UI Connections
-makeDraggable(mainFrame, dragLayer)
-makeDraggable(toggleGuiBtn, toggleGuiBtn)
-
-btnAutoClicker.MouseButton1Click:Connect(function()
-    local val = tonumber(lblInterval.Text)
-    if val and val > 0 then clickInterval = val else lblInterval.Text = tostring(clickInterval) end
-    toggleAutoClicker()
-end)
-
-btnSetPosition.MouseButton1Click:Connect(setClickPosition)
-btnStartRecording.MouseButton1Click:Connect(toggleRecording)
-btnReplayClicks.MouseButton1Click:Connect(toggleReplay)
-btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
-
-btnApplySettings.MouseButton1Click:Connect(function()
-    local function parseOffset(text)
-        text = tostring(text or ""):gsub("%s+", "")
-        if text:match("%%$") then
-            local num = tonumber(text:sub(1, -2)); if num then return { mode = "pct", value = num / 100 } end
-        else
-            local num = tonumber(text); if num then return { mode = "px", value = num } end
-        end
-    end
-    local xRaw, yRaw, curve = parseOffset(offsetXInput.Text), parseOffset(offsetYInput.Text), tonumber(swipeCurveInput.Text)
-    if xRaw and yRaw and curve ~= nil then
-        activeXOffsetRaw, activeYOffsetRaw = xRaw, yRaw
-        local c = math.clamp(curve, 0, 100) / 100; swipeCurveInput.Text = tostring(c * 100)
-        updateCalibration()
-        sendNotification("Settings Updated", ("X: %s, Y: %s, Curve: %.1f%%. Calibrated."):format(offsetXInput.Text, offsetYInput.Text, c * 100))
-    else
-        sendNotification("Invalid Input", "Offsets must be numbers (px) or percent (e.g. 2%).")
-        offsetXInput.Text = (activeXOffsetRaw.mode == "px") and tostring(activeXOffsetRaw.value) or tostring(activeXOffsetRaw.value * 100) .. "%"
-        offsetYInput.Text = (activeYOffsetRaw.mode == "px") and tostring(activeYOffsetRaw.value) or tostring(activeYOffsetRaw.value * 100) .. "%"
-    end
-end)
-
-toggleGuiBtn.MouseButton1Click:Connect(function()
-    guiHidden = not guiHidden; mainFrame.Visible = not guiHidden
-    toggleGuiBtn.Text = guiHidden and "Show" or "Hide"
-end)
-
-submitBtn.MouseButton1Click:Connect(function()
-    local enteredKey = keyBox.Text
-    local expectedKey = "key_not_fetched"
-    local httpGet = game.HttpGet or HttpGet
-    if not httpGet then sendNotification("Key Check Failed", "No HttpGet function found."); return end
-    local success, response = pcall(function() return httpGet("https://pastebin.com/raw/v4eb6fHw", true) end)
-    if success and response then expectedKey = response:match("%S+") or "pastebin_read_error"
-    else sendNotification("Key Check Failed", "Could not fetch key. Check network.") end
+function DetectionSuite:AdvanceCalibration(clickPos)
+    local step = self.State.CalibrationStep
+    if step == 0 or step > 3 then return end
     
-    if enteredKey == expectedKey or enteredKey == "happybirthday Mohamednigga" then
-        sendNotification("Access Granted", "Welcome!")
-        keyEntry:Destroy()
-        mainFrame.Visible = true; toggleGuiBtn.Visible = true
+    table.insert(self.State.CalibrationClicks, clickPos - self.UI.DetectionArea.AbsolutePosition)
+    self.State.CalibrationStep += 1
+    
+    if self.State.CalibrationStep > 3 then
+        self:CalculateAndApplyScaling()
+    end
+    self:UpdateCalibrationPrompt()
+end
+
+function DetectionSuite:CalculateAndApplyScaling()
+    local clicks = self.State.CalibrationClicks
+    local detectedWidth = clicks[2].X - clicks[1].X
+    local detectedHeight = clicks[3].Y - clicks[1].Y
+    
+    local targetSize = self.UI.DetectionArea.AbsoluteSize
+    
+    if detectedWidth > 1 and detectedHeight > 1 then
+        self.State.CurrentScale = Vector2.new(targetSize.X / detectedWidth, targetSize.Y / detectedHeight)
+        self.State.CurrentOffset = clicks[1]
         
-        -- Use a non-blocking call to calibrate after the GUI is visible to prevent hangs
-        task.spawn(function()
-            task.wait(0.5) -- Wait for GUI to render and get correct AbsoluteSize
-            updateCalibration()
-        end)
+        local msg = string.format("New Scale: (%.2f, %.2f) | Offset: (%d, %d)", self.State.CurrentScale.X, self.State.CurrentScale.Y, self.State.CurrentOffset.X, self.State.CurrentOffset.Y)
+        StarterGui:SetCore("SendNotification", {Title = "Calibration Success", Text = msg, Duration = 10})
     else
-        keyBox.Text = ""; keyBox.PlaceholderText = "Invalid key, try again"
-        sendNotification("Access Denied", "Incorrect key.")
+        StarterGui:SetCore("SendNotification", {Title = "Calibration Failed", Text = "Could not determine valid scaling.", Duration = 10})
     end
-end)
-
-copyBtn.MouseButton1Click:Connect(function()
-    local keyLink = "https.loot-link.com/s?AVreZic8"
-    if setclipboard then
-        local success, err = pcall(function() setclipboard(keyLink) end)
-        if success then sendNotification("Link Copied", "Key link copied to clipboard.")
-        else sendNotification("Copy Failed", "setclipboard() error: " .. tostring(err)) end
-    else
-        keyBox.Text = keyLink; copyBtn.Text = "Copy From Box"
-        sendNotification("Now Copy", "Select and copy the link from the text box.")
-    end
-end)
-
-tabAutoClicker.MouseButton1Click:Connect(function() selectTab("auto") end)
-tabRecorder.MouseButton1Click:Connect(function() selectTab("record") end)
-tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
-
--- Initial UI state & notes
-selectTab("auto")
-task.spawn(initialize_VIM)
-
--- EMERGENCY: Clear any stuck frames on script start
-task.spawn(function()
-    task.wait(2)  -- Wait for script to load
     
-    -- Find and destroy any rogue full-screen frames from previous runs
-    for _, obj in ipairs(mainGui:GetChildren()) do
-        if obj:IsA("Frame") and obj.Size == UDim2.new(1, 0, 1, 0) and obj ~= mainFrame then
-            obj:Destroy()
-            print("[CLEANUP] Removed stuck frame:", obj.Name)
+    self.State.CalibrationStep = 0
+    self:UpdateStats()
+end
+
+-- --- Event Handling & Initialization ---
+function DetectionSuite:Initialize()
+    self:CreateUI()
+    
+    -- 3.1 & 3.3: Primary Detection and Event Logging
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        
+        local pos = input.Position
+        
+        if self.State.CalibrationStep > 0 then
+            self:AdvanceCalibration(pos)
+        elseif self.State.IsTestRunning then
+            self:LogClick(pos)
         end
-    end
-end)
-
--- VIM TEST SCRIPT (Uncomment to test)
-task.spawn(function()
-    task.wait(3)
-    print("=== VIM TEST STARTING ===")
-    
-    if not vmAvailable then
-        print("[FAIL] vmAvailable is false")
-        return
-    end
-    
-    if not VirtualInputManager then
-        print("[FAIL] VirtualInputManager is nil")
-        return
-    end
-    
-    print("[OK] VIM exists!")
-    
-    -- Test mouse move
-    local moveSuccess = pcall(function() 
-        VirtualInputManager:SendMouseMoveEvent(500, 500) 
-    end)
-    print(moveSuccess and "[OK] Mouse move works!" or "[FAIL] Mouse move failed!")
-    
-    task.wait(0.2)
-    
-    -- Test click signature 1
-    print("[TEST] Trying 6-param signature...")
-    local click1 = pcall(function() 
-        VirtualInputManager:SendMouseButtonEvent(500, 500, 0, true, game, 1)
-        task.wait(0.05)
-        VirtualInputManager:SendMouseButtonEvent(500, 500, 0, false, game, 1)
     end)
     
-    if click1 then
-        print("[OK] 6-param signature works!")
-        sendNotification("VIM Test", "6-param signature works!")
-    else
-        print("[FAIL] 6-param failed, trying 5-param...")
+    -- 3.2: Secondary Detection (Mouse Tracking)
+    RunService.Heartbeat:Connect(function()
+        if not self.State.IsOverlayVisible then return end
+        local mousePos = UserInputService:GetMouseLocation() - guiInset
+        self.UI.CoordDisplay.Position = UDim2.fromOffset(mousePos.X + 15, mousePos.Y + 15)
         
-        local click2 = pcall(function() 
-            VirtualInputManager:SendMouseButtonEvent(500, 500, 0, true, game)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(500, 500, 0, false, game)
-        end)
+        local relativePos = mousePos - self.UI.DetectionArea.AbsolutePosition
+        self.UI.CoordDisplay.Text = string.format("Screen: (%d, %d) | Area: (%d, %d)", mousePos.X, mousePos.Y, relativePos.X, relativePos.Y)
         
-        if click2 then
-            print("[OK] 5-param signature works!")
-            sendNotification("VIM Test", "5-param signature works!")
+        -- 2.3: Zone Coloring (Visual Feedback)
+        if self:IsInDetectionArea(mousePos) then self.UI.CoordDisplay.TextColor3 = Color3.fromRGB(150, 255, 150)
+        else self.UI.CoordDisplay.TextColor3 = Color3.fromRGB(255, 150, 150) end
+    end)
+    
+    -- Control Panel Button Connections
+    self.UI.ToggleOverlayBtn.MouseButton1Click:Connect(function()
+        self.State.IsOverlayVisible = not self.State.IsOverlayVisible
+        self.UI.OverlayFrame.Visible = self.State.IsOverlayVisible
+        self.UI.CoordDisplay.Visible = self.State.IsOverlayVisible
+        self.UI.ToggleOverlayBtn.Text = self.State.IsOverlayVisible and "Hide Overlay" or "Show Overlay"
+    end)
+    
+    self.UI.StartTestBtn.MouseButton1Click:Connect(function()
+        self.State.IsTestRunning = not self.State.IsTestRunning
+        if self.State.IsTestRunning then
+            self.State.SuccessfulClicks, self.State.FailedClicks, self.State.TotalClicks = 0, 0, 0
+            self:UpdateStats()
+            self.UI.StartTestBtn.Text = "Stop Test"
+            self.UI.ClickCounter.Text = "Click anywhere to test detection accuracy."
         else
-            print("[FAIL] Both signatures failed!")
-            sendNotification("VIM Test", "All signatures failed!", 10)
+            self.UI.StartTestBtn.Text = "Start Detection Test"
+            self:UpdateStats()
         end
-    end
+    end)
     
-    print("=== VIM TEST COMPLETE ===")
-end)
+    self.UI.CalibrateBtn.MouseButton1Click:Connect(function() self:StartCalibration() end)
+end
+
+-- --- Run the suite ---
+DetectionSuite:Initialize()
