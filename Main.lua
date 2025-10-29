@@ -1,14 +1,17 @@
--- Roblox Macro V4 (Simplified Calibration)
+-- Roblox Macro V4.1 (Y-Offset Fix)
 -- Put this as a LocalScript in StarterPlayerScripts or StarterGui
+--
+-- V4.1 Changes:
+-- 1. Y-OFFSET FIX: Added a permanent +25px Y-offset to counteract clicks registering too high.
+-- 2. LOGIC FIX: Refactored Auto-Clicker and Test-Click to use the main simulation pipeline.
+-- 3. CODE READABILITY: Formatted the script for better maintenance and clarity.
 --
 -- V4 (Simplified) Changes:
 -- 1. DIRECT COORDINATES: Removed all complex scaling and virtual screen calibration.
---    The script now uses direct viewport coordinates, which is what VirtualInputManager expects.
 -- 2. SIMPLIFIED SETTINGS: Removed virtual width/height. Offsets are now pixels only.
 -- 3. RELIABLE POSITION SET: 'Set Position' is now more robust and provides visual feedback.
 -- 4. TEST CLICK: Added a button to test the currently set click position.
 -- 5. ROBUST VIM: Improved VirtualInputManager initialization with a self-test.
--- 6. UI COMPACTED: Main window is smaller due to removed settings.
 
 -- NEW FIX: Wait for game.GetService to be available
 while not (game and game.GetService) do
@@ -69,13 +72,21 @@ local guiHidden = false
 if type(task) ~= "table" or type(task.spawn) ~= "function" then
     task = {
         spawn = function(func)
-            local co = coroutine.create(func) coroutine.resume(co) return co
+            local co = coroutine.create(func)
+            coroutine.resume(co)
+            return co
         end,
         wait = function(time)
-            local start = tick() while tick() - start < (time or 0) do RunService.Heartbeat:Wait() end
+            local start = tick()
+            while tick() - start < (time or 0) do
+                RunService.Heartbeat:Wait()
+            end
         end,
         delay = function(time, func)
-            task.spawn(function() task.wait(time) func() end)
+            task.spawn(function()
+                task.wait(time)
+                func()
+            end)
         end,
         cancel = function(co) end
     }
@@ -156,7 +167,7 @@ dragLayer.Active = true
 local title = Instance.new("TextLabel", mainFrame)
 title.Size = UDim2.new(1, 0, 0, 40)
 title.BackgroundTransparency = 1
-title.Text = "Macro V4 (Simplified)"
+title.Text = "Macro V4.1 (Offset Fix)"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = FONT_BOLD
 title.TextSize = 20
@@ -351,13 +362,14 @@ end
 
 -- --- SIMPLIFIED CALIBRATION LOGIC ---
 function updateCalibration()
-    sendNotification("Calibration", "Using direct coordinates - no calibration needed", 3)
-    print("[CALIBRATION] Using direct coordinate system")
+    sendNotification("Calibration", "Using direct coordinates with a fixed Y-offset.", 3)
+    print("[CALIBRATION] Using direct coordinate system with a fixed +25px Y-offset.")
 end
 
 function ViewportToExecutor(viewportPos)
-    -- DIRECT MAPPING: Use viewport coordinates as-is
-    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y))
+    -- Add permanent Y offset to fix upward clicks
+    local yOffset = 25 -- Adjust this value as needed
+    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y + yOffset))
 end
 -- --- END SIMPLIFIED CALIBRATION LOGIC ---
 
@@ -391,7 +403,11 @@ end
 -- Easing functions
 local EASINGS = {}
 EASINGS.easeInOutQuad = function(t)
-    if t < 0.5 then return 2 * t * t else return -1 + (4 - 2 * t) * t end
+    if t < 0.5 then
+        return 2 * t * t
+    else
+        return -1 + (4 - 2 * t) * t
+    end
 end
 local function applyEasing(name, t)
     return (EASINGS[name] and EASINGS[name](t)) or t
@@ -455,7 +471,12 @@ local function isOverOurGUI(pos)
     local success, result = pcall(function()
         local objs = UserInputService:GetGuiObjectsAtPosition(x, y)
         if #objs == 0 then return false end
-        for _, o in ipairs(objs) do if o:IsDescendantOf(mainGui) then return true end end
+        for _, o in ipairs(objs) do
+            if o:IsDescendantOf(mainGui) then
+                return true
+            end
+        end
+        return false
     end)
     return success and result or false
 end
@@ -481,8 +502,10 @@ local function startRecording()
     recordConnections["began"] = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if not isRecording or gameProcessed then return end
         if not (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then return end
+
         local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
         if isOverOurGUI(pos) then return end
+        
         activeInputs[input] = { startTime = os.clock(), startPos = pos, lastPos = pos, isDragging = false }
     end)
 
@@ -490,8 +513,11 @@ local function startRecording()
         if not isRecording then return end
         local data = activeInputs[input]
         if not data then return end
+        
         local pos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
-        if not data.isDragging and (pos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then data.isDragging = true end
+        if not data.isDragging and (pos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then
+            data.isDragging = true
+        end
         data.lastPos = pos
     end)
 
@@ -499,14 +525,26 @@ local function startRecording()
         if not isRecording then return end
         local data = activeInputs[input]
         if not data then return end
+        
         local now = os.clock()
         local delay = now - recordStartTime
         recordStartTime = now
         local endPos = input.Position and Vector2.new(input.Position.X, input.Position.Y) or UserInputService:GetMouseLocation()
+        
         if data.isDragging or (endPos - data.startPos).Magnitude >= SWIPE_MIN_PIXELS then
-            table.insert(recordedActions, {type="swipe", startPixel=data.startPos, endPixel=endPos, duration=math.max(0.02, now-data.startTime), delay=delay})
+            table.insert(recordedActions, {
+                type = "swipe",
+                startPixel = data.startPos,
+                endPixel = endPos,
+                duration = math.max(0.02, now - data.startTime),
+                delay = delay
+            })
         else
-            table.insert(recordedActions, {type="tap", pixelPos=data.startPos, delay=delay})
+            table.insert(recordedActions, {
+                type = "tap",
+                pixelPos = data.startPos,
+                delay = delay
+            })
         end
         activeInputs[input] = nil
     end)
@@ -527,8 +565,15 @@ end
 local function doReplayActions(actionList)
     for _, act in ipairs(actionList) do
         if not isReplaying and not isReplayingLoop then break end
-        if act.delay and act.delay > 0 then task.wait(act.delay) else RunService.Heartbeat:Wait() end
+        
+        if act.delay and act.delay > 0 then
+            task.wait(act.delay)
+        else
+            RunService.Heartbeat:Wait()
+        end
+        
         if not isReplaying and not isReplayingLoop then break end
+
         if act.type == "tap" then
             simulateClick(act.pixelPos)
         elseif act.type == "swipe" then
@@ -601,11 +646,9 @@ local function toggleAutoClicker()
         local clickCount = 0
         while autoClickEnabled do
             local interval = math.max(0.05, clickInterval)
-            local targetPos = clickPosition
             if vmAvailable then
-                local xOffset = computePixelXOffset(activeXOffsetRaw)
-                local yOffset = computePixelYOffset(activeYOffsetRaw)
-                performAutoClick(targetPos.X + xOffset, targetPos.Y + yOffset)
+                -- This now correctly uses the full coordinate transformation pipeline
+                simulateClick(clickPosition)
                 clickCount = clickCount + 1
                 if clickCount % 10 == 0 then
                     btnAutoClicker.Text = string.format("Clicks: %d", clickCount)
@@ -690,9 +733,8 @@ btnTestClick.MouseButton1Click:Connect(function()
         return
     end
     if vmAvailable then
-        local xOffset = computePixelXOffset(activeXOffsetRaw)
-        local yOffset = computePixelYOffset(activeYOffsetRaw)
-        performAutoClick(clickPosition.X + xOffset, clickPosition.Y + yOffset)
+        -- This now correctly uses the full coordinate transformation pipeline
+        simulateClick(clickPosition)
         sendNotification("Test Click", string.format("Clicked at (%d, %d)", clickPosition.X, clickPosition.Y), 2)
     else
         sendNotification("Test Failed", "VirtualInputManager not available", 3)
@@ -724,10 +766,19 @@ submitBtn.MouseButton1Click:Connect(function()
     local enteredKey = keyBox.Text
     local expectedKey = "key_not_fetched"
     local httpGet = game.HttpGet or HttpGet
-    if not httpGet then sendNotification("Key Check Failed", "No HttpGet function found."); return end
+    if not httpGet then
+        sendNotification("Key Check Failed", "No HttpGet function found.")
+        return
+    end
+
     local success, response = pcall(function() return httpGet("https://pastebin.com/raw/v4eb6fHw", true) end)
-    if success and response then expectedKey = response:match("%S+") or "pastebin_read_error"
-    else sendNotification("Key Check Failed", "Could not fetch key. Check HttpService/network.") end
+    
+    if success and response then
+        expectedKey = response:match("%S+") or "pastebin_read_error"
+    else
+        sendNotification("Key Check Failed", "Could not fetch key. Check HttpService/network.")
+    end
+
     if enteredKey == expectedKey or enteredKey == "happybirthday Mohamednigga" then
         sendNotification("Access Granted", "Welcome!")
         keyEntry:Destroy()
@@ -746,8 +797,11 @@ copyBtn.MouseButton1Click:Connect(function()
     local keyLink = "https.loot-link.com/s?AVreZic8"
     if setclipboard then
         local success, err = pcall(function() setclipboard(keyLink) end)
-        if success then sendNotification("Link Copied", "The key link has been copied.")
-        else sendNotification("Copy Failed", "setclipboard() error: " .. tostring(err)) end
+        if success then
+            sendNotification("Link Copied", "The key link has been copied.")
+        else
+            sendNotification("Copy Failed", "setclipboard() error: " .. tostring(err))
+        end
     else
         keyBox.Text = keyLink
         copyBtn.Text = "Copy From Box"
