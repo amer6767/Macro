@@ -1,6 +1,6 @@
--- Roblox Smart Detection & Calibration Suite v1.2
--- Implements Phase 1 & 2: Multi-layered detection, visual feedback, advanced analytics, heat map, and calibration.
--- Based on the specification for a comprehensive system to understand and optimize click detection reliability.
+-- Roblox Smart Detection & Calibration Suite v1.3
+-- Implements Phase 1 & 2 with fixes for responsiveness and data integrity.
+-- Features: Multi-layered detection, adaptive UI, visual feedback, advanced analytics, heat map, and calibration.
 
 -- --- Service Loading & Compatibility ---
 local CoreGui = game:GetService("CoreGui")
@@ -11,6 +11,7 @@ local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
 if type(task) ~= "table" then task = {
     spawn = coroutine.wrap,
@@ -36,16 +37,22 @@ DetectionSuite.State = {
     CalibrationClicks = {},
     CurrentScale = Vector2.new(1, 1),
     CurrentOffset = Vector2.new(0, 0),
-    -- Phase 2 State
-    HeatMapData = {}, -- 8x8 grid for 800x800 area (100px cells)
+    HeatMapData = {},
     ClickPatterns = { Offsets = {}, Timing = {}, AccuracyTrend = {} },
     SessionStartTime = 0,
     SavedProfiles = {},
 }
 DetectionSuite.HeatMapCells = {}
+DetectionSuite.DetectionSize = 0
 
 -- --- UI Construction (Phase 1 & 2) ---
 function DetectionSuite:CreateUI()
+    -- Get screen size and calculate appropriate detection area
+    local viewportSize = Workspace.CurrentCamera.ViewportSize
+    local maxSize = math.min(viewportSize.X, viewportSize.Y) * 0.8  -- 80% of smaller dimension
+    local detectionSize = math.min(800, maxSize)  -- Cap at 800 but respect screen limits
+    self.DetectionSize = detectionSize  -- Store for grid calculations
+
     local overlay = Instance.new("ScreenGui")
     overlay.Name = "DetectionBoxOverlay"; overlay.ZIndexBehavior = Enum.ZIndexBehavior.Global; overlay.ResetOnSpawn = false
     self.UI.Overlay = overlay
@@ -56,7 +63,8 @@ function DetectionSuite:CreateUI()
     self.UI.OverlayFrame = overlayFrame
 
     local detectionArea = Instance.new("Frame", overlayFrame)
-    detectionArea.Size = UDim2.new(0, 800, 0, 800); detectionArea.Position = UDim2.fromScale(0.5, 0.5)
+    detectionArea.Size = UDim2.new(0, detectionSize, 0, detectionSize)
+    detectionArea.Position = UDim2.fromScale(0.5, 0.5)
     detectionArea.AnchorPoint = Vector2.new(0.5, 0.5); detectionArea.BorderSizePixel = 3
     detectionArea.BorderColor3 = Color3.fromRGB(0, 255, 0); detectionArea.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
     detectionArea.BackgroundTransparency = 0.9
@@ -111,32 +119,34 @@ function DetectionSuite:CreateGrid()
     grid.Size = UDim2.fromScale(1, 1)
     grid.BackgroundTransparency = 1
     
-    for x = 0, 800, 100 do
-        local line = Instance.new("Frame", grid)
-        line.Size = UDim2.new(0, 1, 1, 0); line.Position = UDim2.new(0, x, 0, 0)
-        line.BackgroundColor3 = Color3.fromRGB(255, 255, 255); line.BackgroundTransparency = 0.85
-        line.BorderSizePixel = 0
-    end
+    local cellSize = self.DetectionSize / 8  -- Dynamic cell size
     
-    for y = 0, 800, 100 do
-        local line = Instance.new("Frame", grid)
-        line.Size = UDim2.new(1, 0, 0, 1); line.Position = UDim2.new(0, 0, 0, y)
-        line.BackgroundColor3 = Color3.fromRGB(255, 255, 255); line.BackgroundTransparency = 0.85
-        line.BorderSizePixel = 0
+    for i = 0, 8 do
+        local pos = i * cellSize
+        local vLine = Instance.new("Frame", grid)
+        vLine.Size = UDim2.new(0, 1, 1, 0); vLine.Position = UDim2.new(0, pos, 0, 0)
+        vLine.BackgroundColor3 = Color3.fromRGB(255, 255, 255); vLine.BackgroundTransparency = 0.85; vLine.BorderSizePixel = 0
+        
+        local hLine = Instance.new("Frame", grid)
+        hLine.Size = UDim2.new(1, 0, 0, 1); hLine.Position = UDim2.new(0, 0, 0, pos)
+        hLine.BackgroundColor3 = Color3.fromRGB(255, 255, 255); hLine.BackgroundTransparency = 0.85; hLine.BorderSizePixel = 0
     end
 end
 
 function DetectionSuite:CreateZones()
+    local detectionSize = self.DetectionSize
+    local safeZoneSize = detectionSize * 0.75  -- 75% of detection area
+    
     local warningZone = Instance.new("Frame", self.UI.DetectionArea)
     warningZone.Name = "WarningZone"
-    warningZone.Size = UDim2.fromOffset(800, 800)
+    warningZone.Size = UDim2.fromOffset(detectionSize, detectionSize)
     warningZone.Position = UDim2.fromScale(0.5, 0.5); warningZone.AnchorPoint = Vector2.new(0.5, 0.5)
     warningZone.BackgroundColor3 = Color3.fromRGB(255, 255, 0); warningZone.BackgroundTransparency = 0.97
     warningZone.BorderSizePixel = 0; warningZone.ZIndex = 2
     
     local safeZone = Instance.new("Frame", self.UI.DetectionArea)
     safeZone.Name = "SafeZone"
-    safeZone.Size = UDim2.fromOffset(600, 600)
+    safeZone.Size = UDim2.fromOffset(safeZoneSize, safeZoneSize)
     safeZone.Position = UDim2.fromScale(0.5, 0.5); safeZone.AnchorPoint = Vector2.new(0.5, 0.5)
     safeZone.BackgroundColor3 = Color3.fromRGB(0, 255, 0); safeZone.BackgroundTransparency = 0.95
     safeZone.BorderSizePixel = 0; safeZone.ZIndex = 3
@@ -192,11 +202,14 @@ function DetectionSuite:InitializeHeatMap()
     self.UI.HeatMap = Instance.new("Frame", self.UI.DetectionArea)
     self.UI.HeatMap.Size = UDim2.fromScale(1, 1); self.UI.HeatMap.BackgroundTransparency = 1; self.UI.HeatMap.ZIndex = 5
     
+    local cellSize = self.DetectionSize / 8
+    
     for x = 1, 8 do
         self.HeatMapCells[x] = {}
         for y = 1, 8 do
             local cell = Instance.new("Frame", self.UI.HeatMap)
-            cell.Size = UDim2.new(0, 100, 0, 100); cell.Position = UDim2.new(0, (x-1)*100, 0, (y-1)*100)
+            cell.Size = UDim2.new(0, cellSize, 0, cellSize)
+            cell.Position = UDim2.new(0, (x-1)*cellSize, 0, (y-1)*cellSize)
             cell.BackgroundColor3 = Color3.fromRGB(0, 0, 0); cell.BackgroundTransparency = 1
             cell.BorderSizePixel = 0
             self.HeatMapCells[x][y] = {Frame = cell, Count = 0}
@@ -206,7 +219,9 @@ end
 
 function DetectionSuite:UpdateHeatMap(position)
     local relativePos = position - self.UI.DetectionArea.AbsolutePosition
-    local cellX, cellY = math.floor(relativePos.X / 100) + 1, math.floor(relativePos.Y / 100) + 1
+    local cellSize = self.DetectionSize / 8
+    local cellX = math.floor(relativePos.X / cellSize) + 1
+    local cellY = math.floor(relativePos.Y / cellSize) + 1
     
     if cellX >= 1 and cellX <= 8 and cellY >= 1 and cellY <= 8 then
         local cellData = self.HeatMapCells[cellX][cellY]
@@ -343,30 +358,85 @@ function DetectionSuite:CalculateAndApplyScaling()
 end
 
 function DetectionSuite:SaveCalibrationProfile()
-    local profile = {
-        Name = os.date("%Y-%m-%d %H:%M"), Scale = self.State.CurrentScale, Offset = self.State.CurrentOffset,
-        SuccessRate = self.State.SuccessfulClicks / math.max(1, self.State.TotalClicks), Timestamp = os.time(),
-        ScreenSize = self.UI.DetectionArea.AbsoluteSize
-    }
-    table.insert(self.State.SavedProfiles, profile)
-    StarterGui:SetCore("SendNotification", { Title = "Profile Saved", Text = "Current calibration profile has been saved.", Duration = 5})
+    -- Only save if we have valid calibration data
+    if self.State.CurrentScale ~= Vector2.new(1, 1) or self.State.CurrentOffset ~= Vector2.new(0, 0) then
+        local profile = {
+            Name = os.date("%Y-%m-%d %H:%M"),
+            Scale = {X = self.State.CurrentScale.X, Y = self.State.CurrentScale.Y},
+            Offset = {X = self.State.CurrentOffset.X, Y = self.State.CurrentOffset.Y},
+            SuccessRate = self.State.SuccessfulClicks / math.max(1, self.State.TotalClicks),
+            Timestamp = os.time(),
+            ScreenSize = {X = self.UI.DetectionArea.AbsoluteSize.X, Y = self.UI.DetectionArea.AbsoluteSize.Y}
+        }
+        table.insert(self.State.SavedProfiles, profile)
+        StarterGui:SetCore("SendNotification", {
+            Title = "Profile Saved", 
+            Text = "Current calibration profile has been saved.",
+            Duration = 5
+        })
+    else
+        StarterGui:SetCore("SendNotification", {
+            Title = "Cannot Save", 
+            Text = "Calibrate first before saving profile.",
+            Duration = 5
+        })
+    end
 end
 
 function DetectionSuite:ExportSessionData()
+    -- Prepare heat map data
+    local heatMapData = {}
+    for x = 1, 8 do
+        heatMapData[x] = {}
+        for y = 1, 8 do
+            heatMapData[x][y] = self.HeatMapCells[x][y].Count
+        end
+    end
+    
     local exportData = {
-        SessionSummary = { TotalClicks = self.State.TotalClicks, SuccessRate = self.State.SuccessfulClicks / math.max(1, self.State.TotalClicks), Duration = os.clock() - self.State.SessionStartTime },
-        CalibrationProfiles = self.State.SavedProfiles
+        SessionSummary = {
+            TotalClicks = self.State.TotalClicks,
+            SuccessfulClicks = self.State.SuccessfulClicks,
+            FailedClicks = self.State.FailedClicks,
+            SuccessRate = self.State.SuccessfulClicks / math.max(1, self.State.TotalClicks),
+            Duration = os.clock() - self.State.SessionStartTime,
+            DetectionAreaSize = {
+                Width = self.UI.DetectionArea.AbsoluteSize.X,
+                Height = self.UI.DetectionArea.AbsoluteSize.Y
+            }
+        },
+        HeatMap = heatMapData,
+        CalibrationProfiles = self.State.SavedProfiles,
+        ExportTimestamp = os.date("%Y-%m-%d %H:%M:%S")
     }
-    local exportString = HttpService:JSONEncode(exportData)
-    if setclipboard then
+    
+    local success, exportString = pcall(function()
+        return HttpService:JSONEncode(exportData)
+    end)
+    
+    if success and setclipboard then
         setclipboard(exportString)
-        StarterGui:SetCore("SendNotification", { Title = "Data Exported", Text = "Session data copied to clipboard", Duration = 3 })
+        StarterGui:SetCore("SendNotification", {
+            Title = "Data Exported", 
+            Text = "Complete session data copied to clipboard", 
+            Duration = 3
+        })
+    else
+        StarterGui:SetCore("SendNotification", {
+            Title = "Export Failed", 
+            Text = "Could not export data", 
+            Duration = 5
+        })
     end
 end
 
 
 -- --- Event Handling & Initialization ---
 function DetectionSuite:Initialize()
+    if not Workspace.CurrentCamera then task.wait() end -- Wait for camera
+    local viewportSize = Workspace.CurrentCamera.ViewportSize
+    print(string.format("[DETECTION] Screen size: %dx%d", viewportSize.X, viewportSize.Y))
+
     self:CreateUI()
     self.State.SessionStartTime = os.clock()
     
