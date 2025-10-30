@@ -1,5 +1,10 @@
--- Roblox Macro V4.3 (Advanced Debug Build)
+-- Roblox Macro V4.4 (Advanced Debug Build)
 -- Put this as a LocalScript in StarterPlayerScripts or StarterGui
+--
+-- V4.4 Changes:
+-- 1. STARTUP FIX: Re-ordered script initialization to define a reliable 'wait'
+--    function first. This prevents "attempt to call a nil value" errors in
+--    environments where global 'wait' is not available on startup.
 --
 -- V4.3 Changes:
 -- 1. OFFSET SYSTEM: Removed the hardcoded +36px Y-offset. All offsets must now be
@@ -11,23 +16,56 @@
 -- 4. DETAILED LOGGING: Added more verbose print statements to the console for
 --    diagnosing click and VIM behavior.
 
--- NEW FIX: Wait for game.GetService to be available
-while not (game and game.GetService) do
-    wait(0.05)
+-- Wait for RunService, which is essential for a reliable wait function.
+-- This block ensures the script doesn't fail on startup in various executor environments.
+local RunService
+while not RunService do
+    local success, service = pcall(function() return game:GetService("RunService") end)
+    if success and service then
+        RunService = service
+    else
+        -- Busy wait as a last resort if everything else fails.
+        -- This avoids relying on a potentially non-existent global 'wait'.
+        local t = tick()
+        while tick() - t < 0.05 do end
+    end
 end
 
--- Now it's safe to call GetService
+-- task shim - now we can define it safely using the guaranteed RunService
+if type(task) ~= "table" or type(task.spawn) ~= "function" then
+    task = {
+        spawn = function(func)
+            local co = coroutine.create(func)
+            coroutine.resume(co)
+            return co
+        end,
+        wait = function(time)
+            local start = tick()
+            while tick() - start < (time or 0) do
+                RunService.Heartbeat:Wait()
+            end
+        end,
+        delay = function(time, func)
+            task.spawn(function()
+                task.wait(time)
+                func()
+            end)
+        end,
+        cancel = function(co) end
+    }
+end
+
+-- Now it's safe to load all other services
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
-local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 local workspace = workspace
 
 -- Wait for LocalPlayer to exist (crucial for executor injection)
 local player = Players.LocalPlayer
 while not player do
-    RunService.Heartbeat:Wait()
+    task.wait() -- Using our shimmed, reliable wait
     player = Players.LocalPlayer
 end
 
@@ -65,30 +103,6 @@ local activeXOffsetRaw = { mode = "px", value = 0 }
 local activeYOffsetRaw = { mode = "px", value = 0 }
 
 local guiHidden = false
-
--- task shim
-if type(task) ~= "table" or type(task.spawn) ~= "function" then
-    task = {
-        spawn = function(func)
-            local co = coroutine.create(func)
-            coroutine.resume(co)
-            return co
-        end,
-        wait = function(time)
-            local start = tick()
-            while tick() - start < (time or 0) do
-                RunService.Heartbeat:Wait()
-            end
-        end,
-        delay = function(time, func)
-            task.spawn(function()
-                task.wait(time)
-                func()
-            end)
-        end,
-        cancel = function(co) end
-    }
-end
 
 -- UI Creation
 local mainGui = Instance.new("ScreenGui")
