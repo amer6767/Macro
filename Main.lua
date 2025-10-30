@@ -65,6 +65,7 @@ local activeXOffsetRaw = { mode = "px", value = 0 }
 local activeYOffsetRaw = { mode = "px", value = 0 }
 
 local guiHidden = false
+local USE_MOUSE_API_FALLBACK = true
 
 -- task shim
 if type(task) ~= "table" or type(task.spawn) ~= "function" then
@@ -275,9 +276,10 @@ local btnReplayLoop = createButton("Replay Loop: OFF", 90, recordContent)
 local replayCountInput = createInput("Replay Amount (default 1)", "1", 130, recordContent)
 
 local offsetXInput = createInput("X Offset (pixels)", "0", 10, settingsContent)
-local swipeCurveInput = createInput("Swipe Curvature (0-100)", "0", 50, settingsContent)
-local btnApplySettings = createButton("Apply Offsets", 90, settingsContent)
-local btnInvestigate = createButton("Debug Coordinates", 130, settingsContent)
+local offsetYInput = createInput("Y Offset (pixels)", "0", 50, settingsContent)
+local swipeCurveInput = createInput("Swipe Curvature (0-100)", "0", 90, settingsContent)
+local btnApplySettings = createButton("Apply Offsets", 130, settingsContent)
+local btnInvestigate = createButton("Debug Coordinates", 170, settingsContent)
 
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
 toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30)
@@ -335,13 +337,14 @@ local function computePixelYOffset(raw) return raw.value end
 
 -- --- COORDINATE SYSTEM AND CALIBRATION ---
 function updateCalibration()
-    sendNotification("Calibration", "Y-offset removed - using direct coordinates", 3)
-    print("[CALIBRATION] Using direct coordinate system without Y-offset.")
+    sendNotification("Calibration", "Using fixed +36px Y-offset for UI inset.", 3)
+    print("[CALIBRATION] Using direct coordinate system with a fixed +36px Y-offset.")
 end
 
 function ViewportToExecutor(viewportPos)
-    -- Remove the +36px offset that was causing upward misalignment
-    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y))
+    -- PERMANENT FIX: Use the Y correction that is most likely to work.
+    local permanentYCorrection = 36
+    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y + permanentYCorrection))
 end
 
 -- VirtualInputManager and simulation functions
@@ -349,32 +352,64 @@ local VirtualInputManager
 local vmAvailable = false
 
 local function safeSendMouseMove(x, y)
-    if vmAvailable then pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y, game, 0) end) end
+    if vmAvailable then 
+        local success, err = pcall(function() 
+            VirtualInputManager:SendMouseMoveEvent(x, y, game, 0) 
+        end)
+        if not success then
+            print("[VIM ERROR] SendMouseMove failed:", err)
+            vmAvailable = false
+        end
+    end
 end
 
 local function safeSendMouseButton(x, y, button, isDown)
-    if vmAvailable then pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 0) end) end
-end
-
--- DEBUG version of performAutoClick
-local function performAutoClick(x, y)
-    if vmAvailable then
-        print("[DEBUG] Attempting click at:", x, y)
-        -- Test 1: Just move mouse first
-        safeSendMouseMove(x, y)
-        task.wait(0.5)
-        -- Test 2: Click and hold
-        print("[DEBUG] Sending mouse down")
-        safeSendMouseButton(x, y, 0, true)
-        task.wait(0.2)
-        -- Test 3: Release
-        print("[DEBUG] Sending mouse up")
-        safeSendMouseButton(x, y, 0, false)
-        print("[DEBUG] Click sequence completed")
-    else
-        print("[ERROR] VIM not available")
+    if vmAvailable then 
+        local success, err = pcall(function() 
+            VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 0) 
+        end)
+        if not success then
+            print("[VIM ERROR] SendMouseButton failed:", err)
+            vmAvailable = false
+        end
     end
 end
+
+local function performAutoClick(x, y)
+    if vmAvailable then
+        local success, err = pcall(function()
+            print("[DEBUG] Attempting click at:", x, y)
+            -- Just send click without move first (some VIM implementations handle positioning)
+            safeSendMouseButton(x, y, 0, true)
+            task.wait(0.05)
+            safeSendMouseButton(x, y, 0, false)
+            print("[DEBUG] Click completed")
+        end)
+        
+        if not success then
+            print("[ERROR] Click failed:", err)
+            sendNotification("Click Failed", "VIM error occurred", 3)
+        end
+    else
+        print("[ERROR] VIM not available")
+        sendNotification("VIM Not Available", "Cannot perform clicks", 3)
+    end
+end
+
+local function fallbackClick(x, y)
+    if not USE_MOUSE_API_FALLBACK then return false end
+    
+    local success = pcall(function()
+        -- Try using the mouse API directly
+        local mouse = player:GetMouse()
+        mouse.X = x
+        mouse.Y = y
+        mouse1click()
+    end)
+    
+    return success
+end
+
 
 -- NEW: Visual Click Tester functions
 local function createClickTester()
@@ -532,20 +567,53 @@ local function stopAutoClicker()
 end
 local function toggleAutoClicker()
     if autoClickEnabled then stopAutoClicker(); return end
-    if clickPosition == Vector2.new(500, 500) then sendNotification("Warning", "Set click position first!", 3); return end
-    stopAllProcesses(); autoClickEnabled = true; btnAutoClicker.Text = "Auto Clicker: ON"
+    if clickPosition == Vector2.new(500, 500) then 
+        sendNotification("Warning", "Set click position first!", 3); 
+        return 
+    end
+    
+    if not vmAvailable then
+        sendNotification("Error", "VIM not available - cannot auto click", 3)
+        return
+    end
+    
+    stopAllProcesses(); 
+    autoClickEnabled = true; 
+    btnAutoClicker.Text = "Auto Clicker: ON"
+    
     task.spawn(function()
         local clickCount = 0
+        local consecutiveFailures = 0
+        
         while autoClickEnabled do
             if vmAvailable then
-                simulateClick(clickPosition); clickCount = clickCount + 1
-                if clickCount % 10 == 0 then btnAutoClicker.Text = string.format("Clicks: %d", clickCount) end
+                local success = pcall(function()
+                    simulateClick(clickPosition)
+                    clickCount = clickCount + 1
+                    consecutiveFailures = 0
+                    
+                    if clickCount % 10 == 0 then 
+                        btnAutoClicker.Text = string.format("Clicks: %d", clickCount) 
+                    end
+                end)
+                
+                if not success then
+                    consecutiveFailures = consecutiveFailures + 1
+                    if consecutiveFailures >= 3 then
+                        stopAutoClicker()
+                        sendNotification("Auto Clicker Stopped", "Too many failures", 3)
+                        break
+                    end
+                end
             else
-                stopAutoClicker(); sendNotification("Error", "VIM not available", 3); break
+                stopAutoClicker()
+                sendNotification("Error", "VIM not available", 3)
+                break
             end
             task.wait(math.max(0.05, clickInterval))
         end
     end)
+    
     sendNotification("Auto Clicker", string.format("Started clicking at (%d, %d)", clickPosition.X, clickPosition.Y), 3)
 end
 
@@ -578,21 +646,17 @@ function stopAllProcesses() stopAutoClicker(); stopRecording(); stopReplay(); st
 -- NEW: Coordinate Investigation function
 local function investigateCoordinateSystem()
     local viewportSize = getViewportSize()
-    local mousePos = UserInputService:GetMouseLocation()
-    
-    print("=== COORDINATE SYSTEM ===")
+    local guiInset = GuiService:GetGuiInset()
+    print("=== COORDINATE SYSTEM INVESTIGATION ===")
     print("Viewport Size:", viewportSize.X, viewportSize.Y)
-    print("Mouse Position:", mousePos.X, mousePos.Y)
+    print("GUI Inset:", guiInset.X, guiInset.Y)
+    print("Mouse Position:", mouse.X, mouse.Y)
     print("Click Position Set To:", clickPosition.X, clickPosition.Y)
-    
-    local testPos = clickPosition
-    if testPos == Vector2.new(500, 500) then
-        testPos = Vector2.new(viewportSize.X/2, viewportSize.Y/2)
+    local testPositions = {{name = "Top-Left", x = 100, y = 100}, {name = "Center", x = viewportSize.X/2, y = viewportSize.Y/2}, {name = "Bottom-Right", x = viewportSize.X-100, y = viewportSize.Y-100}}
+    for _, pos in ipairs(testPositions) do
+        local converted = ViewportToExecutor(Vector2.new(pos.x, pos.y))
+        print(string.format("%s: Original(%d,%d) -> Converted(%d,%d)", pos.name, pos.x, pos.y, converted.X, converted.Y))
     end
-    
-    local converted = ViewportToExecutor(testPos)
-    print(string.format("Test: Viewport(%d,%d) -> Executor(%d,%d)", 
-        testPos.X, testPos.Y, converted.X, converted.Y))
 end
 
 -- UI Connections
@@ -602,47 +666,47 @@ btnSetPosition.MouseButton1Click:Connect(setClickPosition)
 btnStartRecording.MouseButton1Click:Connect(toggleRecording); btnReplayClicks.MouseButton1Click:Connect(toggleReplay); btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
 btnInvestigate.MouseButton1Click:Connect(investigateCoordinateSystem) -- Connect new debug button
 
--- ENHANCED Test Click with Visuals
 btnTestClick.MouseButton1Click:Connect(function()
     if clickPosition == Vector2.new(500, 500) then 
         sendNotification("Test Failed", "Set click position first!", 3)
         return 
     end
     
+    -- Show intended position (green)
+    showClickAtPosition(clickPosition, Color3.fromRGB(0, 255, 0))
+    
+    local finalTargetPos = ViewportToExecutor(clickPosition)
+    
+    print("[TEST CLICK]")
+    print("Intended Position:", clickPosition.X, clickPosition.Y)
+    print("Final Target Position:", finalTargetPos.X, finalTargetPos.Y)
+    
+    -- Show actual position (red)
+    task.wait(0.3)
+    showClickAtPosition(finalTargetPos, Color3.fromRGB(255, 0, 0))
+    
     if vmAvailable then
-        -- Show intended position (green)
-        showClickAtPosition(clickPosition, Color3.fromRGB(0, 255, 0))
-        
-        local finalTargetPos = ViewportToExecutor(clickPosition)
-        
-        print("[SIMPLE CLICK TEST]")
-        print("Intended Position:", clickPosition.X, clickPosition.Y)
-        print("Final Target Position:", finalTargetPos.X, finalTargetPos.Y)
-        
-        -- Show actual position (red)
-        task.wait(0.3)
-        showClickAtPosition(finalTargetPos, Color3.fromRGB(255, 0, 0))
-        
-        -- Perform the click
         performAutoClick(finalTargetPos.X, finalTargetPos.Y)
-        
-        local diffX = finalTargetPos.X - clickPosition.X
-        local diffY = finalTargetPos.Y - clickPosition.Y
-        sendNotification("Test Click", 
-            string.format("Green=Intended, Red=Actual
-Diff: X=%d, Y=%d", diffX, diffY), 4)
     else
-        sendNotification("Test Failed", "VirtualInputManager not available", 3)
+        -- Try fallback method
+        local fallbackSuccess = fallbackClick(finalTargetPos.X, finalTargetPos.Y)
+        if not fallbackSuccess then
+            sendNotification("Test Failed", "No click method available", 3)
+            return
+        end
     end
+    
+    local diffX = finalTargetPos.X - clickPosition.X
+    local diffY = finalTargetPos.Y - clickPosition.Y
+    sendNotification("Test Click", 
+        string.format("Green=Intended, Red=Actual\nDiff: X=%d, Y=%d", diffX, diffY), 4)
 end)
 
 btnApplySettings.MouseButton1Click:Connect(function()
-    local offsetX, curve = tonumber(offsetXInput.Text) or 0, tonumber(swipeCurveInput.Text) or 0
-    activeXOffsetRaw = { mode = "px", value = offsetX }
-    -- Remove Y offset completely
-    activeYOffsetRaw = { mode = "px", value = 0 }
+    local offsetX, offsetY, curve = tonumber(offsetXInput.Text) or 0, tonumber(offsetYInput.Text) or 0, tonumber(swipeCurveInput.Text) or 0
+    activeXOffsetRaw = { mode = "px", value = offsetX }; activeYOffsetRaw = { mode = "px", value = offsetY }
     swipeCurveInput.Text = tostring(math.clamp(curve, 0, 100))
-    sendNotification("Offsets Applied", string.format("X: %dpx, Y: 0px, Curve: %d%%", offsetX, curve), 3)
+    sendNotification("Offsets Applied", string.format("X: %dpx, Y: %dpx, Curve: %d%%", offsetX, offsetY, curve), 3)
 end)
 
 toggleGuiBtn.MouseButton1Click:Connect(function() guiHidden = not guiHidden; mainFrame.Visible = not guiHidden; toggleGuiBtn.Text = guiHidden and "Show" or "Hide" end)
@@ -671,22 +735,31 @@ tabAutoClicker.MouseButton1Click:Connect(function() selectTab("auto") end)
 tabRecorder.MouseButton1Click:Connect(function() selectTab("record") end)
 tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 
--- ENHANCED VIM Initialization and final setup
 local function initialize_VIM()
-    local success, vim_instance = pcall(function() return game:GetService("VirtualInputManager") end)
+    local success, vim_instance = pcall(function() 
+        return game:GetService("VirtualInputManager") 
+    end)
+    
     if success and vim_instance then
-        VirtualInputManager = vim_instance; vmAvailable = true
-        task.spawn(function()
-            task.wait(1)
-            local testSuccess, err = pcall(function() VirtualInputManager:SendMouseMoveEvent(100, 100) end)
-            if testSuccess then
-                sendNotification("VIM Ready", "Virtual inputs working properly", 3); print("[VIM] Successfully initialized and tested")
-            else
-                sendNotification("VIM Warning", "VIM found but may not work. Error: "..tostring(err), 5)
-            end
+        VirtualInputManager = vim_instance
+        -- Test if VIM functions actually work
+        local testSuccess = pcall(function()
+            VirtualInputManager:SendMouseMoveEvent(100, 100, game, 0)
         end)
+        
+        if testSuccess then
+            vmAvailable = true
+            sendNotification("VIM Ready", "Virtual inputs working properly", 3)
+            print("[VIM] Successfully initialized and tested")
+        else
+            vmAvailable = false
+            sendNotification("VIM Warning", "VIM found but functions don't work", 5)
+            print("[VIM WARNING] VIM service found but functions fail")
+        end
     else
-        vmAvailable = false; sendNotification("VIM ERROR", "VirtualInputManager NOT FOUND", 10); print("[VIM ERROR] VIM service not available")
+        vmAvailable = false
+        sendNotification("VIM ERROR", "VirtualInputManager NOT FOUND", 10)
+        print("[VIM ERROR] VIM service not available")
     end
 end
 
