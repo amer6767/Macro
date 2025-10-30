@@ -275,10 +275,9 @@ local btnReplayLoop = createButton("Replay Loop: OFF", 90, recordContent)
 local replayCountInput = createInput("Replay Amount (default 1)", "1", 130, recordContent)
 
 local offsetXInput = createInput("X Offset (pixels)", "0", 10, settingsContent)
-local offsetYInput = createInput("Y Offset (pixels)", "0", 50, settingsContent)
-local swipeCurveInput = createInput("Swipe Curvature (0-100)", "0", 90, settingsContent)
-local btnApplySettings = createButton("Apply Offsets", 130, settingsContent)
-local btnInvestigate = createButton("Debug Coordinates", 170, settingsContent)
+local swipeCurveInput = createInput("Swipe Curvature (0-100)", "0", 50, settingsContent)
+local btnApplySettings = createButton("Apply Offsets", 90, settingsContent)
+local btnInvestigate = createButton("Debug Coordinates", 130, settingsContent)
 
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
 toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30)
@@ -336,14 +335,13 @@ local function computePixelYOffset(raw) return raw.value end
 
 -- --- COORDINATE SYSTEM AND CALIBRATION ---
 function updateCalibration()
-    sendNotification("Calibration", "Using fixed +36px Y-offset for UI inset.", 3)
-    print("[CALIBRATION] Using direct coordinate system with a fixed +36px Y-offset.")
+    sendNotification("Calibration", "Y-offset removed - using direct coordinates", 3)
+    print("[CALIBRATION] Using direct coordinate system without Y-offset.")
 end
 
 function ViewportToExecutor(viewportPos)
-    -- PERMANENT FIX: Use the Y correction that is most likely to work.
-    local permanentYCorrection = 36
-    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y + permanentYCorrection))
+    -- Remove the +36px offset that was causing upward misalignment
+    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y))
 end
 
 -- VirtualInputManager and simulation functions
@@ -580,17 +578,21 @@ function stopAllProcesses() stopAutoClicker(); stopRecording(); stopReplay(); st
 -- NEW: Coordinate Investigation function
 local function investigateCoordinateSystem()
     local viewportSize = getViewportSize()
-    local guiInset = GuiService:GetGuiInset()
-    print("=== COORDINATE SYSTEM INVESTIGATION ===")
+    local mousePos = UserInputService:GetMouseLocation()
+    
+    print("=== COORDINATE SYSTEM ===")
     print("Viewport Size:", viewportSize.X, viewportSize.Y)
-    print("GUI Inset:", guiInset.X, guiInset.Y)
-    print("Mouse Position:", mouse.X, mouse.Y)
+    print("Mouse Position:", mousePos.X, mousePos.Y)
     print("Click Position Set To:", clickPosition.X, clickPosition.Y)
-    local testPositions = {{name = "Top-Left", x = 100, y = 100}, {name = "Center", x = viewportSize.X/2, y = viewportSize.Y/2}, {name = "Bottom-Right", x = viewportSize.X-100, y = viewportSize.Y-100}}
-    for _, pos in ipairs(testPositions) do
-        local converted = ViewportToExecutor(Vector2.new(pos.x, pos.y))
-        print(string.format("%s: Original(%d,%d) -> Converted(%d,%d)", pos.name, pos.x, pos.y, converted.X, converted.Y))
+    
+    local testPos = clickPosition
+    if testPos == Vector2.new(500, 500) then
+        testPos = Vector2.new(viewportSize.X/2, viewportSize.Y/2)
     end
+    
+    local converted = ViewportToExecutor(testPos)
+    print(string.format("Test: Viewport(%d,%d) -> Executor(%d,%d)", 
+        testPos.X, testPos.Y, converted.X, converted.Y))
 end
 
 -- UI Connections
@@ -602,30 +604,45 @@ btnInvestigate.MouseButton1Click:Connect(investigateCoordinateSystem) -- Connect
 
 -- ENHANCED Test Click with Visuals
 btnTestClick.MouseButton1Click:Connect(function()
-    if clickPosition == Vector2.new(500, 500) then sendNotification("Test Failed", "Set click position first!", 3); return end
+    if clickPosition == Vector2.new(500, 500) then 
+        sendNotification("Test Failed", "Set click position first!", 3)
+        return 
+    end
+    
     if vmAvailable then
+        -- Show intended position (green)
         showClickAtPosition(clickPosition, Color3.fromRGB(0, 255, 0))
-        local xOffset = computePixelXOffset(activeXOffsetRaw); local yOffset = computePixelYOffset(activeYOffsetRaw)
-        local rawTargetPos = Vector2.new(clickPosition.X + xOffset, clickPosition.Y + yOffset)
-        local finalTargetPos = ViewportToExecutor(rawTargetPos)
         
-        print("[DEBUG TEST]"); print("Original Position:", clickPosition.X, clickPosition.Y); print("Offsets Applied - X:", xOffset, "Y:", yOffset); print("Final Target Position:", finalTargetPos.X, finalTargetPos.Y)
+        local finalTargetPos = ViewportToExecutor(clickPosition)
         
-        task.wait(0.3); showClickAtPosition(finalTargetPos, Color3.fromRGB(255, 0, 0))
+        print("[SIMPLE CLICK TEST]")
+        print("Intended Position:", clickPosition.X, clickPosition.Y)
+        print("Final Target Position:", finalTargetPos.X, finalTargetPos.Y)
         
+        -- Show actual position (red)
+        task.wait(0.3)
+        showClickAtPosition(finalTargetPos, Color3.fromRGB(255, 0, 0))
+        
+        -- Perform the click
         performAutoClick(finalTargetPos.X, finalTargetPos.Y)
-        sendNotification("Test Click", string.format("Green=Should, Red=Actual
-Diff: X=%d, Y=%d", finalTargetPos.X - clickPosition.X, finalTargetPos.Y - clickPosition.Y), 4)
+        
+        local diffX = finalTargetPos.X - clickPosition.X
+        local diffY = finalTargetPos.Y - clickPosition.Y
+        sendNotification("Test Click", 
+            string.format("Green=Intended, Red=Actual
+Diff: X=%d, Y=%d", diffX, diffY), 4)
     else
         sendNotification("Test Failed", "VirtualInputManager not available", 3)
     end
 end)
 
 btnApplySettings.MouseButton1Click:Connect(function()
-    local offsetX, offsetY, curve = tonumber(offsetXInput.Text) or 0, tonumber(offsetYInput.Text) or 0, tonumber(swipeCurveInput.Text) or 0
-    activeXOffsetRaw = { mode = "px", value = offsetX }; activeYOffsetRaw = { mode = "px", value = offsetY }
+    local offsetX, curve = tonumber(offsetXInput.Text) or 0, tonumber(swipeCurveInput.Text) or 0
+    activeXOffsetRaw = { mode = "px", value = offsetX }
+    -- Remove Y offset completely
+    activeYOffsetRaw = { mode = "px", value = 0 }
     swipeCurveInput.Text = tostring(math.clamp(curve, 0, 100))
-    sendNotification("Offsets Applied", string.format("X: %dpx, Y: %dpx, Curve: %d%%", offsetX, offsetY, curve), 3)
+    sendNotification("Offsets Applied", string.format("X: %dpx, Y: 0px, Curve: %d%%", offsetX, curve), 3)
 end)
 
 toggleGuiBtn.MouseButton1Click:Connect(function() guiHidden = not guiHidden; mainFrame.Visible = not guiHidden; toggleGuiBtn.Text = guiHidden and "Show" or "Hide" end)
