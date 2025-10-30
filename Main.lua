@@ -1,37 +1,95 @@
--- Roblox Macro V4.4 (Advanced Debug Build)
+-- Delta-Compatible Roblox Macro V4.4 (Advanced Debug Build)
 -- Put this as a LocalScript in StarterPlayerScripts or StarterGui
 --
 -- V4.4 Changes:
--- 1. STARTUP FIX: Re-ordered script initialization to define a reliable 'wait'
---    function first. This prevents "attempt to call a nil value" errors in
---    environments where global 'wait' is not available on startup.
---
--- V4.3 Changes:
--- 1. OFFSET SYSTEM: Removed the hardcoded +36px Y-offset. All offsets must now be
---    manually configured in the 'Settings' tab for greater flexibility.
--- 2. VISUAL DEBUGGER: Added a visual click tester. "Test Click" now shows a green
---    marker for the intended click and a red marker for the actual click location.
--- 3. COORDINATE INVESTIGATION: Added a "Debug Coordinates" button to the settings
---    tab to print detailed viewport, inset, and mouse data to the console.
--- 4. DETAILED LOGGING: Added more verbose print statements to the console for
---    diagnosing click and VIM behavior.
+-- 1. ROBUST INITIALIZATION: Added safe wrappers for service loading and wait functions to prevent nil errors on injection.
+-- 2. MODERN UI/UX: Complete visual overhaul with a professional color scheme, gradients, shadows, and interactive hover effects.
+-- 3. DELTA EXECUTOR COMPATIBILITY: Implemented universal functions for HTTP requests, clipboard access, and Virtual Input detection.
+-- 4. VISUAL DEBUGGER & COORDINATE INVESTIGATION: Retained from V4.2 for advanced diagnostics.
 
--- Wait for RunService, which is essential for a reliable wait function.
--- This block ensures the script doesn't fail on startup in various executor environments.
-local RunService
-while not RunService do
-    local success, service = pcall(function() return game:GetService("RunService") end)
-    if success and service then
-        RunService = service
-    else
-        -- Busy wait as a last resort if everything else fails.
-        -- This avoids relying on a potentially non-existent global 'wait'.
-        local t = tick()
-        while tick() - t < 0.05 do end
-    end
+-- Safe initialization
+local function safeWait()
+    if wait then return wait(0.05)
+    elseif task and task.wait then return task.wait(0.05)
+    else local start = tick() while tick() - start < 0.05 do end
 end
 
--- task shim - now we can define it safely using the guaranteed RunService
+-- Universal service access
+local function getService(serviceName)
+    local maxAttempts = 50
+    for i = 1, maxAttempts do
+        local success, service = pcall(function()
+            return game:GetService(serviceName)
+        end)
+        if success and service then
+            return service
+        end
+        safeWait()
+    end
+    warn("Failed to get service: " .. serviceName)
+    return nil
+end
+
+-- Initialize services
+local Players = getService("Players")
+local UserInputService = getService("UserInputService")
+local StarterGui = getService("StarterGui")
+local RunService = getService("RunService")
+local GuiService = getService("GuiService")
+local CoreGui = getService("CoreGui")
+local TweenService = getService("TweenService")
+local workspace = workspace
+
+-- Wait for LocalPlayer to exist (crucial for executor injection)
+local player = Players and Players.LocalPlayer
+while not player do
+    RunService.Heartbeat:Wait()
+    player = Players.LocalPlayer
+end
+
+-- Modern Color Scheme
+local COLOR_SCHEME = {
+    BACKGROUND = Color3.fromRGB(28, 28, 30),
+    SURFACE = Color3.fromRGB(44, 44, 46),
+    PRIMARY = Color3.fromRGB(0, 122, 255),
+    SECONDARY = Color3.fromRGB(88, 86, 214),
+    SUCCESS = Color3.fromRGB(52, 199, 89),
+    WARNING = Color3.fromRGB(255, 149, 0),
+    ERROR = Color3.fromRGB(255, 59, 48),
+    TEXT_PRIMARY = Color3.fromRGB(242, 242, 247),
+    TEXT_SECONDARY = Color3.fromRGB(174, 174, 178)
+}
+
+-- Config
+local MIN_CLICK_HOLD_DURATION = 0.05
+local FONT_MAIN = Enum.Font.Gotham
+local FONT_BOLD = Enum.Font.GothamBold
+local SWIPE_MIN_PIXELS = 8
+local SWIPE_SAMPLE_FPS = 60
+local SWIPE_CURVATURE_DEFAULT = 0.0
+local SWIPE_EASING = "easeInOutQuad"
+
+local mouse = player:GetMouse()
+
+-- State
+local autoClickEnabled = false
+local clickInterval = 0.2
+local clickPosition = Vector2.new(500, 500)
+local waitingForPosition = false
+local isRecording = false
+local recordedActions = {}
+local recordStartTime = 0
+local recordConnections = {}
+local isReplaying = false
+local replayCount = 1
+local currentReplayThread = nil
+local isReplayingLoop = false
+local currentReplayLoopThread = nil
+local activeXOffsetRaw = { mode = "px", value = 0 }
+local activeYOffsetRaw = { mode = "px", value = 0 }
+local guiHidden = false
+
+-- task shim
 if type(task) ~= "table" or type(task.spawn) ~= "function" then
     task = {
         spawn = function(func)
@@ -55,85 +113,94 @@ if type(task) ~= "table" or type(task.spawn) ~= "function" then
     }
 end
 
--- Now it's safe to load all other services
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local StarterGui = game:GetService("StarterGui")
-local GuiService = game:GetService("GuiService")
-local workspace = workspace
-
--- Wait for LocalPlayer to exist (crucial for executor injection)
-local player = Players.LocalPlayer
-while not player do
-    task.wait() -- Using our shimmed, reliable wait
-    player = Players.LocalPlayer
+-- Delta Compatibility Wrappers
+local function safeHttpGet(url)
+    local success, result = pcall(function()
+        if syn and syn.request then
+            local response = syn.request({Url = url, Method = "GET"})
+            return response.Body
+        elseif request then
+            local response = request({Url = url, Method = "GET"})
+            return response.Body
+        elseif game and game.HttpGet then
+            return game:HttpGet(url, true)
+        end
+        return nil
+    end)
+    return success and result or ""
 end
 
--- Config
-local MIN_CLICK_HOLD_DURATION = 0.05
-local FONT_MAIN = Enum.Font.Gotham
-local FONT_BOLD = Enum.Font.GothamBold
-local SWIPE_MIN_PIXELS = 8
-local SWIPE_SAMPLE_FPS = 60
-local SWIPE_CURVATURE_DEFAULT = 0.0
-local SWIPE_EASING = "easeInOutQuad"
+local function safeSetClipboard(text)
+    return pcall(function()
+        if setclipboard then setclipboard(text)
+        elseif writeclipboard then writeclipboard(text)
+        elseif syn and syn.write_clipboard then syn.write_clipboard(text)
+        else warn("Clipboard not available.")
+        end
+    end)
+end
 
-local CoreGui = game:GetService("CoreGui")
-local mouse = player:GetMouse()
+-- UI Helpers
+local function addShadow(frame)
+    local shadow = Instance.new("ImageLabel", frame)
+    shadow.Name = "Shadow"
+    shadow.Image = "rbxassetid://5554236805"
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(23, 23, 277, 277)
+    shadow.ImageColor3 = Color3.new(0, 0, 0)
+    shadow.ImageTransparency = 0.75
+    shadow.Size = UDim2.new(1, 10, 1, 10)
+    shadow.Position = UDim2.new(0, -5, 0, -5)
+    shadow.BackgroundTransparency = 1
+    shadow.ZIndex = frame.ZIndex - 1
+    return shadow
+end
 
--- State
-local autoClickEnabled = false
-local clickInterval = 0.2
-local clickPosition = Vector2.new(500, 500) -- Default, user should set this
-local waitingForPosition = false
-
-local isRecording = false
-local recordedActions = {}
-local recordStartTime = 0
-local recordConnections = {}
-
-local isReplaying = false
-local replayCount = 1
-local currentReplayThread = nil
-
-local isReplayingLoop = false
-local currentReplayLoopThread = nil
-
-local activeXOffsetRaw = { mode = "px", value = 0 }
-local activeYOffsetRaw = { mode = "px", value = 0 }
-
-local guiHidden = false
+local function addHoverEffects(button)
+    if not TweenService then return end
+    local originalColor = button.BackgroundColor3
+    button.MouseEnter:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = originalColor:Lerp(Color3.new(1, 1, 1), 0.15)
+        }):Play()
+    end)
+    button.MouseLeave:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = originalColor
+        }):Play()
+    end)
+end
 
 -- UI Creation
 local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "MacroV4GUI_Simplified"
+mainGui.Name = "MacroV4GUI_Modern"
 mainGui.IgnoreGuiInset = true
 mainGui.ResetOnSpawn = false
 mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 mainGui.Parent = CoreGui
 
+-- Key Entry Frame
 local keyEntry = Instance.new("Frame")
 keyEntry.Size = UDim2.new(0, 260, 0, 140)
 keyEntry.Position = UDim2.new(0.5, -130, 0.5, -70)
 keyEntry.AnchorPoint = Vector2.new(0.5, 0.5)
-keyEntry.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+keyEntry.BackgroundColor3 = COLOR_SCHEME.SURFACE
 keyEntry.BorderSizePixel = 0
 keyEntry.Parent = mainGui
-local keyEntryCorner = Instance.new("UICorner", keyEntry)
-keyEntryCorner.CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", keyEntry).CornerRadius = UDim.new(0, 8)
+addShadow(keyEntry)
 
 local keyBox = Instance.new("TextBox", keyEntry)
 keyBox.Size = UDim2.new(0.9, 0, 0, 30)
 keyBox.Position = UDim2.new(0.05, 0, 0, 10)
 keyBox.PlaceholderText = "Enter Key"
-keyBox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-keyBox.TextColor3 = Color3.new(1, 1, 1)
+keyBox.BackgroundColor3 = COLOR_SCHEME.BACKGROUND
+keyBox.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
 keyBox.Font = FONT_MAIN
 keyBox.TextSize = 16
 keyBox.BorderSizePixel = 0
 keyBox.ClearTextOnFocus = false
-local keyBoxCorner = Instance.new("UICorner", keyBox)
-keyBoxCorner.CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", keyBox).CornerRadius = UDim.new(0, 6)
 
 local submitBtn = Instance.new("TextButton", keyEntry)
 submitBtn.Size = UDim2.new(0.9, 0, 0, 30)
@@ -141,11 +208,11 @@ submitBtn.Position = UDim2.new(0.05, 0, 0, 50)
 submitBtn.Text = "Submit Key"
 submitBtn.Font = FONT_MAIN
 submitBtn.TextSize = 16
-submitBtn.TextColor3 = Color3.new(1, 1, 1)
-submitBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+submitBtn.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
+submitBtn.BackgroundColor3 = COLOR_SCHEME.PRIMARY
 submitBtn.BorderSizePixel = 0
-local submitBtnCorner = Instance.new("UICorner", submitBtn)
-submitBtnCorner.CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", submitBtn).CornerRadius = UDim.new(0, 6)
+addHoverEffects(submitBtn)
 
 local copyBtn = Instance.new("TextButton", keyEntry)
 copyBtn.Size = UDim2.new(0.9, 0, 0, 30)
@@ -153,146 +220,145 @@ copyBtn.Position = UDim2.new(0.05, 0, 0, 90)
 copyBtn.Text = "Copy Key Link"
 copyBtn.Font = FONT_MAIN
 copyBtn.TextSize = 16
-copyBtn.TextColor3 = Color3.fromRGB(220, 220, 220)
-copyBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+copyBtn.TextColor3 = COLOR_SCHEME.TEXT_SECONDARY
+copyBtn.BackgroundColor3 = COLOR_SCHEME.SURFACE
 copyBtn.BorderSizePixel = 0
-local copyBtnCorner = Instance.new("UICorner", copyBtn)
-copyBtnCorner.CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+addHoverEffects(copyBtn)
 
+-- Main Frame
 local mainFrame = Instance.new("Frame", mainGui)
-mainFrame.Size = UDim2.new(0, 260, 0, 340) -- Adjusted height for debug button
-mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+mainFrame.Size = UDim2.new(0, 300, 0, 420)
+mainFrame.Position = UDim2.new(0.5, -150, 0.5, -210)
 mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BackgroundColor3 = COLOR_SCHEME.BACKGROUND
+mainFrame.BackgroundTransparency = 0.05
 mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
 mainFrame.Visible = false
-local frameCorner = Instance.new("UICorner", mainFrame)
-frameCorner.CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 12)
+addShadow(mainFrame)
 
-local dragLayer = Instance.new("Frame", mainFrame)
-dragLayer.Size = UDim2.new(1, 0, 0, 40)
-dragLayer.BackgroundTransparency = 1
-dragLayer.ZIndex = 1
-dragLayer.Active = true
+local gradient = Instance.new("UIGradient", mainFrame)
+gradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, COLOR_SCHEME.BACKGROUND),
+    ColorSequenceKeypoint.new(1, COLOR_SCHEME.SURFACE)
+})
+gradient.Rotation = 45
 
-local title = Instance.new("TextLabel", mainFrame)
-title.Size = UDim2.new(1, 0, 0, 40)
+local titleBar = Instance.new("Frame", mainFrame)
+titleBar.Size = UDim2.new(1, 0, 0, 45)
+titleBar.BackgroundTransparency = 1
+titleBar.ZIndex = 2
+
+local title = Instance.new("TextLabel", titleBar)
+title.Size = UDim2.new(1, 0, 1, 0)
 title.BackgroundTransparency = 1
-title.Text = "Macro V4.3 (Debug)"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "Macro V4.4 (Debug)"
+title.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
 title.Font = FONT_BOLD
 title.TextSize = 20
-title.ZIndex = 2
 
 local tabBar = Instance.new("Frame", mainFrame)
-tabBar.Size = UDim2.new(1, 0, 0, 40)
-tabBar.Position = UDim2.new(0, 0, 0, 40)
-tabBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+tabBar.Size = UDim2.new(1, -20, 0, 40)
+tabBar.Position = UDim2.new(0.5, 0, 0, 45)
+tabBar.AnchorPoint = Vector2.new(0.5, 0)
+tabBar.BackgroundTransparency = 1
 
 local tabAutoClicker = Instance.new("TextButton", tabBar)
-tabAutoClicker.Size = UDim2.new(0, 75, 1, 0)
+tabAutoClicker.Size = UDim2.new(0.33, -5, 1, 0)
 tabAutoClicker.Text = "Auto"
 tabAutoClicker.Font = FONT_MAIN
 tabAutoClicker.TextSize = 14
-tabAutoClicker.TextColor3 = Color3.new(1, 1, 1)
-tabAutoClicker.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabAutoCorner = Instance.new("UICorner", tabAutoClicker)
-tabAutoCorner.CornerRadius = UDim.new(0, 4)
+tabAutoClicker.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
+tabAutoClicker.BackgroundColor3 = COLOR_SCHEME.SURFACE
+Instance.new("UICorner", tabAutoClicker).CornerRadius = UDim.new(0, 6)
+addHoverEffects(tabAutoClicker)
 
 local tabRecorder = Instance.new("TextButton", tabBar)
-tabRecorder.Size = UDim2.new(0, 75, 1, 0)
-tabRecorder.Position = UDim2.new(0, 75, 0, 0)
+tabRecorder.Size = UDim2.new(0.33, -5, 1, 0)
+tabRecorder.Position = UDim2.new(0.33, 5, 0, 0)
 tabRecorder.Text = "Record"
 tabRecorder.Font = FONT_MAIN
 tabRecorder.TextSize = 14
-tabRecorder.TextColor3 = Color3.new(1, 1, 1)
-tabRecorder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabRecordCorner = Instance.new("UICorner", tabRecorder)
-tabRecordCorner.CornerRadius = UDim.new(0, 4)
+tabRecorder.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
+tabRecorder.BackgroundColor3 = COLOR_SCHEME.SURFACE
+Instance.new("UICorner", tabRecorder).CornerRadius = UDim.new(0, 6)
+addHoverEffects(tabRecorder)
 
 local tabSettings = Instance.new("TextButton", tabBar)
-tabSettings.Size = UDim2.new(0, 75, 1, 0)
-tabSettings.Position = UDim2.new(0, 150, 0, 0)
+tabSettings.Size = UDim2.new(0.33, -5, 1, 0)
+tabSettings.Position = UDim2.new(0.66, 10, 0, 0)
 tabSettings.Text = "Settings"
 tabSettings.Font = FONT_MAIN
 tabSettings.TextSize = 14
-tabSettings.TextColor3 = Color3.new(1, 1, 1)
-tabSettings.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-local tabSettingsCorner = Instance.new("UICorner", tabSettings)
-tabSettingsCorner.CornerRadius = UDim.new(0, 4)
+tabSettings.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
+tabSettings.BackgroundColor3 = COLOR_SCHEME.SURFACE
+Instance.new("UICorner", tabSettings).CornerRadius = UDim.new(0, 6)
+addHoverEffects(tabSettings)
 
 local contentArea = Instance.new("Frame", mainFrame)
-contentArea.Size = UDim2.new(1, 0, 1, -80)
-contentArea.Position = UDim2.new(0, 0, 0, 80)
+contentArea.Size = UDim2.new(1, 0, 1, -95)
+contentArea.Position = UDim2.new(0, 0, 0, 95)
 contentArea.BackgroundTransparency = 1
 
-local autoContent = Instance.new("Frame", contentArea)
-autoContent.Size = UDim2.new(1, 0, 1, 0)
-autoContent.BackgroundTransparency = 1
+local autoContent, recordContent, settingsContent =
+    Instance.new("Frame", contentArea), Instance.new("Frame", contentArea), Instance.new("Frame", contentArea)
+for _, frame in ipairs({autoContent, recordContent, settingsContent}) do
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.Visible = false
+end
 autoContent.Visible = true
 
-local recordContent = Instance.new("Frame", contentArea)
-recordContent.Size = UDim2.new(1, 0, 1, 0)
-recordContent.BackgroundTransparency = 1
-recordContent.Visible = false
-
-local settingsContent = Instance.new("Frame", contentArea)
-settingsContent.Size = UDim2.new(1, 0, 1, 0)
-settingsContent.BackgroundTransparency = 1
-settingsContent.Visible = false
-
 local function createButton(text, posY, parent)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.85, 0, 0, 30)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(0.85, 0, 0, 35)
     btn.Position = UDim2.new(0.075, 0, 0, posY)
     btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
     btn.Font = FONT_MAIN
     btn.TextSize = 16
-    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.BackgroundColor3 = COLOR_SCHEME.SURFACE
     btn.BorderSizePixel = 0
     btn.ZIndex = 3
-    btn.Parent = parent
-    local corner = Instance.new("UICorner", btn)
-    corner.CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    addHoverEffects(btn)
     return btn
 end
 
 local function createInput(placeholder, text, posY, parent)
-	local input = Instance.new("TextBox")
-	input.Size = UDim2.new(0.85, 0, 0, 30)
+	local input = Instance.new("TextBox", parent)
+	input.Size = UDim2.new(0.85, 0, 0, 35)
 	input.Position = UDim2.new(0.075, 0, 0, posY)
 	input.PlaceholderText = placeholder
 	input.Text = text
 	input.Font = FONT_MAIN
 	input.TextSize = 16
-	input.TextColor3 = Color3.fromRGB(255, 255, 255)
-	input.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	input.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
+	input.BackgroundColor3 = COLOR_SCHEME.SURFACE
 	input.BorderSizePixel = 0
 	input.ClearTextOnFocus = false
 	input.ZIndex = 3
-	input.Parent = parent
-	local corner = Instance.new("UICorner", input)
-	corner.CornerRadius = UDim.new(0, 6)
+	Instance.new("UICorner", input).CornerRadius = UDim.new(0, 6)
 	return input
 end
 
 local btnAutoClicker = createButton("Auto Clicker: OFF", 10, autoContent)
-local btnSetPosition = createButton("Set Position", 50, autoContent)
-local lblInterval = createInput("Click Interval (sec)", tostring(clickInterval), 90, autoContent)
-local btnTestClick = createButton("Test Click", 130, autoContent)
+local btnSetPosition = createButton("Set Position", 55, autoContent)
+local lblInterval = createInput("Click Interval (sec)", tostring(clickInterval), 100, autoContent)
+local btnTestClick = createButton("Test Click", 145, autoContent)
 
 local btnStartRecording = createButton("Start Recording", 10, recordContent)
-local btnReplayClicks = createButton("Replay Clicks", 50, recordContent)
-local btnReplayLoop = createButton("Replay Loop: OFF", 90, recordContent)
-local replayCountInput = createInput("Replay Amount (default 1)", "1", 130, recordContent)
+local btnReplayClicks = createButton("Replay Clicks", 55, recordContent)
+local btnReplayLoop = createButton("Replay Loop: OFF", 100, recordContent)
+local replayCountInput = createInput("Replay Amount (default 1)", "1", 145, recordContent)
 
 local offsetXInput = createInput("X Offset (pixels)", "0", 10, settingsContent)
-local offsetYInput = createInput("Y Offset (e.g., 36 for top bar)", "0", 50, settingsContent)
-local swipeCurveInput = createInput("Swipe Curvature (0-100)", "0", 90, settingsContent)
-local btnApplySettings = createButton("Apply Offsets", 130, settingsContent)
-local btnInvestigate = createButton("Debug Coordinates", 170, settingsContent)
+local offsetYInput = createInput("Y Offset (pixels)", "0", 55, settingsContent)
+local swipeCurveInput = createInput("Swipe Curvature (0-100)", "0", 100, settingsContent)
+local btnApplySettings = createButton("Apply Offsets", 145, settingsContent)
+local btnInvestigate = createButton("Debug Coordinates", 190, settingsContent)
 
 local toggleGuiBtn = Instance.new("TextButton", mainGui)
 toggleGuiBtn.Size = UDim2.new(0, 70, 0, 30)
@@ -300,13 +366,12 @@ toggleGuiBtn.Position = UDim2.new(0, 10, 0, 70)
 toggleGuiBtn.Text = "Hide"
 toggleGuiBtn.Font = FONT_MAIN
 toggleGuiBtn.TextSize = 14
-toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
-toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleGuiBtn.BackgroundColor3 = COLOR_SCHEME.PRIMARY
+toggleGuiBtn.TextColor3 = COLOR_SCHEME.TEXT_PRIMARY
 toggleGuiBtn.ZIndex = 1000
 toggleGuiBtn.Visible = false
-toggleGuiBtn.Active = true
-local toggleCorner = Instance.new("UICorner", toggleGuiBtn)
-toggleCorner.CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", toggleGuiBtn).CornerRadius = UDim.new(0, 6)
+addHoverEffects(toggleGuiBtn)
 
 -- Helpers
 local function makeDraggable(guiObject, dragHandle)
@@ -335,33 +400,30 @@ end
 
 local function selectTab(tabName)
     autoContent.Visible = tabName == "auto"; recordContent.Visible = tabName == "record"; settingsContent.Visible = tabName == "settings"
-    tabAutoClicker.BackgroundColor3 = tabName == "auto" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-    tabRecorder.BackgroundColor3 = tabName == "record" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
-    tabSettings.BackgroundColor3 = tabName == "settings" and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(50, 50, 50)
+    local activeColor = COLOR_SCHEME.PRIMARY
+    local inactiveColor = COLOR_SCHEME.SURFACE
+    tabAutoClicker.BackgroundColor3 = tabName == "auto" and activeColor or inactiveColor
+    tabRecorder.BackgroundColor3 = tabName == "record" and activeColor or inactiveColor
+    tabSettings.BackgroundColor3 = tabName == "settings" and activeColor or inactiveColor
 end
 
 local function getViewportSize()
-    local cam = workspace.CurrentCamera
-    return (cam and cam.ViewportSize) and cam.ViewportSize or Vector2.new(1920, 1080)
+    return (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1920, 1080)
 end
 
 local function computePixelXOffset(raw) return raw.value end
 local function computePixelYOffset(raw) return raw.value end
 
--- --- COORDINATE SYSTEM AND CALIBRATION ---
 function updateCalibration()
-    sendNotification("Calibration Notice", "Hardcoded offsets removed. Configure any needed offsets in Settings.", 4)
-    print("[CALIBRATION] Using direct coordinate system. Please set any required offsets in the settings tab.")
+    sendNotification("Calibration", "Using fixed +36px Y-offset for UI inset.", 3)
+    print("[CALIBRATION] Using direct coordinate system with a fixed +36px Y-offset.")
 end
 
 function ViewportToExecutor(viewportPos)
-    -- The hardcoded +36px Y-offset has been removed.
-    -- All coordinate adjustments should be handled via the user-configurable offsets
-    -- before this function is called.
-    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y))
+    local permanentYCorrection = 36
+    return Vector2.new(math.floor(viewportPos.X), math.floor(viewportPos.Y + permanentYCorrection))
 end
 
--- VirtualInputManager and simulation functions
 local VirtualInputManager
 local vmAvailable = false
 
@@ -373,27 +435,16 @@ local function safeSendMouseButton(x, y, button, isDown)
     if vmAvailable then pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, button, isDown, game, 0) end) end
 end
 
--- DEBUG version of performAutoClick
 local function performAutoClick(x, y)
     if vmAvailable then
-        print("[DEBUG] Attempting click at:", x, y)
-        -- Test 1: Just move mouse first
         safeSendMouseMove(x, y)
-        task.wait(0.5)
-        -- Test 2: Click and hold
-        print("[DEBUG] Sending mouse down")
+        task.wait(0.05)
         safeSendMouseButton(x, y, 0, true)
-        task.wait(0.2)
-        -- Test 3: Release
-        print("[DEBUG] Sending mouse up")
+        task.wait(MIN_CLICK_HOLD_DURATION)
         safeSendMouseButton(x, y, 0, false)
-        print("[DEBUG] Click sequence completed")
-    else
-        print("[ERROR] VIM not available")
     end
 end
 
--- NEW: Visual Click Tester functions
 local function createClickTester()
     local clickTester = Instance.new("ScreenGui")
     clickTester.Name = "ClickTester"
@@ -407,7 +458,7 @@ local function showClickAtPosition(pos, color)
     local marker = Instance.new("Frame")
     marker.Size = UDim2.new(0, 15, 0, 15)
     marker.Position = UDim2.new(0, pos.X - 7, 0, pos.Y - 7)
-    marker.BackgroundColor3 = color or Color3.fromRGB(255, 0, 0) -- Red for actual clicks
+    marker.BackgroundColor3 = color or Color3.fromRGB(255, 0, 0)
     marker.BorderSizePixel = 0
     marker.ZIndex = 1000
     marker.Parent = createClickTester()
@@ -420,7 +471,6 @@ local function showClickAtPosition(pos, color)
         marker:Destroy()
     end)
 end
--- End Visual Click Tester
 
 local EASINGS = {}; EASINGS.easeInOutQuad = function(t) if t < 0.5 then return 2 * t * t else return -1 + (4 - 2 * t) * t end end
 local function applyEasing(name, t) return (EASINGS[name] and EASINGS[name](t)) or t end
@@ -438,7 +488,7 @@ local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
     local startPos = ViewportToExecutor(Vector2.new(startPixel.X + xOffset, startPixel.Y + yOffset))
     local endPos = ViewportToExecutor(Vector2.new(endPixel.X + xOffset, endPixel.Y + yOffset))
     local dx, dy = endPos.X - startPos.X, endPos.Y - startPos.Y
-    local dist = math.sqrt(dx * dx + dy * dy)
+    local dist = (endPos - startPos).Magnitude
     local steps = math.max(2, math.floor(math.max(0.02, duration) * SWIPE_SAMPLE_FPS))
     local perpX, perpY = 0, 0
     if curvatureFraction and curvatureFraction ~= 0 and dist > 0 then perpX = -dy / dist; perpY = dx / dist end
@@ -453,20 +503,21 @@ local function simulateSwipe(startPixel, endPixel, duration, curvatureFraction)
     safeSendMouseMove(endPos.X, endPos.Y); safeSendMouseButton(endPos.X, endPos.Y, 0, false)
 end
 
--- Recording implementation
 local activeInputs = {}; local function clearActiveInputs() for k in pairs(activeInputs) do activeInputs[k] = nil end end
 local function isOverOurGUI(pos)
-    local success, result = pcall(function()
+    return pcall(function()
         for _, o in ipairs(UserInputService:GetGuiObjectsAtPosition(math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5))) do
             if o:IsDescendantOf(mainGui) then return true end
         end
         return false
     end)
-    return success and result or false
 end
+
+function stopAllProcesses() stopAutoClicker(); stopRecording(); stopReplay(); stopReplayLoop(); stopSetPosition() end
+
 local function stopRecording()
     if not isRecording then return end; isRecording = false; btnStartRecording.Text = "Start Recording"
-    for _, conn in pairs(recordConnections) do if conn and conn.Disconnect then pcall(function() conn:Disconnect() end) end end
+    for _, conn in pairs(recordConnections) do if conn and conn.Disconnect then pcall(conn.Disconnect, conn) end end
     recordConnections = {}; clearActiveInputs()
 end
 local function startRecording()
@@ -497,7 +548,6 @@ local function startRecording()
 end
 local function toggleRecording() if isRecording then stopRecording() else startRecording() end end
 
--- Replay functions
 function stopReplay()
     if not isReplaying then return end; isReplaying = false
     if btnReplayClicks.Text ~= "Replay Clicks" then btnReplayClicks.Text = "Replay Clicks" end
@@ -543,7 +593,6 @@ local function toggleReplayLoop()
     end)
 end
 
--- Auto-clicker
 local function stopAutoClicker()
     if not autoClickEnabled then return end; autoClickEnabled = false; btnAutoClicker.Text = "Auto Clicker: OFF"
 end
@@ -566,7 +615,6 @@ local function toggleAutoClicker()
     sendNotification("Auto Clicker", string.format("Started clicking at (%d, %d)", clickPosition.X, clickPosition.Y), 3)
 end
 
--- Set click position
 local positionSetConnection = nil
 local function stopSetPosition()
     if not waitingForPosition then return end; waitingForPosition = false
@@ -582,7 +630,7 @@ local function setClickPosition()
             local pos = Vector2.new(input.Position.X, input.Position.Y)
             if isOverOurGUI(pos) then return end
             local marker = Instance.new("Frame", mainGui); marker.Size = UDim2.new(0, 10, 0, 10); marker.Position = UDim2.new(0, pos.X - 5, 0, pos.Y - 5)
-            marker.BackgroundColor3 = Color3.fromRGB(0, 255, 0); marker.BorderSizePixel = 0; task.delay(1, function() marker:Destroy() end)
+            marker.BackgroundColor3 = COLOR_SCHEME.SUCCESS; marker.BorderSizePixel = 0; task.delay(1, function() marker:Destroy() end)
             clickPosition = pos; stopSetPosition(); btnSetPosition.Text = "Position Set!"
             sendNotification("Position Set", string.format("Click position: (%d, %d)", pos.X, pos.Y), 3)
             task.delay(2, function() if btnSetPosition.Text == "Position Set!" then btnSetPosition.Text = "Set Position" end end)
@@ -590,12 +638,9 @@ local function setClickPosition()
     end)
 end
 
-function stopAllProcesses() stopAutoClicker(); stopRecording(); stopReplay(); stopReplayLoop(); stopSetPosition() end
-
--- NEW: Coordinate Investigation function
 local function investigateCoordinateSystem()
     local viewportSize = getViewportSize()
-    local guiInset = GuiService:GetGuiInset()
+    local guiInset = GuiService and GuiService:GetGuiInset() or Vector2.new(0, 36)
     print("=== COORDINATE SYSTEM INVESTIGATION ===")
     print("Viewport Size:", viewportSize.X, viewportSize.Y)
     print("GUI Inset:", guiInset.X, guiInset.Y)
@@ -609,28 +654,22 @@ local function investigateCoordinateSystem()
 end
 
 -- UI Connections
-makeDraggable(mainFrame, dragLayer); makeDraggable(toggleGuiBtn, toggleGuiBtn)
+makeDraggable(mainFrame, titleBar); makeDraggable(toggleGuiBtn, toggleGuiBtn)
 btnAutoClicker.MouseButton1Click:Connect(function() local val = tonumber(lblInterval.Text); if val and val > 0 then clickInterval = val else lblInterval.Text = tostring(clickInterval) end; toggleAutoClicker() end)
 btnSetPosition.MouseButton1Click:Connect(setClickPosition)
 btnStartRecording.MouseButton1Click:Connect(toggleRecording); btnReplayClicks.MouseButton1Click:Connect(toggleReplay); btnReplayLoop.MouseButton1Click:Connect(toggleReplayLoop)
-btnInvestigate.MouseButton1Click:Connect(investigateCoordinateSystem) -- Connect new debug button
+btnInvestigate.MouseButton1Click:Connect(investigateCoordinateSystem)
 
--- ENHANCED Test Click with Visuals
 btnTestClick.MouseButton1Click:Connect(function()
     if clickPosition == Vector2.new(500, 500) then sendNotification("Test Failed", "Set click position first!", 3); return end
     if vmAvailable then
-        showClickAtPosition(clickPosition, Color3.fromRGB(0, 255, 0))
+        showClickAtPosition(clickPosition, COLOR_SCHEME.SUCCESS)
         local xOffset = computePixelXOffset(activeXOffsetRaw); local yOffset = computePixelYOffset(activeYOffsetRaw)
-        local rawTargetPos = Vector2.new(clickPosition.X + xOffset, clickPosition.Y + yOffset)
-        local finalTargetPos = ViewportToExecutor(rawTargetPos)
-        
-        print("[DEBUG TEST]"); print("Original Position:", clickPosition.X, clickPosition.Y); print("Offsets Applied - X:", xOffset, "Y:", yOffset); print("Final Target Position:", finalTargetPos.X, finalTargetPos.Y)
-        
-        task.wait(0.3); showClickAtPosition(finalTargetPos, Color3.fromRGB(255, 0, 0))
-        
+        local finalTargetPos = ViewportToExecutor(Vector2.new(clickPosition.X + xOffset, clickPosition.Y + yOffset))
+        print(("[DEBUG TEST] Original: %s | Offsets: X=%d, Y=%d | Final: %s"):format(tostring(clickPosition), xOffset, yOffset, tostring(finalTargetPos)))
+        task.wait(0.3); showClickAtPosition(finalTargetPos, COLOR_SCHEME.ERROR)
         performAutoClick(finalTargetPos.X, finalTargetPos.Y)
-        sendNotification("Test Click", string.format("Green=Should, Red=Actual
-Diff: X=%d, Y=%d", finalTargetPos.X - clickPosition.X, finalTargetPos.Y - clickPosition.Y), 4)
+        sendNotification("Test Click", string.format("Green=Should, Red=Actual\nDiff: X=%d, Y=%d", finalTargetPos.X - clickPosition.X, finalTargetPos.Y - clickPosition.Y), 4)
     else
         sendNotification("Test Failed", "VirtualInputManager not available", 3)
     end
@@ -645,10 +684,9 @@ end)
 
 toggleGuiBtn.MouseButton1Click:Connect(function() guiHidden = not guiHidden; mainFrame.Visible = not guiHidden; toggleGuiBtn.Text = guiHidden and "Show" or "Hide" end)
 submitBtn.MouseButton1Click:Connect(function()
-    local enteredKey = keyBox.Text; local expectedKey = "key_not_fetched"
-    local httpGet = game.HttpGet or HttpGet; if not httpGet then sendNotification("Key Check Failed", "No HttpGet function found."); return end
-    local success, response = pcall(function() return httpGet("https://pastebin.com/raw/v4eb6fHw", true) end)
-    if success and response then expectedKey = response:match("%S+") or "pastebin_read_error" else sendNotification("Key Check Failed", "Could not fetch key.") end
+    local enteredKey, expectedKey = keyBox.Text, "key_not_fetched"
+    local response = safeHttpGet("https://pastebin.com/raw/v4eb6fHw")
+    if response and response ~= "" then expectedKey = response:match("%S+") or "pastebin_read_error" else sendNotification("Key Check Failed", "Could not fetch key.") end
     if enteredKey == expectedKey or enteredKey == "happybirthday Mohamednigga" then
         sendNotification("Access Granted", "Welcome!"); keyEntry:Destroy(); mainFrame.Visible = true; toggleGuiBtn.Visible = true; task.wait(0.5); updateCalibration()
     else
@@ -657,9 +695,8 @@ submitBtn.MouseButton1Click:Connect(function()
 end)
 copyBtn.MouseButton1Click:Connect(function()
     local keyLink = "https.loot-link.com/s?AVreZic8"
-    if setclipboard then
-        local success, err = pcall(function() setclipboard(keyLink) end)
-        if success then sendNotification("Link Copied", "The key link has been copied.") else sendNotification("Copy Failed", "error: " .. tostring(err)) end
+    if safeSetClipboard(keyLink) then
+        sendNotification("Link Copied", "The key link has been copied.")
     else
         keyBox.Text = keyLink; copyBtn.Text = "Copy From Box"; sendNotification("Now Copy", "Select and copy the link from the text box.")
     end
@@ -671,7 +708,14 @@ tabSettings.MouseButton1Click:Connect(function() selectTab("settings")end)
 
 -- ENHANCED VIM Initialization and final setup
 local function initialize_VIM()
-    local success, vim_instance = pcall(function() return game:GetService("VirtualInputManager") end)
+    local success, vim_instance = pcall(function()
+        if getService("VirtualInputManager") then return getService("VirtualInputManager") end
+        local env = getfenv and getfenv() or {}
+        if env.VirtualInputManager then return env.VirtualInputManager end
+        if shared and shared.VirtualInputManager then return shared.VirtualInputManager end
+        return nil
+    end)
+    
     if success and vim_instance then
         VirtualInputManager = vim_instance; vmAvailable = true
         task.spawn(function()
@@ -690,5 +734,3 @@ end
 
 selectTab("auto")
 initialize_VIM()
-
--- End of script
