@@ -7,44 +7,61 @@
 -- 3. DELTA EXECUTOR COMPATIBILITY: Implemented universal functions for HTTP requests, clipboard access, and Virtual Input detection.
 -- 4. VISUAL DEBUGGER & COORDINATE INVESTIGATION: Retained from V4.2 for advanced diagnostics.
 
--- Safe initialization
-local function safeWait()
-    if wait then return wait(0.05)
-    elseif task and task.wait then return task.wait(0.05)
-    else local start = tick() while tick() - start < 0.05 do end
+-- Ultra-Robust initialization for Delta compatibility
+local function ultraSafeWait(duration)
+    duration = duration or 0.05
+    local start = tick()
+    while tick() - start < duration do end
 end
 
--- Universal service access
+-- Universal service access with multiple fallbacks
 local function getService(serviceName)
-    local maxAttempts = 50
+    local maxAttempts = 20
     for i = 1, maxAttempts do
+        -- Method 1: Standard Roblox service access
         local success, service = pcall(function()
             return game:GetService(serviceName)
         end)
         if success and service then
             return service
         end
-        safeWait()
+        
+        -- Method 2: Check if service is available directly
+        success, service = pcall(function()
+            return game[serviceName]
+        end)
+        if success and service then
+            return service
+        end
+        
+        ultraSafeWait(0.1)
     end
-    warn("Failed to get service: " .. serviceName)
+    warn("[Delta] Failed to get service: " .. serviceName)
     return nil
 end
 
--- Initialize services
-local Players = getService("Players")
-local UserInputService = getService("UserInputService")
-local StarterGui = getService("StarterGui")
-local RunService = getService("RunService")
-local GuiService = getService("GuiService")
-local CoreGui = getService("CoreGui")
-local TweenService = getService("TweenService")
-local workspace = workspace
+-- Initialize services with fallbacks
+local Players = getService("Players") or {}
+local UserInputService = getService("UserInputService") or {}
+local StarterGui = getService("StarterGui") or {}
+local RunService = getService("RunService") or {}
+local GuiService = getService("GuiService") or {}
+local CoreGui = getService("CoreGui") or game:FindFirstChild("CoreGui")
+local TweenService = getService("TweenService") or {}
+local workspace = workspace or game:FindFirstChild("Workspace")
 
--- Wait for LocalPlayer to exist (crucial for executor injection)
-local player = Players and Players.LocalPlayer
-while not player do
-    RunService.Heartbeat:Wait()
+-- Safe player initialization
+local player = Players.LocalPlayer
+local playerAttempts = 0
+while not player and playerAttempts < 50 do
+    ultraSafeWait(0.1)
     player = Players.LocalPlayer
+    playerAttempts = playerAttempts + 1
+end
+
+if not player then
+    warn("[Delta] Could not find LocalPlayer after 50 attempts")
+    -- Continue anyway for Delta compatibility
 end
 
 -- Modern Color Scheme
@@ -69,7 +86,19 @@ local SWIPE_SAMPLE_FPS = 60
 local SWIPE_CURVATURE_DEFAULT = 0.0
 local SWIPE_EASING = "easeInOutQuad"
 
-local mouse = player:GetMouse()
+-- Safe mouse reference
+local mouse = nil
+if player and player.GetMouse then
+    mouse = player:GetMouse()
+else
+    -- Fallback for Delta
+    warn("[Delta] Using mouse fallback")
+    mouse = {
+        X = 0, Y = 0,
+        Target = nil,
+        Hit = CFrame.new()
+    }
+end
 
 -- State
 local autoClickEnabled = false
@@ -116,28 +145,43 @@ end
 -- Delta Compatibility Wrappers
 local function safeHttpGet(url)
     local success, result = pcall(function()
+        -- Method 1: Synapse
         if syn and syn.request then
             local response = syn.request({Url = url, Method = "GET"})
             return response.Body
+        -- Method 2: Krnl/Other executors
         elseif request then
             local response = request({Url = url, Method = "GET"})
             return response.Body
+        -- Method 3: Standard Roblox
         elseif game and game.HttpGet then
             return game:HttpGet(url, true)
+        -- Method 4: Delta-specific
+        elseif http_request then
+            return http_request({Url = url, Method = "GET"}).Body
+        else
+            return nil
         end
-        return nil
     end)
     return success and result or ""
 end
 
 local function safeSetClipboard(text)
-    return pcall(function()
-        if setclipboard then setclipboard(text)
-        elseif writeclipboard then writeclipboard(text)
-        elseif syn and syn.write_clipboard then syn.write_clipboard(text)
-        else warn("Clipboard not available.")
+    local success, err = pcall(function()
+        if setclipboard then 
+            setclipboard(text)
+        elseif writeclipboard then 
+            writeclipboard(text)
+        elseif syn and syn.write_clipboard then 
+            syn.write_clipboard(text)
+        elseif toclipboard then
+            toclipboard(text)
+        else
+            -- Fallback: Set text to a visible box
+            warn("Clipboard not available: " .. tostring(text))
         end
     end)
+    return success
 end
 
 -- UI Helpers
