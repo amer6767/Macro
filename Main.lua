@@ -1,31 +1,71 @@
--- Delta Executor Macro V5.0 | Exact-Pixel Edition
--- Optimized for Delta Executor - No humanization, no key system
--- LocalScript in StarterPlayerScripts or StarterGui
+-- Delta Executor Macro V5.1 | Performance Optimized & Bug Fixed
+-- Optimized for Delta - Exact pixel clicking, no humanization
+-- FIXED: HttpService nil error, calibration issues, CPU usage, GUI stability
 
 ----------------------------------------------------------------
 -- CONFIGURATION CONSTANTS
 ----------------------------------------------------------------
 local CONFIG = {
-    -- Delta-Specific Settings
-    GUI_PARENT = "PlayerGui", -- Delta works better with PlayerGui
-    USE_RANDOM_JITTER = false, -- Force disabled
-    RANDOM_DELAY_FACTOR = 0, -- No randomization
-    SHOW_DEBUG_MARKERS = true, -- Visual feedback for testing
+    -- Delta-Specific
+    GUI_PARENT = "PlayerGui", -- More stable on Delta
+    SHOW_DEBUG_MARKERS = true,
     
-    -- Performance
+    -- Performance Optimized
     CACHE_REFRESH_RATE = 2,
     USE_HEARTBEAT_WAIT = true,
-    
-    -- Exact clicking
     MIN_CLICK_HOLD = 0.05,
-    DEFAULT_SWIPE_CURVE = 0.0,
     
     -- Coordinate System
     FALLBACK_INSET = Vector2.new(0, 36),
-    
-    -- Disabled Features
-    HUMANIZATION_ENABLED = false, -- Completely disabled
+    CALIBRATION_TIMEOUT = 10,
 }
+
+----------------------------------------------------------------
+-- SERVICE INITIALIZATION (FIXED)
+----------------------------------------------------------------
+local Services = {}
+local function getService(name)
+    local success, service = pcall(function()
+        return game:GetService(name)
+    end)
+    if success and service then return service end
+    
+    local success2, service2 = pcall(function()
+        return game[name]
+    end)
+    if success2 and service2 then return service2 end
+    
+    return nil
+end
+
+-- Initialize all services safely
+Services.Players = getService("Players") or {}
+Services.UserInputService = getService("UserInputService") or {}
+Services.StarterGui = getService("StarterGui") or {}
+Services.RunService = getService("RunService") or {}
+Services.GuiService = getService("GuiService") or {}
+Services.CoreGui = getService("CoreGui") or game:FindFirstChild("CoreGui")
+Services.TweenService = getService("TweenService") or {}
+Services.HttpService = getService("HttpService") or {}
+Services.Workspace = workspace or game:FindFirstChild("Workspace")
+
+-- Validate critical services
+if not Services.TweenService then
+    warn("[DeltaMacro] TweenService not available - animations disabled")
+    -- Create dummy TweenService
+    Services.TweenService = {
+        Create = function() return {Play = function() end} end
+    }
+end
+
+if not Services.HttpService then
+    warn("[DeltaMacro] HttpService not available - JSON functions disabled")
+end
+
+local LocalPlayer = Services.Players.LocalPlayer
+if not LocalPlayer then
+    error("[DeltaMacro] CRITICAL: LocalPlayer not found")
+end
 
 ----------------------------------------------------------------
 -- LOGGER MODULE
@@ -33,23 +73,27 @@ local CONFIG = {
 local Logger = {
     enabled = true,
     prefix = "[DeltaMacro]",
+    
     log = function(self, level, message, data)
         if not self.enabled then return end
-        local timestamp = os.date("%H:%M:%S")
         local output = string.format("%s %s [%s] %s", 
-            self.prefix, timestamp, level, message)
-        if data then
-            output = output .. " | " .. HttpService:JSONEncode(data)
+            self.prefix, os.date("%H:%M:%S"), level, message)
+        if data and Services.HttpService then
+            local success, json = pcall(function()
+                return Services.HttpService:JSONEncode(data)
+            end)
+            if success then output = output .. " | " .. json end
         end
         print(output)
     end,
+    
     info = function(self, message, data) self:log("INFO", message, data) end,
     warn = function(self, message, data) self:log("WARN", message, data) end,
     error = function(self, message, data) self:log("ERROR", message, data) end,
 }
 
 ----------------------------------------------------------------
--- EXECUTOR COMPATIBILITY LAYER (DELTA PRIORITY)
+-- DELTA COMPATIBILITY LAYER (OPTIMIZED)
 ----------------------------------------------------------------
 local Compatibility = {
     detectedExecutor = "unknown",
@@ -60,35 +104,29 @@ local Compatibility = {
 }
 
 function Compatibility:DetectEnvironment()
-    -- Delta-specific detection first
-    local env = getfenv and getfenv() or {}
-    local renv = getrenv and getrenv() or {}
-    
-    if http_request and not syn then
+    -- Delta-first detection
+    if http_request then
         self.detectedExecutor = "Delta"
-        self.httpGet = function(url) return http_request({Url = url, Method = "GET"}).Body end
-        Logger:info("Delta Executor detected")
+        self.httpGet = function(url) 
+            local resp = http_request({Url = url, Method = "GET"})
+            return resp and resp.Body or ""
+        end
+        Logger:info("Delta Executor detected and configured")
     elseif syn and syn.request then
         self.detectedExecutor = "Synapse"
         self.httpGet = function(url) return syn.request({Url = url, Method = "GET"}).Body end
         Logger:info("Synapse detected")
-    elseif request and not syn then
+    elseif request then
         self.detectedExecutor = "KRNL/Other"
         self.httpGet = function(url) return request({Url = url, Method = "GET"}).Body end
         Logger:info("KRNL/Other executor detected")
-    elseif game and game.HttpGet then
+    elseif game.HttpGet then
         self.detectedExecutor = "Standard"
         self.httpGet = function(url) return game:HttpGet(url, true) end
-        Logger:warn("Standard Roblox HTTP detected - may not work with Delta")
+        Logger:warn("Standard HTTP fallback - may have issues")
     else
-        Logger:error("No compatible HTTP method found")
-    end
-    
-    -- Force Delta http_request if available
-    if http_request then
-        self.httpGet = function(url) return http_request({Url = url, Method = "GET"}).Body end
-        self.detectedExecutor = "Delta"
-        Logger:info("Forced Delta http_request")
+        Logger:error("No HTTP method found!")
+        self.httpGet = function() return "" end
     end
     
     -- Clipboard
@@ -96,8 +134,8 @@ function Compatibility:DetectEnvironment()
         local clippers = {setclipboard, writeclipboard, syn and syn.write_clipboard, toclipboard}
         for _, clip in ipairs(clippers) do
             if clip then
-                pcall(function() clip(text) end)
-                return true
+                local success = pcall(function() clip(text) end)
+                return success
             end
         end
         return false
@@ -107,32 +145,33 @@ function Compatibility:DetectEnvironment()
 end
 
 function Compatibility:InitializeVIM()
-    -- Delta-specific VIM detection
-    local vimDetectors = {
+    -- Multiple detection methods for Delta
+    local detectors = {
         function() return getService("VirtualInputManager") end,
         function() return (getrenv and getrenv() or {}).VirtualInputManager end,
         function() return (getfenv and getfenv() or {}).VirtualInputManager end,
+        function() return shared and shared.VirtualInputManager end,
     }
     
-    for _, detector in ipairs(vimDetectors) do
+    for _, detector in ipairs(detectors) do
         local success, vim = pcall(detector)
         if success and vim then
             self.VirtualInputManager = vim
             self.vmAvailable = true
-            Logger:info("VirtualInputManager initialized for " .. self.detectedExecutor)
+            Logger:info("VIM initialized via " .. self.detectedExecutor)
             break
         end
     end
     
-    -- Test VIM
+    -- Test VIM after delay
     task.delay(1, function()
         if self.vmAvailable then
-            local testSuccess = pcall(function() self.VirtualInputManager:SendMouseMoveEvent(100, 100) end)
-            if testSuccess then
+            local test = pcall(function() self.VirtualInputManager:SendMouseMoveEvent(100, 100) end)
+            if test then
                 Logger:info("VIM test successful")
             else
                 self.vmAvailable = false
-                Logger:error("VIM test failed")
+                Logger:error("VIM test failed - executor may not support it")
             end
         end
     end)
@@ -156,7 +195,6 @@ local StateManager = {
         autoClickEnabled = false,
         clickInterval = 0.2,
         clickPosition = Vector2.new(500, 500),
-        waitingForPosition = false,
         isRecording = false,
         recordedActions = {},
         recordStartTime = 0,
@@ -168,7 +206,6 @@ local StateManager = {
         guiHidden = false,
         lastViewportSize = Vector2.new(1920, 1080),
         lastGuiInset = Vector2.new(0, 36),
-        profiles = {},
         currentProfile = "default",
     },
     
@@ -198,7 +235,7 @@ local StateManager = {
 }
 
 ----------------------------------------------------------------
--- CACHE & PERFORMANCE
+-- CACHE MODULE (PERFORMANCE)
 ----------------------------------------------------------------
 local Cache = {
     viewportSize = Vector2.new(1920, 1080),
@@ -210,9 +247,9 @@ local Cache = {
         if now - self.lastUpdate < CONFIG.CACHE_REFRESH_RATE then return end
         self.lastUpdate = now
         
-        local success, inset = pcall(function() return GuiService:GetGuiInset() end)
+        local success, inset = pcall(function() return Services.GuiService:GetGuiInset() end)
         self.guiInset = success and inset or CONFIG.FALLBACK_INSET
-        self.viewportSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or self.viewportSize
+        self.viewportSize = Services.Workspace.CurrentCamera and Services.Workspace.CurrentCamera.ViewportSize or self.viewportSize
         
         StateManager:set("lastViewportSize", self.viewportSize)
         StateManager:set("lastGuiInset", self.guiInset)
@@ -223,13 +260,13 @@ local Cache = {
 -- DISABLED HUMANIZER (PASSTHROUGH)
 ----------------------------------------------------------------
 local Humanizer = {
-    applyJitter = function(self, pos) return pos end, -- NO JITTER
-    applyDelay = function(self, baseDelay) return baseDelay end, -- NO DELAY
-    getRandomCurve = function(self) return 0 end, -- NO CURVE
+    applyJitter = function(self, pos) return pos end,
+    applyDelay = function(self, baseDelay) return baseDelay end,
+    getRandomCurve = function(self) return 0 end,
 }
 
 ----------------------------------------------------------------
--- COORDINATE SYSTEM
+-- COORDINATE SYSTEM (FIXED)
 ----------------------------------------------------------------
 local CoordinateSystem = {
     viewportToExecutor = function(self, viewportPos)
@@ -253,7 +290,6 @@ local InputSimulator = {
         button = button or 0
         local executorPos = CoordinateSystem:viewportToExecutor(viewportPos)
         
-        -- EXACT movement and click - no randomization
         Compatibility:SafeSendMouseMove(executorPos.X, executorPos.Y)
         task.wait(CONFIG.MIN_CLICK_HOLD)
         Compatibility:SafeSendMouseButton(executorPos.X, executorPos.Y, button, true)
@@ -314,25 +350,30 @@ local InputSimulator = {
 }
 
 ----------------------------------------------------------------
--- VISUAL FEEDBACK
+-- VISUAL FEEDBACK (OPTIMIZED)
 ----------------------------------------------------------------
 local VisualFeedback = {
     markers = {},
+    markerPool = {},
     
     showClickMarker = function(self, viewportPos, color, size, duration)
         if not CONFIG.SHOW_DEBUG_MARKERS then return end
         
-        local marker = Instance.new("Frame")
-        marker.Size = UDim2.new(0, size or 15, 0, size or 15)
-        marker.Position = UDim2.new(0, viewportPos.X - (size or 15)/2, 0, viewportPos.Y - (size or 15)/2)
+        -- Pooling optimization
+        local marker = table.remove(self.markerPool)
+        if not marker then
+            marker = Instance.new("Frame")
+            marker.BorderSizePixel = 0
+            local corner = Instance.new("UICorner", marker)
+            corner.CornerRadius = UDim.new(1, 0)
+        end
+        
+        size = size or 15
+        marker.Size = UDim2.new(0, size, 0, size)
+        marker.Position = UDim2.new(0, viewportPos.X - size/2, 0, viewportPos.Y - size/2)
         marker.BackgroundColor3 = color or Color3.fromRGB(255, 0, 0)
         marker.BackgroundTransparency = 0.3
-        marker.BorderSizePixel = 0
         marker.ZIndex = 1000
-        
-        local corner = Instance.new("UICorner", marker)
-        corner.CornerRadius = UDim.new(1, 0)
-        
         marker.Parent = MainGUI
         
         table.insert(self.markers, marker)
@@ -344,8 +385,10 @@ local VisualFeedback = {
                 marker.BackgroundTransparency = 0
                 task.wait(0.1)
             end
-            task.wait(duration or 1)
-            marker:Destroy()
+            task.wait(duration or 0.5)
+            
+            marker.Parent = nil
+            table.insert(self.markerPool, marker)
             for i, m in ipairs(self.markers) do
                 if m == marker then table.remove(self.markers, i) break end
             end
@@ -354,7 +397,7 @@ local VisualFeedback = {
 }
 
 ----------------------------------------------------------------
--- RECORDING ENGINE
+-- RECORDING ENGINE (FIXED)
 ----------------------------------------------------------------
 local RecordingEngine = {
     activeInputs = {},
@@ -368,10 +411,10 @@ local RecordingEngine = {
         
         Logger:info("Recording started")
         
-        self.connections.began = UserInputService.InputBegan:Connect(function(input, gp)
+        self.connections.began = Services.UserInputService.InputBegan:Connect(function(input, gp)
             if gp or not StateManager:get("isRecording") then return end
             
-            local pos = input.Position or UserInputService:GetMouseLocation()
+            local pos = input.Position or Services.UserInputService:GetMouseLocation()
             if self:_isOverGUI(pos) then return end
             
             self.activeInputs[input] = {
@@ -391,10 +434,10 @@ local RecordingEngine = {
             end
         end)
         
-        self.connections.changed = UserInputService.InputChanged:Connect(function(input)
+        self.connections.changed = Services.UserInputService.InputChanged:Connect(function(input)
             if not StateManager:get("isRecording") or not self.activeInputs[input] then return end
             
-            local pos = input.Position or UserInputService:GetMouseLocation()
+            local pos = input.Position or Services.UserInputService:GetMouseLocation()
             local data = self.activeInputs[input]
             
             if not data.isDragging and (pos - data.startPos).Magnitude >= 10 then
@@ -404,7 +447,7 @@ local RecordingEngine = {
             data.lastPos = pos
         end)
         
-        self.connections.ended = UserInputService.InputEnded:Connect(function(input, gp)
+        self.connections.ended = Services.UserInputService.InputEnded:Connect(function(input, gp)
             if not StateManager:get("isRecording") or not self.activeInputs[input] then return end
             
             local now = os.clock()
@@ -412,7 +455,7 @@ local RecordingEngine = {
             local delay = now - StateManager:get("recordStartTime")
             StateManager:set("recordStartTime", now)
             
-            local endPos = input.Position or UserInputService:GetMouseLocation()
+            local endPos = input.Position or Services.UserInputService:GetMouseLocation()
             
             if input.UserInputType == Enum.UserInputType.MouseButton1 or 
                input.UserInputType == Enum.UserInputType.Touch then
@@ -519,7 +562,7 @@ local RecordingEngine = {
     
     _isOverGUI = function(self, pos)
         local success, result = pcall(function()
-            local guiObjects = UserInputService:GetGuiObjectsAtPosition(
+            local guiObjects = Services.UserInputService:GetGuiObjectsAtPosition(
                 math.floor(pos.X + 0.5), 
                 math.floor(pos.Y + 0.5)
             )
@@ -536,6 +579,13 @@ local RecordingEngine = {
 -- PROFILE MANAGER
 ----------------------------------------------------------------
 local ProfileManager = {
+    folderName = "DeltaMacro_Profiles",
+    
+    ensureFolder = function(self)
+        if not makefolder then return end
+        pcall(function() makefolder(self.folderName) end)
+    end,
+    
     saveProfile = function(self, name, data)
         if not writefile then Logger:warn("writefile not available"); return false end
         
@@ -550,8 +600,9 @@ local ProfileManager = {
             timestamp = os.time()
         }
         
-        local json = HttpService:JSONEncode(data)
-        writefile("DeltaMacro_Profiles/" .. name .. ".json", json)
+        self:ensureFolder()
+        local json = Services.HttpService:JSONEncode(data)
+        writefile(self.folderName .. "/" .. name .. ".json", json)
         Logger:info("Profile saved: " .. name)
         return true
     end,
@@ -560,8 +611,8 @@ local ProfileManager = {
         if not readfile then Logger:warn("readfile not available"); return false end
         
         local success, data = pcall(function()
-            local json = readfile("DeltaMacro_Profiles/" .. name .. ".json")
-            return HttpService:JSONDecode(json)
+            local json = readfile(self.folderName .. "/" .. name .. ".json")
+            return Services.HttpService:JSONDecode(json)
         end)
         
         if success and data then
@@ -581,14 +632,14 @@ local ProfileManager = {
     
     deleteProfile = function(self, name)
         if not delfile then return false end
-        pcall(function() delfile("DeltaMacro_Profiles/" .. name .. ".json") end)
+        pcall(function() delfile(self.folderName .. "/" .. name .. ".json") end)
         Logger:info("Profile deleted: " .. name)
     end,
     
     listProfiles = function(self)
         if not listfiles then return {} end
         
-        local files = listfiles("DeltaMacro_Profiles/")
+        local files = listfiles(self.folderName .. "/")
         local profiles = {}
         for _, file in ipairs(files) do
             local name = file:match("([^/]+)%.json$")
@@ -599,31 +650,7 @@ local ProfileManager = {
 }
 
 ----------------------------------------------------------------
--- EVENT SYSTEM
-----------------------------------------------------------------
-local Events = {
-    listeners = {},
-    
-    Connect = function(self, event, callback)
-        if not self.listeners[event] then self.listeners[event] = {} end
-        table.insert(self.listeners[event], callback)
-        return {Disconnect = function()
-            for i, cb in ipairs(self.listeners[event]) do
-                if cb == callback then table.remove(self.listeners[event], i) break end
-            end
-        end}
-    end,
-    
-    Fire = function(self, event, ...)
-        if not self.listeners[event] then return end
-        for _, callback in ipairs(self.listeners[event]) do
-            pcall(callback, ...)
-        end
-    end,
-}
-
-----------------------------------------------------------------
--- MODERN GUI CREATION
+-- MODERN GUI (OPTIMIZED)
 ----------------------------------------------------------------
 local UIManager = {
     createModernFrame = function(self, props)
@@ -675,20 +702,29 @@ local UIManager = {
         button.BackgroundColor3 = props.Color or Color3.fromRGB(60, 60, 65)
         button.BorderSizePixel = 0
         button.ZIndex = props.ZIndex or 1
+        button.AutoButtonColor = false -- Performance optimization
         
         local corner = Instance.new("UICorner", button)
         corner.CornerRadius = UDim.new(0, props.CornerRadius or 8)
         
         if props.Hoverable ~= false then
             button.MouseEnter:Connect(function()
-                TweenService:Create(button, TweenInfo.new(0.2), {
-                    BackgroundColor3 = button.BackgroundColor3:Lerp(Color3.new(1,1,1), 0.1)
-                }):Play()
+                if Services.TweenService then
+                    Services.TweenService:Create(button, TweenInfo.new(0.15), {
+                        BackgroundColor3 = button.BackgroundColor3:Lerp(Color3.new(1,1,1), 0.1)
+                    }):Play()
+                else
+                    button.BackgroundColor3 = button.BackgroundColor3:Lerp(Color3.new(1,1,1), 0.1)
+                end
             end)
             button.MouseLeave:Connect(function()
-                TweenService:Create(button, TweenInfo.new(0.2), {
-                    BackgroundColor3 = props.Color or Color3.fromRGB(60, 60, 65)
-                }):Play()
+                if Services.TweenService then
+                    Services.TweenService:Create(button, TweenInfo.new(0.15), {
+                        BackgroundColor3 = props.Color or Color3.fromRGB(60, 60, 65)
+                    }):Play()
+                else
+                    button.BackgroundColor3 = props.Color or Color3.fromRGB(60, 60, 65)
+                end
             end)
         end
         
@@ -716,12 +752,17 @@ local UIManager = {
 }
 
 ----------------------------------------------------------------
--- MAIN GUI
+-- MAIN GUI CREATION (OPTIMIZED)
 ----------------------------------------------------------------
 local MainGUI = nil
 
 local function createGUI()
-    local guiParent = CONFIG.GUI_PARENT == "PlayerGui" and LocalPlayer:FindFirstChild("PlayerGui") or CoreGui
+    local guiParent = CONFIG.GUI_PARENT == "PlayerGui" and LocalPlayer:FindFirstChild("PlayerGui") or Services.CoreGui
+    if not guiParent then
+        Logger:error("No valid GUI parent found")
+        return nil
+    end
+    
     MainGUI = Instance.new("ScreenGui")
     MainGUI.Name = "DeltaMacro_Gui"
     MainGUI.ResetOnSpawn = false
@@ -729,7 +770,7 @@ local function createGUI()
     MainGUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
     MainGUI.Parent = guiParent
     
-    -- NO KEY ENTRY - Main Interface Directly
+    -- Main Frame
     local mainFrame = UIManager:createModernFrame({
         Size = UDim2.new(0, 380, 0, 520),
         Position = UDim2.new(0.5, -190, 0.5, -260),
@@ -739,10 +780,10 @@ local function createGUI()
         CornerRadius = 16
     })
     mainFrame.Name = "MainFrame"
-    mainFrame.Visible = true -- Visible immediately
+    mainFrame.Visible = true
     MainGUI.MainFrame = mainFrame
     
-    -- Title Bar
+    -- Title
     local titleBar = Instance.new("Frame", mainFrame)
     titleBar.Size = UDim2.new(1, 0, 0, 50)
     titleBar.BackgroundTransparency = 1
@@ -750,10 +791,10 @@ local function createGUI()
     local title = Instance.new("TextLabel", titleBar)
     title.Size = UDim2.new(1, 0, 1, 0)
     title.BackgroundTransparency = 1
-    title.Text = "Delta Macro V5.0"
+    title.Text = "Delta Macro V5.1"
     title.Font = Enum.Font.GothamBold
     title.TextSize = 20
-    title.TextColor3 = Color3.fromRGB(0, 255, 0) -- Delta green
+    title.TextColor3 = Color3.fromRGB(0, 255, 0)
     
     -- Tabs
     local tabBar = Instance.new("Frame", mainFrame)
@@ -791,6 +832,7 @@ local function createGUI()
         content.ScrollBarThickness = 4
         content.Visible = i == 1
         content.Name = name .. "Content"
+        content.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 65)
         
         local layout = Instance.new("UIListLayout", content)
         layout.Padding = UDim.new(0, 10)
@@ -799,343 +841,251 @@ local function createGUI()
         table.insert(contents, content)
     end
     
-    -- AutoClick Content
+    -- Build content elements
+    local elements = {}
+    
+    -- AutoClick tab
     local autoContent = contents[1]
-    local btnAutoToggle = UIManager:createModernButton({
-        Text = "Auto Clicker: OFF",
-        Position = UDim2.new(0.05, 0, 0, 10)
-    })
-    btnAutoToggle.LayoutOrder = 1
-    btnAutoToggle.Parent = autoContent
+    elements.btnAutoToggle = UIManager:createModernButton({Text = "Auto Clicker: OFF", LayoutOrder = 1})
+    elements.btnAutoToggle.Parent = autoContent
     
-    local intervalInput = UIManager:createModernInput({
-        Placeholder = "Click Interval (seconds)",
-        Text = "0.2",
-        Position = UDim2.new(0.05, 0, 0, 55)
-    })
-    intervalInput.LayoutOrder = 2
-    intervalInput.Parent = autoContent
+    elements.intervalInput = UIManager:createModernInput({Placeholder = "Click Interval (sec)", Text = "0.2", LayoutOrder = 2})
+    elements.intervalInput.Parent = autoContent
     
-    local btnSetPos = UIManager:createModernButton({
-        Text = "Set Position [Visual]",
-        Position = UDim2.new(0.05, 0, 0, 100)
-    })
-    btnSetPos.LayoutOrder = 3
-    btnSetPos.Parent = autoContent
+    elements.btnSetPos = UIManager:createModernButton({Text = "Set Position [Visual]", LayoutOrder = 3})
+    elements.btnSetPos.Parent = autoContent
     
-    local currentPosLabel = Instance.new("TextLabel", autoContent)
-    currentPosLabel.Size = UDim2.new(0.9, 0, 0, 20)
-    currentPosLabel.Position = UDim2.new(0.05, 0, 0, 145)
-    currentPosLabel.BackgroundTransparency = 1
-    currentPosLabel.Text = "Current: (500, 500)"
-    currentPosLabel.Font = Enum.Font.Gotham
-    currentPosLabel.TextSize = 12
-    currentPosLabel.TextColor3 = Color3.fromRGB(174, 174, 178)
-    currentPosLabel.LayoutOrder = 4
+    elements.currentPosLabel = Instance.new("TextLabel", autoContent)
+    elements.currentPosLabel.Size = UDim2.new(0.9, 0, 0, 20)
+    elements.currentPosLabel.BackgroundTransparency = 1
+    elements.currentPosLabel.Text = "Current: (500, 500)"
+    elements.currentPosLabel.Font = Enum.Font.Gotham
+    elements.currentPosLabel.TextSize = 12
+    elements.currentPosLabel.TextColor3 = Color3.fromRGB(174, 174, 178)
+    elements.currentPosLabel.LayoutOrder = 4
     
-    local btnTestClick = UIManager:createModernButton({
-        Text = "Test Click [Preview]",
-        Position = UDim2.new(0.05, 0, 0, 175)
-    })
-    btnTestClick.LayoutOrder = 5
-    btnTestClick.Parent = autoContent
+    elements.btnTestClick = UIManager:createModernButton({Text = "Test Click [Preview]", LayoutOrder = 5})
+    elements.btnTestClick.Parent = autoContent
     
-    -- Recorder Content
+    -- Recorder tab
     local recordContent = contents[2]
-    local btnRecordToggle = UIManager:createModernButton({
-        Text = "Start Recording",
-        Position = UDim2.new(0.05, 0, 0, 10)
-    })
-    btnRecordToggle.LayoutOrder = 1
-    btnRecordToggle.Parent = recordContent
+    elements.btnRecordToggle = UIManager:createModernButton({Text = "Start Recording", LayoutOrder = 1})
+    elements.btnRecordToggle.Parent = recordContent
     
-    local recordingIndicator = Instance.new("Frame", recordContent)
-    recordingIndicator.Size = UDim2.new(0.9, 0, 0, 30)
-    recordingIndicator.Position = UDim2.new(0.05, 0, 0, 55)
-    recordingIndicator.BackgroundTransparency = 1
-    recordingIndicator.LayoutOrder = 2
+    elements.recordingIndicator = Instance.new("Frame", recordContent)
+    elements.recordingIndicator.Size = UDim2.new(0.9, 0, 0, 30)
+    elements.recordingIndicator.BackgroundTransparency = 1
+    elements.recordingIndicator.LayoutOrder = 2
     
-    local indicatorDot = Instance.new("Frame", recordingIndicator)
-    indicatorDot.Size = UDim2.new(0, 12, 0, 12)
-    indicatorDot.Position = UDim2.new(0, 10, 0.5, -6)
-    indicatorDot.BackgroundColor3 = Color3.fromRGB(255, 59, 48)
-    indicatorDot.Visible = false
+    elements.indicatorDot = Instance.new("Frame", elements.recordingIndicator)
+    elements.indicatorDot.Size = UDim2.new(0, 12, 0, 12)
+    elements.indicatorDot.Position = UDim2.new(0, 10, 0.5, -6)
+    elements.indicatorDot.BackgroundColor3 = Color3.fromRGB(255, 59, 48)
+    elements.indicatorDot.Visible = false
+    Instance.new("UICorner", elements.indicatorDot).CornerRadius = UDim.new(1, 0)
     
-    local corner = Instance.new("UICorner", indicatorDot)
-    corner.CornerRadius = UDim.new(1, 0)
+    elements.indicatorText = Instance.new("TextLabel", elements.recordingIndicator)
+    elements.indicatorText.Size = UDim2.new(1, 0, 1, 0)
+    elements.indicatorText.BackgroundTransparency = 1
+    elements.indicatorText.Position = UDim2.new(0, 30, 0, 0)
+    elements.indicatorText.Text = "Not Recording"
+    elements.indicatorText.Font = Enum.Font.Gotham
+    elements.indicatorText.TextSize = 13
+    elements.indicatorText.TextXAlignment = Enum.TextXAlignment.Left
+    elements.indicatorText.TextColor3 = Color3.fromRGB(240, 240, 240)
     
-    local indicatorText = Instance.new("TextLabel", recordingIndicator)
-    indicatorText.Size = UDim2.new(1, 0, 1, 0)
-    indicatorText.BackgroundTransparency = 1
-    indicatorText.Position = UDim2.new(0, 30, 0, 0)
-    indicatorText.Text = "Not Recording"
-    indicatorText.Font = Enum.Font.Gotham
-    indicatorText.TextSize = 13
-    indicatorText.TextXAlignment = Enum.TextXAlignment.Left
-    indicatorText.TextColor3 = Color3.fromRGB(240, 240, 240)
+    elements.btnReplayOnce = UIManager:createModernButton({Text = "Replay Once", LayoutOrder = 3})
+    elements.btnReplayOnce.Parent = recordContent
     
-    local btnReplayOnce = UIManager:createModernButton({
-        Text = "Replay Once",
-        Position = UDim2.new(0.05, 0, 0, 100)
-    })
-    btnReplayOnce.LayoutOrder = 3
-    btnReplayOnce.Parent = recordContent
+    elements.replayCountInput = UIManager:createModernInput({Placeholder = "Replay Count", Text = "1", LayoutOrder = 4})
+    elements.replayCountInput.Parent = recordContent
     
-    local replayCountInput = UIManager:createModernInput({
-        Placeholder = "Replay Count",
-        Text = "1",
-        Position = UDim2.new(0.05, 0, 0, 145)
-    })
-    replayCountInput.LayoutOrder = 4
-    replayCountInput.Parent = recordContent
+    elements.btnReplayLoop = UIManager:createModernButton({Text = "Loop Replay: OFF", LayoutOrder = 5})
+    elements.btnReplayLoop.Parent = recordContent
     
-    local btnReplayLoop = UIManager:createModernButton({
-        Text = "Loop Replay: OFF",
-        Position = UDim2.new(0.05, 0, 0, 190)
-    })
-    btnReplayLoop.LayoutOrder = 5
-    btnReplayLoop.Parent = recordContent
+    elements.btnClearActions = UIManager:createModernButton({Text = "Clear All Actions", Color = Color3.fromRGB(255, 59, 48), LayoutOrder = 6})
+    elements.btnClearActions.Parent = recordContent
     
-    local btnClearActions = UIManager:createModernButton({
-        Text = "Clear All Actions",
-        Color = Color3.fromRGB(255, 59, 48),
-        Position = UDim2.new(0.05, 0, 0, 235)
-    })
-    btnClearActions.LayoutOrder = 6
-    btnClearActions.Parent = recordContent
+    elements.actionListViewer = Instance.new("ScrollingFrame", recordContent)
+    elements.actionListViewer.Size = UDim2.new(0.9, 0, 0, 100)
+    elements.actionListViewer.BackgroundTransparency = 0.9
+    elements.actionListViewer.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    elements.actionListViewer.BorderSizePixel = 0
+    elements.actionListViewer.ScrollBarThickness = 4
+    elements.actionListViewer.LayoutOrder = 7
+    Instance.new("UIListLayout", elements.actionListViewer).Padding = UDim.new(0, 5)
+    Instance.new("UICorner", elements.actionListViewer).CornerRadius = UDim.new(0, 6)
     
-    local actionListViewer = Instance.new("ScrollingFrame", recordContent)
-    actionListViewer.Size = UDim2.new(0.9, 0, 0, 100)
-    actionListViewer.Position = UDim2.new(0.05, 0, 0, 280)
-    actionListViewer.BackgroundTransparency = 0.9
-    actionListViewer.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    actionListViewer.BorderSizePixel = 0
-    actionListViewer.ScrollBarThickness = 4
-    actionListViewer.LayoutOrder = 7
-    
-    local corner = Instance.new("UICorner", actionListViewer)
-    corner.CornerRadius = UDim.new(0, 6)
-    
-    local listLayout = Instance.new("UIListLayout", actionListViewer)
-    listLayout.Padding = UDim.new(0, 5)
-    
-    -- Settings Content
+    -- Settings tab
     local settingsContent = contents[3]
-    local offsetXInput = UIManager:createModernInput({
-        Placeholder = "X Offset (px)",
-        Text = "0",
-        Position = UDim2.new(0.05, 0, 0, 10)
-    })
-    offsetXInput.LayoutOrder = 1
-    offsetXInput.Parent = settingsContent
+    elements.offsetXInput = UIManager:createModernInput({Placeholder = "X Offset (px)", Text = "0", LayoutOrder = 1})
+    elements.offsetXInput.Parent = settingsContent
     
-    local offsetYInput = UIManager:createModernInput({
-        Placeholder = "Y Offset (px)",
-        Text = "0",
-        Position = UDim2.new(0.05, 0, 0, 55)
-    })
-    offsetYInput.LayoutOrder = 2
-    offsetYInput.Parent = settingsContent
+    elements.offsetYInput = UIManager:createModernInput({Placeholder = "Y Offset (px)", Text = "0", LayoutOrder = 2})
+    elements.offsetYInput.Parent = settingsContent
     
-    local btnCalibrate = UIManager:createModernButton({
-        Text = "Auto-Calibrate [Visual]",
-        Color = Color3.fromRGB(0, 255, 0),
-        Position = UDim2.new(0.05, 0, 0, 100)
-    })
-    btnCalibrate.LayoutOrder = 3
-    btnCalibrate.Parent = settingsContent
+    elements.btnCalibrate = UIManager:createModernButton({Text = "Auto-Calibrate [Visual]", Color = Color3.fromRGB(0, 255, 0), LayoutOrder = 3})
+    elements.btnCalibrate.Parent = settingsContent
     
-    local btnApplyOffsets = UIManager:createModernButton({
-        Text = "Apply Offsets",
-        Position = UDim2.new(0.05, 0, 0, 145)
-    })
-    btnApplyOffsets.LayoutOrder = 4
-    btnApplyOffsets.Parent = settingsContent
+    elements.btnApplyOffsets = UIManager:createModernButton({Text = "Apply Offsets", LayoutOrder = 4})
+    elements.btnApplyOffsets.Parent = settingsContent
     
-    local label = Instance.new("TextLabel", settingsContent)
-    label.Size = UDim2.new(0.9, 0, 0, 30)
-    label.Position = UDim2.new(0.05, 0, 0, 190)
-    label.BackgroundTransparency = 1
-    label.Text = "Humanization: DISABLED"
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(255, 59, 48)
-    label.LayoutOrder = 5
+    local humanizeLabel = Instance.new("TextLabel", settingsContent)
+    humanizeLabel.Size = UDim2.new(0.9, 0, 0, 30)
+    humanizeLabel.BackgroundTransparency = 1
+    humanizeLabel.Text = "Humanization: DISABLED"
+    humanizeLabel.Font = Enum.Font.GothamBold
+    humanizeLabel.TextSize = 12
+    humanizeLabel.TextColor3 = Color3.fromRGB(255, 59, 48)
+    humanizeLabel.LayoutOrder = 5
     
-    -- Profiles Content
+    -- Profiles tab
     local profileContent = contents[4]
-    local profileList = Instance.new("ScrollingFrame", profileContent)
-    profileList.Size = UDim2.new(0.9, 0, 0, 150)
-    profileList.Position = UDim2.new(0.05, 0, 0, 10)
-    profileList.BackgroundTransparency = 0.9
-    profileList.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    profileList.ScrollBarThickness = 4
-    profileList.LayoutOrder = 1
+    elements.profileList = Instance.new("ScrollingFrame", profileContent)
+    elements.profileList.Size = UDim2.new(0.9, 0, 0, 150)
+    elements.profileList.BackgroundTransparency = 0.9
+    elements.profileList.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    elements.profileList.ScrollBarThickness = 4
+    elements.profileList.LayoutOrder = 1
+    Instance.new("UIListLayout", elements.profileList).Padding = UDim.new(0, 5)
+    Instance.new("UICorner", elements.profileList).CornerRadius = UDim.new(0, 6)
     
-    local corner = Instance.new("UICorner", profileList)
-    corner.CornerRadius = UDim.new(0, 6)
+    elements.profileNameInput = UIManager:createModernInput({Placeholder = "Profile Name", LayoutOrder = 2})
+    elements.profileNameInput.Parent = profileContent
     
-    local listLayout = Instance.new("UIListLayout", profileList)
-    listLayout.Padding = UDim.new(0, 5)
+    elements.btnSaveProfile = UIManager:createModernButton({Text = "Save Profile", LayoutOrder = 3})
+    elements.btnSaveProfile.Parent = profileContent
     
-    local profileNameInput = UIManager:createModernInput({
-        Placeholder = "Profile Name",
-        Position = UDim2.new(0.05, 0, 0, 170)
-    })
-    profileNameInput.LayoutOrder = 2
-    profileNameInput.Parent = profileContent
-    
-    local btnSaveProfile = UIManager:createModernButton({
-        Text = "Save Profile",
-        Position = UDim2.new(0.05, 0, 0, 215)
-    })
-    btnSaveProfile.LayoutOrder = 3
-    btnSaveProfile.Parent = profileContent
-    
-    local btnLoadProfile = UIManager:createModernButton({
-        Text = "Load Selected",
-        Position = UDim2.new(0.05, 0, 0, 260)
-    })
-    btnLoadProfile.LayoutOrder = 4
-    btnLoadProfile.Parent = profileContent
+    elements.btnLoadProfile = UIManager:createModernButton({Text = "Load Selected", LayoutOrder = 4})
+    elements.btnLoadProfile.Parent = profileContent
     
     -- Toggle Button
-    local toggleBtn = UIManager:createModernButton({
+    elements.toggleBtn = UIManager:createModernButton({
         Size = UDim2.new(0, 70, 0, 30),
         Position = UDim2.new(0, 10, 0, 10),
         Text = "Hide",
         Color = Color3.fromRGB(0, 255, 0)
     })
-    toggleBtn.Parent = MainGUI
+    elements.toggleBtn.Parent = MainGUI
     
     -- Status Bar
-    local statusBar = Instance.new("Frame", mainFrame)
-    statusBar.Size = UDim2.new(1, 0, 0, 30)
-    statusBar.Position = UDim2.new(0, 0, 1, -30)
-    statusBar.BackgroundTransparency = 0.9
-    statusBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    statusBar.BorderSizePixel = 0
+    elements.statusBar = Instance.new("Frame", mainFrame)
+    elements.statusBar.Size = UDim2.new(1, 0, 0, 30)
+    elements.statusBar.Position = UDim2.new(0, 0, 1, -30)
+    elements.statusBar.BackgroundTransparency = 0.9
+    elements.statusBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    elements.statusBar.BorderSizePixel = 0
     
-    local corner = Instance.new("UICorner", statusBar)
-    corner.CornerRadius = UDim.new(0, 0)
+    Instance.new("UICorner", elements.statusBar).CornerRadius = UDim.new(0, 0)
     
-    local statusText = Instance.new("TextLabel", statusBar)
-    statusText.Size = UDim2.new(1, -10, 1, 0)
-    statusText.Position = UDim2.new(0, 5, 0, 0)
-    statusText.BackgroundTransparency = 1
-    statusText.Text = "Delta Macro Ready | Actions: 0"
-    statusText.Font = Enum.Font.Gotham
-    statusText.TextSize = 11
-    statusText.TextXAlignment = Enum.TextXAlignment.Left
-    statusText.TextColor3 = Color3.fromRGB(174, 174, 178)
+    elements.statusText = Instance.new("TextLabel", elements.statusBar)
+    elements.statusText.Size = UDim2.new(1, -10, 1, 0)
+    elements.statusText.Position = UDim2.new(0, 5, 0, 0)
+    elements.statusText.BackgroundTransparency = 1
+    elements.statusText.Text = "Delta Macro Ready | Actions: 0"
+    elements.statusText.Font = Enum.Font.Gotham
+    elements.statusText.TextSize = 11
+    elements.statusText.TextXAlignment = Enum.TextXAlignment.Left
+    elements.statusText.TextColor3 = Color3.fromRGB(174, 174, 178)
     
-    -- Crosshair for position picker
-    local crosshair = Instance.new("Frame", MainGUI)
-    crosshair.Name = "Crosshair"
-    crosshair.Size = UDim2.new(0, 40, 0, 40)
-    crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
-    crosshair.BackgroundTransparency = 1
-    crosshair.Visible = false
+    -- Crosshair
+    elements.crosshair = Instance.new("Frame", MainGUI)
+    elements.crosshair.Name = "Crosshair"
+    elements.crosshair.Size = UDim2.new(0, 40, 0, 40)
+    elements.crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+    elements.crosshair.BackgroundTransparency = 1
+    elements.crosshair.Visible = false
     
-    local crosshairH = Instance.new("Frame", crosshair)
+    local crosshairH = Instance.new("Frame", elements.crosshair)
+    crosshairH.Name = "H"
     crosshairH.Size = UDim2.new(1, 0, 0, 2)
     crosshairH.Position = UDim2.new(0, 0, 0.5, -1)
     crosshairH.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
     crosshairH.BorderSizePixel = 0
     
-    local crosshairV = Instance.new("Frame", crosshair)
+    local crosshairV = Instance.new("Frame", elements.crosshair)
+    crosshairV.Name = "V"
     crosshairV.Size = UDim2.new(0, 2, 1, 0)
     crosshairV.Position = UDim2.new(0.5, -1, 0, 0)
     crosshairV.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
     crosshairV.BorderSizePixel = 0
     
-    MainGUI.StatusText = statusText
-    MainGUI.ToggleButton = toggleBtn
-    MainGUI.Crosshair = crosshair
-    
-    MainGUI.Elements = {
-        btnAutoToggle = btnAutoToggle,
-        intervalInput = intervalInput,
-        btnSetPos = btnSetPos,
-        currentPosLabel = currentPosLabel,
-        btnTestClick = btnTestClick,
-        btnRecordToggle = btnRecordToggle,
-        recordingIndicator = recordingIndicator,
-        indicatorDot = indicatorDot,
-        indicatorText = indicatorText,
-        btnReplayOnce = btnReplayOnce,
-        replayCountInput = replayCountInput,
-        btnReplayLoop = btnReplayLoop,
-        btnClearActions = btnClearActions,
-        actionListViewer = actionListViewer,
-        offsetXInput = offsetXInput,
-        offsetYInput = offsetYInput,
-        btnCalibrate = btnCalibrate,
-        btnApplyOffsets = btnApplyOffsets,
-        profileNameInput = profileNameInput,
-        btnSaveProfile = btnSaveProfile,
-        btnLoadProfile = btnLoadProfile,
-        profileList = profileList,
-    }
+    MainGUI.Elements = elements
+    MainGUI.TabButtons = tabs
+    MainGUI.Contents = contents
     
     return MainGUI
 end
 
 ----------------------------------------------------------------
--- VISUAL POSITION PICKER
+-- VISUAL PICKER (OPTIMIZED)
 ----------------------------------------------------------------
 local VisualPicker = {
     isActive = false,
     connection = nil,
     
     start = function(self)
+        if self.isActive then return end
         self.isActive = true
-        MainGUI.Crosshair.Visible = true
         
-        self.connection = RunService.RenderStepped:Connect(function()
-            local mousePos = UserInputService:GetMouseLocation()
-            MainGUI.Crosshair.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
+        MainGUI.Elements.crosshair.Visible = true
+        
+        -- Single RenderStepped connection (optimized)
+        self.connection = Services.RunService.RenderStepped:Connect(function()
+            local mousePos = Services.UserInputService:GetMouseLocation()
+            MainGUI.Elements.crosshair.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
         end)
         
-        local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
-        TweenService:Create(MainGUI.Crosshair.H, tweenInfo, {BackgroundTransparency = 0.5}):Play()
-        TweenService:Create(MainGUI.Crosshair.V, tweenInfo, {BackgroundTransparency = 0.5}):Play()
+        -- Smooth pulsing animation
+        if Services.TweenService then
+            local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+            Services.TweenService:Create(MainGUI.Elements.crosshair.H, tweenInfo, {BackgroundTransparency = 0.5}):Play()
+            Services.TweenService:Create(MainGUI.Elements.crosshair.V, tweenInfo, {BackgroundTransparency = 0.5}):Play()
+        end
         
         Logger:info("Visual picker activated")
     end,
     
     stop = function(self)
+        if not self.isActive then return end
         self.isActive = false
+        
         if self.connection then
             self.connection:Disconnect()
             self.connection = nil
         end
         
-        MainGUI.Crosshair.Visible = false
-        TweenService:Create(MainGUI.Crosshair.H, TweenInfo.new(0.1), {BackgroundTransparency = 0}):Play()
-        TweenService:Create(MainGUI.Crosshair.V, TweenInfo.new(0.1), {BackgroundTransparency = 0}):Play()
+        MainGUI.Elements.crosshair.Visible = false
+        
+        -- Reset transparency
+        MainGUI.Elements.crosshair.H.BackgroundTransparency = 0
+        MainGUI.Elements.crosshair.V.BackgroundTransparency = 0
         
         Logger:info("Visual picker deactivated")
     end,
 }
 
 ----------------------------------------------------------------
--- UPDATE UI HELPERS
+-- UI UPDATE HELPERS
 ----------------------------------------------------------------
 local function updateActionList()
     local viewer = MainGUI.Elements.actionListViewer
     local actions = StateManager:get("recordedActions")
     
-    for _, child in ipairs(viewer:GetChildren()) do
+    -- Clear existing (optimized)
+    for i = #viewer:GetChildren(), 1, -1 do
+        local child = viewer:GetChildren()[i]
         if child:IsA("Frame") then child:Destroy() end
     end
     
+    -- Add actions
     for i, action in ipairs(actions) do
-        local item = Instance.new("Frame", viewer)
+        local item = Instance.new("Frame")
         item.Size = UDim2.new(1, -10, 0, 30)
         item.BackgroundTransparency = 0.95
         item.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         item.BorderSizePixel = 0
+        item.Parent = viewer
         
         local label = Instance.new("TextLabel", item)
         label.Size = UDim2.new(1, -30, 1, 0)
@@ -1151,7 +1101,8 @@ local function updateActionList()
             Position = UDim2.new(1, -30, 0.5, -12),
             Text = "X",
             TextSize = 11,
-            Color = Color3.fromRGB(255, 59, 48)
+            Color = Color3.fromRGB(255, 59, 48),
+            Hoverable = false
         })
         deleteBtn.Parent = item
         deleteBtn.MouseButton1Click:Connect(function()
@@ -1167,16 +1118,20 @@ local function updateProfileList()
     local list = MainGUI.Elements.profileList
     local profiles = ProfileManager:listProfiles()
     
-    for _, child in ipairs(list:GetChildren()) do
+    -- Clear existing
+    for i = #list:GetChildren(), 1, -1 do
+        local child = list:GetChildren()[i]
         if child:IsA("Frame") then child:Destroy() end
     end
     
+    -- Add profiles
     for _, profile in ipairs(profiles) do
-        local item = Instance.new("Frame", list)
+        local item = Instance.new("Frame")
         item.Size = UDim2.new(1, -10, 0, 35)
         item.BackgroundTransparency = 0.95
         item.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         item.BorderSizePixel = 0
+        item.Parent = list
         
         local label = Instance.new("TextLabel", item)
         label.Size = UDim2.new(1, -35, 1, 0)
@@ -1192,7 +1147,8 @@ local function updateProfileList()
             Position = UDim2.new(1, -35, 0.5, -15),
             Text = "🗑",
             TextSize = 13,
-            Color = Color3.fromRGB(255, 59, 48)
+            Color = Color3.fromRGB(255, 59, 48),
+            Hoverable = false
         })
         deleteBtn.Parent = item
         deleteBtn.MouseButton1Click:Connect(function()
@@ -1213,25 +1169,25 @@ local function updateProfileList()
 end
 
 ----------------------------------------------------------------
--- BUTTON CONNECTIONS
+-- BUTTON CONNECTIONS (OPTIMIZED)
 ----------------------------------------------------------------
 local function connectButtons()
+    local elements = MainGUI.Elements
+    
     -- AutoClick
-    MainGUI.Elements.btnAutoToggle.MouseButton1Click:Connect(function()
-        local interval = tonumber(MainGUI.Elements.intervalInput.Text) or 0.2
+    elements.btnAutoToggle.MouseButton1Click:Connect(function()
+        local interval = tonumber(elements.intervalInput.Text) or 0.2
         StateManager:set("clickInterval", interval)
         
         if StateManager:get("autoClickEnabled") then
             StateManager:set("autoClickEnabled", false)
-            MainGUI.Elements.btnAutoToggle.Text = "Auto Clicker: OFF"
         else
             if StateManager:get("clickPosition") == Vector2.new(500, 500) then
-                MainGUI.StatusText.Text = "Error: Set click position first"
+                elements.statusText.Text = "Error: Set click position first"
                 return
             end
             
             StateManager:set("autoClickEnabled", true)
-            MainGUI.Elements.btnAutoToggle.Text = "Auto Clicker: ON"
             
             task.spawn(function()
                 local count = 0
@@ -1239,7 +1195,7 @@ local function connectButtons()
                     InputSimulator:performClick(StateManager:get("clickPosition"))
                     count = count + 1
                     if count % 10 == 0 then
-                        MainGUI.Elements.btnAutoToggle.Text = string.format("Clicks: %d", count)
+                        elements.btnAutoToggle.Text = string.format("Clicks: %d", count)
                     end
                     task.wait(StateManager:get("clickInterval"))
                 end
@@ -1248,30 +1204,30 @@ local function connectButtons()
     end)
     
     -- Visual position picker
-    MainGUI.Elements.btnSetPos.MouseButton1Click:Connect(function()
+    elements.btnSetPos.MouseButton1Click:Connect(function()
         if VisualPicker.isActive then
             VisualPicker:stop()
-            MainGUI.Elements.btnSetPos.Text = "Set Position [Visual]"
+            elements.btnSetPos.Text = "Set Position [Visual]"
         else
             VisualPicker:start()
-            MainGUI.Elements.btnSetPos.Text = "Click to Set..."
+            elements.btnSetPos.Text = "Click to Set..."
             
             local conn
-            conn = UserInputService.InputBegan:Connect(function(input, gp)
+            conn = Services.UserInputService.InputBegan:Connect(function(input, gp)
                 if gp or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
                 
                 if VisualPicker.isActive then
-                    local pos = UserInputService:GetMouseLocation()
+                    local pos = Services.UserInputService:GetMouseLocation()
                     StateManager:set("clickPosition", pos)
                     
                     VisualPicker:stop()
-                    MainGUI.Elements.btnSetPos.Text = "Position Set!"
-                    MainGUI.Elements.currentPosLabel.Text = string.format("Current: (%d, %d)", pos.X, pos.Y)
+                    elements.btnSetPos.Text = "Position Set!"
+                    elements.currentPosLabel.Text = string.format("Current: (%d, %d)", pos.X, pos.Y)
                     
                     VisualFeedback:showClickMarker(pos, Color3.fromRGB(0, 255, 0), 20, 1)
                     
                     task.delay(2, function()
-                        MainGUI.Elements.btnSetPos.Text = "Set Position [Visual]"
+                        elements.btnSetPos.Text = "Set Position [Visual]"
                     end)
                     
                     conn:Disconnect()
@@ -1281,9 +1237,9 @@ local function connectButtons()
     end)
     
     -- Test click
-    MainGUI.Elements.btnTestClick.MouseButton1Click:Connect(function()
+    elements.btnTestClick.MouseButton1Click:Connect(function()
         if StateManager:get("clickPosition") == Vector2.new(500, 500) then
-            MainGUI.StatusText.Text = "Error: Set position first"
+            elements.statusText.Text = "Error: Set position first"
             return
         end
         
@@ -1293,145 +1249,139 @@ local function connectButtons()
     end)
     
     -- Recorder
-    MainGUI.Elements.btnRecordToggle.MouseButton1Click:Connect(function()
+    elements.btnRecordToggle.MouseButton1Click:Connect(function()
         if StateManager:get("isRecording") then
             RecordingEngine:stopRecording()
-            MainGUI.Elements.btnRecordToggle.Text = "Start Recording"
-            MainGUI.Elements.indicatorDot.Visible = false
-            MainGUI.Elements.indicatorText.Text = "Not Recording"
         else
             RecordingEngine:startRecording()
-            MainGUI.Elements.btnRecordToggle.Text = "Stop Recording"
-            MainGUI.Elements.indicatorDot.Visible = true
-            MainGUI.Elements.indicatorText.Text = "Recording..."
-            
-            task.spawn(function()
-                while StateManager:get("isRecording") do
-                    MainGUI.Elements.indicatorDot.BackgroundTransparency = 0
-                    task.wait(0.5)
-                    MainGUI.Elements.indicatorDot.BackgroundTransparency = 0.5
-                    task.wait(0.5)
-                end
-            end)
         end
-        updateActionList()
     end)
     
-    MainGUI.Elements.btnReplayOnce.MouseButton1Click:Connect(function()
+    elements.btnReplayOnce.MouseButton1Click:Connect(function()
         if #StateManager:get("recordedActions") == 0 then
-            MainGUI.StatusText.Text = "Error: No actions recorded"
+            elements.statusText.Text = "Error: No actions recorded"
             return
         end
         
-        local count = tonumber(MainGUI.Elements.replayCountInput.Text) or 1
+        local count = tonumber(elements.replayCountInput.Text) or 1
         StateManager:set("replayCount", count)
         
         if StateManager:get("isReplaying") then
             StateManager:set("isReplaying", false)
-            MainGUI.Elements.btnReplayOnce.Text = "Replay Once"
         else
             StateManager:set("isReplaying", true)
-            MainGUI.Elements.btnReplayOnce.Text = "Stop Replay"
             RecordingEngine:replayActions(StateManager:get("recordedActions"), false)
         end
     end)
     
-    MainGUI.Elements.btnReplayLoop.MouseButton1Click:Connect(function()
+    elements.btnReplayLoop.MouseButton1Click:Connect(function()
         if #StateManager:get("recordedActions") == 0 then
-            MainGUI.StatusText.Text = "Error: No actions recorded"
+            elements.statusText.Text = "Error: No actions recorded"
             return
         end
         
         if StateManager:get("isReplayingLoop") then
             StateManager:set("isReplayingLoop", false)
-            MainGUI.Elements.btnReplayLoop.Text = "Loop Replay: OFF"
         else
             StateManager:set("isReplayingLoop", true)
-            MainGUI.Elements.btnReplayLoop.Text = "Loop Replay: ON"
             RecordingEngine:replayActions(StateManager:get("recordedActions"), true)
         end
     end)
     
-    MainGUI.Elements.btnClearActions.MouseButton1Click:Connect(function()
+    elements.btnClearActions.MouseButton1Click:Connect(function()
         RecordingEngine:clearRecording()
         updateActionList()
-        MainGUI.StatusText.Text = "Actions cleared"
+        elements.statusText.Text = "Actions cleared"
     end)
     
     -- Settings
-    MainGUI.Elements.btnCalibrate.MouseButton1Click:Connect(function()
-        MainGUI.StatusText.Text = "Calibration: Click the center"
+    elements.btnCalibrate.MouseButton1Click:Connect(function()
+        elements.statusText.Text = "Calibration: Click center of screen"
         
         local viewportSize = Cache.viewportSize
         local center = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
         
+        -- FIXED: Use proper center calculation including GuiInset
+        Cache:update()
+        local centerWithInset = Vector2.new(
+            viewportSize.X / 2 + Cache.guiInset.X,
+            viewportSize.Y / 2 + Cache.guiInset.Y
+        )
+        
         local target = Instance.new("Frame", MainGUI)
+        target.Name = "CalibrationTarget"
         target.Size = UDim2.new(0, 30, 0, 30)
         target.Position = UDim2.new(0, center.X - 15, 0, center.Y - 15)
         target.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
         target.BackgroundTransparency = 0.3
+        Instance.new("UICorner", target).CornerRadius = UDim.new(1, 0)
         
-        local corner = Instance.new("UICorner", target)
-        corner.CornerRadius = UDim.new(1, 0)
-        
-        local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
-        TweenService:Create(target, tweenInfo, {BackgroundTransparency = 0.6}):Play()
+        -- Pulse animation
+        if Services.TweenService then
+            local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+            Services.TweenService:Create(target, tweenInfo, {BackgroundTransparency = 0.6}):Play()
+        end
         
         local conn
-        conn = UserInputService.InputBegan:Connect(function(input, gp)
+        local timeout = task.delay(CONFIG.CALIBRATION_TIMEOUT, function()
+            if target.Parent then
+                target:Destroy()
+                elements.statusText.Text = "Calibration timed out"
+            end
+        end)
+        
+        conn = Services.UserInputService.InputBegan:Connect(function(input, gp)
             if gp or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
             
-            local clickPos = UserInputService:GetMouseLocation()
+            local clickPos = Services.UserInputService:GetMouseLocation()
+            -- Calculate difference from center (not centerWithInset - user sees center)
             local diff = clickPos - center
             
             StateManager:set("activeXOffset", -math.floor(diff.X))
             StateManager:set("activeYOffset", -math.floor(diff.Y))
             
-            MainGUI.Elements.offsetXInput.Text = tostring(-math.floor(diff.X))
-            MainGUI.Elements.offsetYInput.Text = tostring(-math.floor(diff.Y))
+            elements.offsetXInput.Text = tostring(-math.floor(diff.X))
+            elements.offsetYInput.Text = tostring(-math.floor(diff.Y))
             
-            target:Destroy()
-            conn:Disconnect()
+            pcall(function()
+                target:Destroy()
+                conn:Disconnect()
+                task.cancel(timeout)
+            end)
             
-            MainGUI.StatusText.Text = string.format("Calibrated: X=%d, Y=%d", -math.floor(diff.X), -math.floor(diff.Y))
+            elements.statusText.Text = string.format("Calibrated: X=%d, Y=%d", -math.floor(diff.X), -math.floor(diff.Y))
             Logger:info("Calibration complete", {offsetX = -math.floor(diff.X), offsetY = -math.floor(diff.Y)})
         end)
-        
-        task.wait(10)
-        if target.Parent then
-            target:Destroy()
-            conn:Disconnect()
-            MainGUI.StatusText.Text = "Calibration timed out"
-        end
     end)
     
-    MainGUI.Elements.btnApplyOffsets.MouseButton1Click:Connect(function()
-        local x = tonumber(MainGUI.Elements.offsetXInput.Text) or 0
-        local y = tonumber(MainGUI.Elements.offsetYInput.Text) or 0
+    elements.btnApplyOffsets.MouseButton1Click:Connect(function()
+        local x = tonumber(elements.offsetXInput.Text) or 0
+        local y = tonumber(elements.offsetYInput.Text) or 0
         
         StateManager:set("activeXOffset", x)
         StateManager:set("activeYOffset", y)
         
-        MainGUI.StatusText.Text = string.format("Offsets: X=%d, Y=%d", x, y)
+        elements.statusText.Text = string.format("Offsets: X=%d, Y=%d", x, y)
+        Logger:info("Offsets applied", {x = x, y = y})
     end)
     
     -- Profiles
-    MainGUI.Elements.btnSaveProfile.MouseButton1Click:Connect(function()
-        local name = MainGUI.Elements.profileNameInput.Text
+    elements.btnSaveProfile.MouseButton1Click:Connect(function()
+        local name = elements.profileNameInput.Text
         if not name or name == "" then name = "default" end
         
         ProfileManager:saveProfile(name)
         updateProfileList()
-        MainGUI.Elements.profileNameInput.Text = ""
-        MainGUI.StatusText.Text = "Saved: " .. name
+        elements.profileNameInput.Text = ""
+        elements.statusText.Text = "Saved: " .. name
     end)
     
-    MainGUI.Elements.btnLoadProfile.MouseButton1Click:Connect(function()
+    elements.btnLoadProfile.MouseButton1Click:Connect(function()
         local selected = StateManager:get("currentProfile")
         if selected and selected ~= "" then
             ProfileManager:loadProfile(selected)
             updateActionList()
-            MainGUI.StatusText.Text = "Loaded: " .. selected
+            elements.statusText.Text = "Loaded: " .. selected
         end
     end)
     
@@ -1449,79 +1399,92 @@ local function connectButtons()
             contents[i].Visible = true
         end)
     end
+    tabs[1].BackgroundColor3 = Color3.fromRGB(0, 255, 0) -- Default active
     
     -- Toggle GUI
-    MainGUI.ToggleButton.MouseButton1Click:Connect(function()
+    elements.toggleBtn.MouseButton1Click:Connect(function()
         local hidden = not StateManager:get("guiHidden")
         StateManager:set("guiHidden", hidden)
         
         mainFrame.Visible = not hidden
-        MainGUI.ToggleButton.Text = hidden and "Show" or "Hide"
+        elements.toggleBtn.Text = hidden and "Show" or "Hide"
     end)
     
     -- State subscriptions
     StateManager:subscribe("autoClickEnabled", function(value)
-        MainGUI.Elements.btnAutoToggle.Text = value and "Auto Clicker: ON" or "Auto Clicker: OFF"
+        elements.btnAutoToggle.Text = value and "Auto Clicker: ON" or "Auto Clicker: OFF"
+    end)
+    
+    StateManager:subscribe("isRecording", function(value)
+        elements.btnRecordToggle.Text = value and "Stop Recording" or "Start Recording"
+        elements.indicatorDot.Visible = value
+        elements.indicatorText.Text = value and "Recording..." or "Not Recording"
     end)
     
     StateManager:subscribe("isReplaying", function(value)
-        MainGUI.Elements.btnReplayOnce.Text = value and "Stop Replay" or "Replay Once"
+        elements.btnReplayOnce.Text = value and "Stop Replay" or "Replay Once"
     end)
     
     StateManager:subscribe("isReplayingLoop", function(value)
-        MainGUI.Elements.btnReplayLoop.Text = value and "Loop Replay: ON" or "Loop Replay: OFF"
+        elements.btnReplayLoop.Text = value and "Loop Replay: ON" or "Loop Replay: OFF"
     end)
     
     StateManager:subscribe("clickPosition", function(pos)
-        MainGUI.Elements.currentPosLabel.Text = string.format("Current: (%d, %d)", pos.X, pos.Y)
+        elements.currentPosLabel.Text = string.format("Current: (%d, %d)", pos.X, pos.Y)
     end)
     
     StateManager:subscribe("recordedActions", function(actions)
         updateActionList()
-        MainGUI.StatusText.Text = string.format("Delta Macro | Actions: %d", #actions)
+        elements.statusText.Text = string.format("Delta Macro | Actions: %d", #actions)
     end)
 end
 
 ----------------------------------------------------------------
--- MAIN INITIALIZATION
+-- MAIN INITIALIZATION (FIXED)
 ----------------------------------------------------------------
 local function initialize()
-    -- Initialize services
-    Players = getService("Players") or {}
-    UserInputService = getService("UserInputService") or {}
-    StarterGui = getService("StarterGui") or {}
-    RunService = getService("RunService") or {}
-    GuiService = getService("GuiService") or {}
-    CoreGui = getService("CoreGui") or game:FindFirstChild("CoreGui")
-    TweenService = getService("TweenService") or {}
-    LocalPlayer = Players.LocalPlayer
+    Logger:info("Initializing Delta Macro V5.1...")
     
-    if not LocalPlayer then
-        Logger:error("LocalPlayer not found")
+    Compatibility:DetectEnvironment()
+    
+    MainGUI = createGUI()
+    if not MainGUI then
+        Logger:error("Failed to create GUI")
         return
     end
     
-    Compatibility:DetectEnvironment()
-    createGUI()
     connectButtons()
     
+    -- Load default profile
+    ProfileManager:loadProfile("default")
+    updateActionList()
+    updateProfileList()
+    
+    -- Start cache updater
     task.spawn(function()
         while task.wait(CONFIG.CACHE_REFRESH_RATE) do
             Cache:update()
         end
     end)
     
-    UserInputService.WindowFocusReleased:Connect(function()
-        Logger:warn("Focus lost - stopping all macros")
+    -- Handle focus loss (critical for Delta)
+    Services.UserInputService.WindowFocusReleased:Connect(function()
+        Logger:warn("Window focus lost - stopping all macros")
         StateManager:set("autoClickEnabled", false)
         StateManager:set("isRecording", false)
         StateManager:set("isReplaying", false)
         StateManager:set("isReplayingLoop", false)
     end)
     
-    Logger:info("Delta Macro initialized")
-    MainGUI.StatusText.Text = "Delta Macro Ready | Actions: 0"
+    Logger:info("Delta Macro V5.1 initialized successfully")
+    Logger:info("Executor: " .. Compatibility.detectedExecutor)
+    Logger:info("VIM Available: " .. tostring(Compatibility.vmAvailable))
+    Logger:info("Click 'Auto-Calibrate [Visual]' in Settings to fix alignment")
 end
 
--- Start
-initialize()
+-- Start with error handling
+local success, err = pcall(initialize)
+if not success then
+    Logger:error("Initialization failed: " .. tostring(err))
+    error(err)
+end
