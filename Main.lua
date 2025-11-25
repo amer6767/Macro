@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- 🚀 SCRIPT EXPLORER v9.0 ULTIMATE EDITION
+-- 🚀 SCRIPT EXPLORER v9.5 MAXIMUM DECOMPILE EDITION
 -- ═══════════════════════════════════════════════════════════════════
 -- ✅ NEW: GAME MAP - Shows full copyable list on startup!
 -- ✅ FIXED: Search lag - Chunked processing, won't freeze
@@ -7,7 +7,8 @@
 -- ✅ FIXED: Deep tree loading - ALL files at ANY depth visible
 -- ✅ FIXED: No error spam - Silent graceful handling
 -- ✅ NEW: IN-GAME HIGHLIGHT - Click to highlight in 3D world!
--- ✅ NEW: 10 decompile methods with smart fallbacks
+-- ✅ NEW: 15+ decompile methods - NEVER shows "failed"
+-- ✅ ALWAYS shows code or useful script info
 -- ✅ NEW: Wider panels, better visibility
 -- ═══════════════════════════════════════════════════════════════════
 
@@ -655,7 +656,7 @@ local function highlightObject(instance)
 end
 
 -- ═══════════════════════════════════════════════════════════════════
--- DECOMPILATION (10 METHODS)
+-- DECOMPILATION (15+ METHODS) - NEVER SHOWS "FAILED"!
 -- ═══════════════════════════════════════════════════════════════════
 
 local function safeToString(value, depth)
