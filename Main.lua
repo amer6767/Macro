@@ -517,11 +517,8 @@ function Scanner.generateMap()
                 local line = string.rep("  ", depth) .. icon .. " " .. inst.Name .. " [" .. inst.ClassName .. "] -- " .. path
                 table.insert(lines, line)
                 
-                -- Scan children
                 local children = {}
-                pcall(function()
-                    children = inst:GetChildren()
-                end)
+                pcall(function() children = inst:GetChildren() end)
                 
                 for _, child in ipairs(children) do
                     pcall(function()
@@ -530,11 +527,8 @@ function Scanner.generateMap()
                 end
             end
             
-            -- Get service children
             local serviceChildren = {}
-            pcall(function()
-                serviceChildren = service:GetChildren()
-            end)
+            pcall(function() serviceChildren = service:GetChildren() end)
             
             for _, child in ipairs(serviceChildren) do
                 pcall(function()
@@ -545,11 +539,13 @@ function Scanner.generateMap()
             totalObjs = totalObjs + objs
             totalScripts = totalScripts + scripts
             
-            maps[serviceName] = { 
-                lines = lines, 
-                objs = objs, 
-                scripts = scripts 
-            }
+            if #lines > 0 then
+                maps[serviceName] = { 
+                    lines = lines, 
+                    objs = objs, 
+                    scripts = scripts 
+                }
+            end
         end
     end
     
@@ -984,9 +980,9 @@ function GameMap.show()
             copyTabIndex = 0
             
             local data = maps[serviceName]
-            if data and data.lines then
-                local headerText = "\n-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)\n\n"
-                contentBox.Text = headerText .. table.concat(data.lines, "\n")
+            if data and data.lines and #data.lines > 0 then
+                local headerText = "-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)" .. string.char(10) .. string.char(10)
+                contentBox.Text = headerText .. table.concat(data.lines, string.char(10))
             else
                 contentBox.Text = "-- No data for " .. serviceName
             end
@@ -1049,8 +1045,8 @@ function GameMap.show()
                     table.insert(chunk, allLines[i])
                 end
                 
-                local hdr = "-- " .. currentServiceName .. " [Lines " .. startLine .. "-" .. endLine .. " of " .. totalLines .. "]\n\n"
-                Executor.clipboard(hdr .. table.concat(chunk, "\n"))
+                local hdr = "-- " .. currentServiceName .. " [Lines " .. startLine .. "-" .. endLine .. " of " .. totalLines .. "]" .. string.char(10) .. string.char(10)
+                Executor.clipboard(hdr .. table.concat(chunk, string.char(10)))
                 
                 copyCurrent.Text = "✅ " .. startLine .. "-" .. endLine
                 copyTabIndex = copyTabIndex + 1
@@ -1112,8 +1108,8 @@ function GameMap.show()
                 table.insert(chunk, copyAllLines[i])
             end
             
-            local hdr = "-- [Lines " .. startLine .. "-" .. endLine .. " of " .. totalLines .. "]\n\n"
-            Executor.clipboard(hdr .. table.concat(chunk, "\n"))
+            local hdr = "-- [Lines " .. startLine .. "-" .. endLine .. " of " .. totalLines .. "]" .. string.char(10) .. string.char(10)
+            Executor.clipboard(hdr .. table.concat(chunk, string.char(10)))
             
             copyAll.Text = "✅ " .. startLine .. "-" .. endLine
             copyAllIndex = copyAllIndex + 1
