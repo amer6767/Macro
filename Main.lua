@@ -446,7 +446,6 @@ function Scanner.generateMap()
         local lines, objs, scripts = {}, 0, 0
         
         local function scan(inst, depth, path)
-            if objs > 1500 then return end
             objs = objs + 1
             if inst:IsA("BaseScript") then scripts = scripts + 1 end
             
