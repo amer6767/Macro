@@ -1,494 +1,13 @@
 -- ═══════════════════════════════════════════════════════════════════
--- 🎮 UNIVERSAL LAUNCHER v1.0 - Choose Your Tool!
--- ═══════════════════════════════════════════════════════════════════
-
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
-local LocalPlayer = Players.LocalPlayer
-
--- Utility
-local function createCorner(inst, r)
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, r or 12)
-    c.Parent = inst
-    return c
-end
-
-local function createStroke(inst, t, col)
-    local s = Instance.new("UIStroke")
-    s.Thickness = t or 2
-    s.Color = col or Color3.fromRGB(0, 200, 255)
-    s.Parent = inst
-    return s
-end
-
-local function tween(inst, props, dur)
-    TweenService:Create(inst, TweenInfo.new(dur or 0.3, Enum.EasingStyle.Quart), props):Play()
-end
-
--- Create Launcher GUI
-local launcherGui = Instance.new("ScreenGui")
-launcherGui.Name = "UniversalLauncher"
-launcherGui.ResetOnSpawn = false
-launcherGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-launcherGui.IgnoreGuiInset = true
-launcherGui.DisplayOrder = 99999
-
-pcall(function() launcherGui.Parent = CoreGui end)
-if not launcherGui.Parent then
-    launcherGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
-
--- Background overlay
-local overlay = Instance.new("Frame")
-overlay.Size = UDim2.new(1, 0, 1, 0)
-overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-overlay.BackgroundTransparency = 0.5
-overlay.BorderSizePixel = 0
-overlay.Parent = launcherGui
-
--- Main container
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "LauncherFrame"
-mainFrame.Size = UDim2.new(0, 500, 0, 400)
-mainFrame.Position = UDim2.new(0.5, -250, 0.5, -200)
-mainFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
-mainFrame.BorderSizePixel = 0
-mainFrame.Parent = launcherGui
-createCorner(mainFrame, 20)
-createStroke(mainFrame, 3, Color3.fromRGB(0, 200, 255))
-
--- Title
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 70)
-title.BackgroundTransparency = 1
-title.Text = "🎮 SELECT YOUR TOOL"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 28
-title.Parent = mainFrame
-
-local subtitle = Instance.new("TextLabel")
-subtitle.Size = UDim2.new(1, 0, 0, 30)
-subtitle.Position = UDim2.new(0, 0, 0, 55)
-subtitle.BackgroundTransparency = 1
-subtitle.Text = "Choose which GUI to load"
-subtitle.TextColor3 = Color3.fromRGB(150, 150, 160)
-subtitle.Font = Enum.Font.Gotham
-subtitle.TextSize = 16
-subtitle.Parent = mainFrame
-
--- Button container
-local btnContainer = Instance.new("Frame")
-btnContainer.Size = UDim2.new(1, -40, 0, 220)
-btnContainer.Position = UDim2.new(0, 20, 0, 100)
-btnContainer.BackgroundTransparency = 1
-btnContainer.Parent = mainFrame
-
--- Script Explorer Button
-local explorerBtn = Instance.new("TextButton")
-explorerBtn.Size = UDim2.new(1, 0, 0, 100)
-explorerBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 50)
-explorerBtn.BorderSizePixel = 0
-explorerBtn.Text = ""
-explorerBtn.AutoButtonColor = false
-explorerBtn.Parent = btnContainer
-createCorner(explorerBtn, 14)
-local explorerStroke = createStroke(explorerBtn, 2, Color3.fromRGB(100, 200, 255))
-
-local explorerIcon = Instance.new("TextLabel")
-explorerIcon.Size = UDim2.new(0, 60, 1, 0)
-explorerIcon.BackgroundTransparency = 1
-explorerIcon.Text = "🔍"
-explorerIcon.TextSize = 40
-explorerIcon.Font = Enum.Font.GothamBold
-explorerIcon.Parent = explorerBtn
-
-local explorerTitle = Instance.new("TextLabel")
-explorerTitle.Size = UDim2.new(1, -80, 0, 35)
-explorerTitle.Position = UDim2.new(0, 70, 0, 15)
-explorerTitle.BackgroundTransparency = 1
-explorerTitle.Text = "📜 Script Explorer v9.5"
-explorerTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
-explorerTitle.Font = Enum.Font.GothamBold
-explorerTitle.TextSize = 20
-explorerTitle.TextXAlignment = Enum.TextXAlignment.Left
-explorerTitle.Parent = explorerBtn
-
-local explorerDesc = Instance.new("TextLabel")
-explorerDesc.Size = UDim2.new(1, -80, 0, 40)
-explorerDesc.Position = UDim2.new(0, 70, 0, 50)
-explorerDesc.BackgroundTransparency = 1
-explorerDesc.Text = "View all scripts, decompile code, game map, in-game highlight"
-explorerDesc.TextColor3 = Color3.fromRGB(140, 145, 160)
-explorerDesc.Font = Enum.Font.Gotham
-explorerDesc.TextSize = 14
-explorerDesc.TextXAlignment = Enum.TextXAlignment.Left
-explorerDesc.TextWrapped = true
-explorerDesc.Parent = explorerBtn
-
--- BSS GUI Button
-local bssBtn = Instance.new("TextButton")
-bssBtn.Size = UDim2.new(1, 0, 0, 100)
-bssBtn.Position = UDim2.new(0, 0, 0, 110)
-bssBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 50)
-bssBtn.BorderSizePixel = 0
-bssBtn.Text = ""
-bssBtn.AutoButtonColor = false
-bssBtn.Parent = btnContainer
-createCorner(bssBtn, 14)
-local bssStroke = createStroke(bssBtn, 2, Color3.fromRGB(255, 200, 80))
-
-local bssIcon = Instance.new("TextLabel")
-bssIcon.Size = UDim2.new(0, 60, 1, 0)
-bssIcon.BackgroundTransparency = 1
-bssIcon.Text = "🐝"
-bssIcon.TextSize = 40
-bssIcon.Font = Enum.Font.GothamBold
-bssIcon.Parent = bssBtn
-
-local bssTitle = Instance.new("TextLabel")
-bssTitle.Size = UDim2.new(1, -80, 0, 35)
-bssTitle.Position = UDim2.new(0, 70, 0, 15)
-bssTitle.BackgroundTransparency = 1
-bssTitle.Text = "🌻 BSS Auto Farm GUI"
-bssTitle.TextColor3 = Color3.fromRGB(255, 200, 80)
-bssTitle.Font = Enum.Font.GothamBold
-bssTitle.TextSize = 20
-bssTitle.TextXAlignment = Enum.TextXAlignment.Left
-bssTitle.Parent = bssBtn
-
-local bssDesc = Instance.new("TextLabel")
-bssDesc.Size = UDim2.new(1, -80, 0, 40)
-bssDesc.Position = UDim2.new(0, 70, 0, 50)
-bssDesc.BackgroundTransparency = 1
-bssDesc.Text = "Auto farm fields, collect tokens, teleport to zones"
-bssDesc.TextColor3 = Color3.fromRGB(140, 145, 160)
-bssDesc.Font = Enum.Font.Gotham
-bssDesc.TextSize = 14
-bssDesc.TextXAlignment = Enum.TextXAlignment.Left
-bssDesc.TextWrapped = true
-bssDesc.Parent = bssBtn
-
--- Close button
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 40, 0, 40)
-closeBtn.Position = UDim2.new(1, -50, 0, 10)
-closeBtn.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 20
-closeBtn.Parent = mainFrame
-createCorner(closeBtn, 10)
-
--- Hover effects
-explorerBtn.MouseEnter:Connect(function()
-    tween(explorerBtn, {BackgroundColor3 = Color3.fromRGB(40, 50, 70)}, 0.15)
-    tween(explorerStroke, {Color = Color3.fromRGB(150, 220, 255)}, 0.15)
-end)
-explorerBtn.MouseLeave:Connect(function()
-    tween(explorerBtn, {BackgroundColor3 = Color3.fromRGB(30, 35, 50)}, 0.15)
-    tween(explorerStroke, {Color = Color3.fromRGB(100, 200, 255)}, 0.15)
-end)
-
-bssBtn.MouseEnter:Connect(function()
-    tween(bssBtn, {BackgroundColor3 = Color3.fromRGB(50, 45, 35)}, 0.15)
-    tween(bssStroke, {Color = Color3.fromRGB(255, 220, 120)}, 0.15)
-end)
-bssBtn.MouseLeave:Connect(function()
-    tween(bssBtn, {BackgroundColor3 = Color3.fromRGB(30, 35, 50)}, 0.15)
-    tween(bssStroke, {Color = Color3.fromRGB(255, 200, 80)}, 0.15)
-end)
-
--- Close launcher
-local function closeLauncher()
-    tween(mainFrame, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.25)
-    tween(overlay, {BackgroundTransparency = 1}, 0.25)
-    task.wait(0.25)
-    launcherGui:Destroy()
-end
-
-closeBtn.MouseButton1Click:Connect(closeLauncher)
-
--- ═══════════════════════════════════════════════════════════════════
--- SCRIPT EXPLORER LOADER
--- ═══════════════════════════════════════════════════════════════════
-explorerBtn.MouseButton1Click:Connect(function()
-    closeLauncher()
-    task.wait(0.3)
-    
-    -- Load Script Explorer v9.5 (embedded below)
-    loadScriptExplorer()
-end)
-
--- ═══════════════════════════════════════════════════════════════════
--- BSS GUI LOADER  
--- ═══════════════════════════════════════════════════════════════════
-bssBtn.MouseButton1Click:Connect(function()
-    closeLauncher()
-    task.wait(0.3)
-    
-    -- Load BSS Auto Farm GUI
-    loadBSSGui()
-end)
-
--- ═══════════════════════════════════════════════════════════════════
--- BSS AUTO FARM GUI
--- ═══════════════════════════════════════════════════════════════════
-function loadBSSGui()
-    local bssGui = Instance.new("ScreenGui")
-    bssGui.Name = "BSSAutoFarm"
-    bssGui.ResetOnSpawn = false
-    bssGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    bssGui.IgnoreGuiInset = true
-    
-    pcall(function() bssGui.Parent = CoreGui end)
-    if not bssGui.Parent then
-        bssGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    end
-    
-    local mainBSS = Instance.new("Frame")
-    mainBSS.Size = UDim2.new(0, 320, 0, 450)
-    mainBSS.Position = UDim2.new(0, 20, 0.5, -225)
-    mainBSS.BackgroundColor3 = Color3.fromRGB(25, 20, 15)
-    mainBSS.BorderSizePixel = 0
-    mainBSS.Active = true
-    mainBSS.Parent = bssGui
-    createCorner(mainBSS, 16)
-    createStroke(mainBSS, 2, Color3.fromRGB(255, 200, 80))
-    
-    -- Header
-    local bssHeader = Instance.new("Frame")
-    bssHeader.Size = UDim2.new(1, 0, 0, 50)
-    bssHeader.BackgroundColor3 = Color3.fromRGB(35, 30, 20)
-    bssHeader.BorderSizePixel = 0
-    bssHeader.Parent = mainBSS
-    createCorner(bssHeader, 16)
-    
-    local bssTitleLabel = Instance.new("TextLabel")
-    bssTitleLabel.Size = UDim2.new(1, -50, 1, 0)
-    bssTitleLabel.Position = UDim2.new(0, 15, 0, 0)
-    bssTitleLabel.BackgroundTransparency = 1
-    bssTitleLabel.Text = "🐝 BSS Auto Farm"
-    bssTitleLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
-    bssTitleLabel.Font = Enum.Font.GothamBold
-    bssTitleLabel.TextSize = 18
-    bssTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    bssTitleLabel.Parent = bssHeader
-    
-    local bssClose = Instance.new("TextButton")
-    bssClose.Size = UDim2.new(0, 36, 0, 36)
-    bssClose.Position = UDim2.new(1, -43, 0, 7)
-    bssClose.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-    bssClose.Text = "✕"
-    bssClose.TextColor3 = Color3.new(1, 1, 1)
-    bssClose.Font = Enum.Font.GothamBold
-    bssClose.TextSize = 18
-    bssClose.Parent = bssHeader
-    createCorner(bssClose, 8)
-    
-    bssClose.MouseButton1Click:Connect(function()
-        tween(mainBSS, {Size = UDim2.new(0, 0, 0, 0)}, 0.2)
-        task.wait(0.2)
-        bssGui:Destroy()
-    end)
-    
-    -- Field selector
-    local fieldLabel = Instance.new("TextLabel")
-    fieldLabel.Size = UDim2.new(1, -20, 0, 30)
-    fieldLabel.Position = UDim2.new(0, 10, 0, 60)
-    fieldLabel.BackgroundTransparency = 1
-    fieldLabel.Text = "🌻 Select Field to Farm:"
-    fieldLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    fieldLabel.Font = Enum.Font.GothamBold
-    fieldLabel.TextSize = 14
-    fieldLabel.TextXAlignment = Enum.TextXAlignment.Left
-    fieldLabel.Parent = mainBSS
-    
-    local fieldScroll = Instance.new("ScrollingFrame")
-    fieldScroll.Size = UDim2.new(1, -20, 0, 280)
-    fieldScroll.Position = UDim2.new(0, 10, 0, 95)
-    fieldScroll.BackgroundColor3 = Color3.fromRGB(20, 18, 12)
-    fieldScroll.BorderSizePixel = 0
-    fieldScroll.ScrollBarThickness = 8
-    fieldScroll.ScrollBarImageColor3 = Color3.fromRGB(255, 200, 80)
-    fieldScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    fieldScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    fieldScroll.Parent = mainBSS
-    createCorner(fieldScroll, 10)
-    
-    local fieldLayout = Instance.new("UIListLayout")
-    fieldLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    fieldLayout.Padding = UDim.new(0, 5)
-    fieldLayout.Parent = fieldScroll
-    
-    local fieldPadding = Instance.new("UIPadding")
-    fieldPadding.PaddingTop = UDim.new(0, 8)
-    fieldPadding.PaddingBottom = UDim.new(0, 8)
-    fieldPadding.PaddingLeft = UDim.new(0, 8)
-    fieldPadding.PaddingRight = UDim.new(0, 8)
-    fieldPadding.Parent = fieldScroll
-    
-    -- Status label
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, -20, 0, 40)
-    statusLabel.Position = UDim2.new(0, 10, 1, -50)
-    statusLabel.BackgroundColor3 = Color3.fromRGB(30, 25, 18)
-    statusLabel.Text = "📍 Select a field to teleport"
-    statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = 12
-    statusLabel.Parent = mainBSS
-    createCorner(statusLabel, 8)
-    
-    -- Try to find FlowerZones
-    local function loadFields()
-        local flowerZones = workspace:FindFirstChild("FlowerZones")
-        if not flowerZones then
-            -- Try alternative locations
-            for _, child in ipairs(workspace:GetDescendants()) do
-                if child.Name == "FlowerZones" and child:IsA("Folder") then
-                    flowerZones = child
-                    break
-                end
-            end
-        end
-        
-        if flowerZones then
-            local fields = flowerZones:GetChildren()
-            table.sort(fields, function(a, b) return a.Name < b.Name end)
-            
-            for i, field in ipairs(fields) do
-                local fieldBtn = Instance.new("TextButton")
-                fieldBtn.Size = UDim2.new(1, 0, 0, 40)
-                fieldBtn.BackgroundColor3 = Color3.fromRGB(40, 35, 25)
-                fieldBtn.Text = "🌸 " .. field.Name
-                fieldBtn.TextColor3 = Color3.fromRGB(255, 220, 150)
-                fieldBtn.Font = Enum.Font.GothamBold
-                fieldBtn.TextSize = 14
-                fieldBtn.LayoutOrder = i
-                fieldBtn.Parent = fieldScroll
-                createCorner(fieldBtn, 8)
-                
-                fieldBtn.MouseEnter:Connect(function()
-                    tween(fieldBtn, {BackgroundColor3 = Color3.fromRGB(60, 50, 35)}, 0.1)
-                end)
-                fieldBtn.MouseLeave:Connect(function()
-                    tween(fieldBtn, {BackgroundColor3 = Color3.fromRGB(40, 35, 25)}, 0.1)
-                end)
-                
-                fieldBtn.MouseButton1Click:Connect(function()
-                    statusLabel.Text = "🚀 Teleporting to " .. field.Name .. "..."
-                    
-                    -- Find a part to teleport to
-                    local targetPart = field:FindFirstChildWhichIsA("BasePart", true)
-                    if targetPart and LocalPlayer.Character then
-                        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                        if hrp then
-                            -- Tween to field
-                            local targetPos = targetPart.Position + Vector3.new(0, 10, 0)
-                            local tweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-                            local moveTween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
-                            moveTween:Play()
-                            
-                            moveTween.Completed:Connect(function()
-                                statusLabel.Text = "✅ Arrived at " .. field.Name
-                            end)
-                        end
-                    else
-                        statusLabel.Text = "❌ Could not find field location"
-                    end
-                end)
-            end
-            
-            statusLabel.Text = "✅ Found " .. #fields .. " fields"
-        else
-            statusLabel.Text = "❌ FlowerZones not found"
-            
-            -- Add manual field buttons
-            local defaultFields = {"Sunflower", "Dandelion", "Mushroom", "Blue Flower", "Clover", "Spider", "Strawberry", "Bamboo", "Pineapple", "Stump", "Cactus", "Pumpkin", "Pine Tree", "Rose", "Mountain Top", "Pepper", "Coconut"}
-            
-            for i, fieldName in ipairs(defaultFields) do
-                local fieldBtn = Instance.new("TextButton")
-                fieldBtn.Size = UDim2.new(1, 0, 0, 40)
-                fieldBtn.BackgroundColor3 = Color3.fromRGB(40, 35, 25)
-                fieldBtn.Text = "🌸 " .. fieldName .. " Field"
-                fieldBtn.TextColor3 = Color3.fromRGB(255, 220, 150)
-                fieldBtn.Font = Enum.Font.GothamBold
-                fieldBtn.TextSize = 14
-                fieldBtn.LayoutOrder = i
-                fieldBtn.Parent = fieldScroll
-                createCorner(fieldBtn, 8)
-                
-                fieldBtn.MouseButton1Click:Connect(function()
-                    statusLabel.Text = "🔍 Searching for " .. fieldName .. "..."
-                    
-                    -- Search workspace for field
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        if obj.Name:lower():find(fieldName:lower()) and obj:IsA("BasePart") then
-                            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                            if hrp then
-                                local targetPos = obj.Position + Vector3.new(0, 10, 0)
-                                local tweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Quad)
-                                TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)}):Play()
-                                statusLabel.Text = "✅ Going to " .. fieldName
-                                return
-                            end
-                        end
-                    end
-                    
-                    statusLabel.Text = "❌ " .. fieldName .. " not found"
-                end)
-            end
-        end
-    end
-    
-    loadFields()
-    
-    -- Make draggable
-    local dragging, dragStart, startPos
-    bssHeader.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = mainBSS.Position
-        end
-    end)
-    bssHeader.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-    game:GetService("UserInputService").InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            mainBSS.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    
-    -- Animate in
-    mainBSS.Size = UDim2.new(0, 0, 0, 0)
-    mainBSS.Position = UDim2.new(0.5, 0, 0.5, 0)
-    tween(mainBSS, {Size = UDim2.new(0, 320, 0, 450), Position = UDim2.new(0, 20, 0.5, -225)}, 0.3)
-end
-
--- ═══════════════════════════════════════════════════════════════════
--- SCRIPT EXPLORER v9.5 ULTRA (Embedded)
--- ═══════════════════════════════════════════════════════════════════
-function loadScriptExplorer()
-
--- ═══════════════════════════════════════════════════════════════════
--- 🚀 SCRIPT EXPLORER v9.5 ULTRA - MAXIMUM DECOMPILE + TOKEN FINDER
+-- 🚀 SCRIPT EXPLORER v9.5 ULTRA
 -- ═══════════════════════════════════════════════════════════════════
 -- ✅ GAME MAP - Full copyable list on startup
--- ✅ FIXED: Search lag - Chunked processing
+-- ✅ FIXED: Search lag - Chunked processing  
 -- ✅ FIXED: All services open properly
 -- ✅ FIXED: Deep tree loading - ALL files visible
 -- ✅ IN-GAME HIGHLIGHT - Click to highlight in 3D world
+-- ✅ speed's ModuleScript decompiler integrated
 -- ✅ 15+ decompile methods - NEVER shows "failed"
--- ✅ ModuleScript deep inspection (speed's decompiler integrated)
 -- ✅ ALWAYS shows code or useful info
 -- ═══════════════════════════════════════════════════════════════════
 
@@ -595,9 +114,7 @@ local CONFIG = {
     },
 }
 
--- ═══════════════════════════════════════════════════════════════════
--- SERVICES
--- ═══════════════════════════════════════════════════════════════════
+-- Services
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -606,9 +123,7 @@ local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 
--- ═══════════════════════════════════════════════════════════════════
--- GLOBAL STATE
--- ═══════════════════════════════════════════════════════════════════
+-- Global State
 local currentItem = nil
 local currentScript = nil
 local currentSource = nil
@@ -684,7 +199,7 @@ local function getColor(instance)
 end
 
 -- ═══════════════════════════════════════════════════════════════════
--- GAME MAP GENERATOR - FULL COPYABLE LIST!
+-- GAME MAP GENERATOR
 -- ═══════════════════════════════════════════════════════════════════
 
 local function generateGameMap()
@@ -771,7 +286,6 @@ local function showGameMap()
     
     gameMapGui = screenGui
     
-    -- Main container
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "GameMapFrame"
     mainFrame.Size = UDim2.new(0.85, 0, 0.9, 0)
@@ -782,7 +296,6 @@ local function showGameMap()
     createCorner(mainFrame, 16)
     createStroke(mainFrame, 3, CONFIG.Colors.Accent, 0.2)
     
-    -- Header
     local header = Instance.new("Frame")
     header.Name = "Header"
     header.Size = UDim2.new(1, 0, 0, 60)
@@ -809,7 +322,6 @@ local function showGameMap()
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Parent = header
     
-    -- Close button
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, 50, 0, 50)
     closeBtn.Position = UDim2.new(1, -55, 0, 5)
@@ -828,7 +340,6 @@ local function showGameMap()
         gameMapGui = nil
     end)
     
-    -- Continue to explorer button
     local continueBtn = Instance.new("TextButton")
     continueBtn.Size = UDim2.new(0, 200, 0, 40)
     continueBtn.Position = UDim2.new(1, -270, 0, 10)
@@ -845,7 +356,6 @@ local function showGameMap()
         gameMapGui = nil
     end)
     
-    -- Loading indicator
     local loadingLabel = Instance.new("TextLabel")
     loadingLabel.Size = UDim2.new(1, 0, 1, -60)
     loadingLabel.Position = UDim2.new(0, 0, 0, 60)
@@ -856,7 +366,6 @@ local function showGameMap()
     loadingLabel.TextSize = 24
     loadingLabel.Parent = mainFrame
     
-    -- Generate map in background
     task.spawn(function()
         task.wait(0.1)
         local maps, totalObjects, totalScripts = generateGameMap()
@@ -865,7 +374,6 @@ local function showGameMap()
         
         loadingLabel:Destroy()
         
-        -- Stats bar
         local statsBar = Instance.new("Frame")
         statsBar.Size = UDim2.new(1, -20, 0, 35)
         statsBar.Position = UDim2.new(0, 10, 0, 65)
@@ -884,7 +392,6 @@ local function showGameMap()
         statsLabel.TextXAlignment = Enum.TextXAlignment.Left
         statsLabel.Parent = statsBar
         
-        -- Tab container
         local tabContainer = Instance.new("Frame")
         tabContainer.Size = UDim2.new(1, -20, 0, 40)
         tabContainer.Position = UDim2.new(0, 10, 0, 105)
@@ -897,7 +404,6 @@ local function showGameMap()
         tabLayout.Padding = UDim.new(0, 5)
         tabLayout.Parent = tabContainer
         
-        -- Content area
         local contentScroll = Instance.new("ScrollingFrame")
         contentScroll.Size = UDim2.new(1, -20, 1, -160)
         contentScroll.Position = UDim2.new(0, 10, 0, 150)
@@ -948,7 +454,6 @@ local function showGameMap()
             end
         end
         
-        -- Create tabs for each service
         local order = 0
         for _, serviceName in ipairs(CONFIG.Services) do
             if maps[serviceName] then
@@ -958,7 +463,7 @@ local function showGameMap()
                 tabBtn.Name = serviceName
                 tabBtn.Size = UDim2.new(0, 120, 1, 0)
                 tabBtn.BackgroundColor3 = CONFIG.Colors.Tertiary
-                tabBtn.Text = CONFIG.Icons[serviceName] or "⚙️" .. " " .. serviceName:sub(1, 10)
+                tabBtn.Text = (CONFIG.Icons[serviceName] or "⚙️") .. " " .. serviceName:sub(1, 10)
                 tabBtn.TextColor3 = CONFIG.Colors.Text
                 tabBtn.Font = Enum.Font.GothamBold
                 tabBtn.TextSize = 11
@@ -978,7 +483,6 @@ local function showGameMap()
             end
         end
         
-        -- Copy All button
         local copyAllBtn = Instance.new("TextButton")
         copyAllBtn.Size = UDim2.new(0, 100, 1, 0)
         copyAllBtn.BackgroundColor3 = CONFIG.Colors.Success
@@ -991,11 +495,8 @@ local function showGameMap()
         createCorner(copyAllBtn, 6)
         
         copyAllBtn.MouseButton1Click:Connect(function()
-            local fullMap = "-- ═══════════════════════════════════════════════════════════════════\n"
-            fullMap = fullMap .. "-- 🗺️ FULL GAME MAP\n"
-            fullMap = fullMap .. "-- Generated by Script Explorer v9.0 ULTIMATE\n"
+            local fullMap = "-- 🗺️ FULL GAME MAP\n-- Generated by Script Explorer v9.5\n"
             fullMap = fullMap .. "-- Total: " .. totalObjects .. " objects | " .. totalScripts .. " scripts\n"
-            fullMap = fullMap .. "-- ═══════════════════════════════════════════════════════════════════\n"
             
             for _, serviceName in ipairs(CONFIG.Services) do
                 if maps[serviceName] then
@@ -1014,7 +515,6 @@ local function showGameMap()
             copyAllBtn.Text = "📋 Copy All"
         end)
         
-        -- Copy current tab button
         local copyTabBtn = Instance.new("TextButton")
         copyTabBtn.Size = UDim2.new(0, 100, 1, 0)
         copyTabBtn.BackgroundColor3 = CONFIG.Colors.Accent
@@ -1039,7 +539,6 @@ local function showGameMap()
         end)
     end)
     
-    -- Animate in
     mainFrame.Size = UDim2.new(0, 0, 0, 0)
     mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
     task.wait(0.05)
@@ -1136,115 +635,117 @@ local function highlightObject(instance)
 end
 
 -- ═══════════════════════════════════════════════════════════════════
--- DECOMPILATION (15+ METHODS) - NEVER SHOWS "FAILED"!
+-- DECOMPILATION - speed's ModuleScript decompiler + 15 methods
 -- ═══════════════════════════════════════════════════════════════════
 
--- Deep table serializer for ModuleScripts (speed's decompiler enhanced)
-local function deepSerialize(value, indent, visited)
-    indent = indent or 0
-    visited = visited or {}
-    local spacing = string.rep("    ", indent)
-    local nextSpacing = string.rep("    ", indent + 1)
+-- speed's decompiler for ModuleScripts (enhanced version)
+local function decompileModule(moduleScript)
+    local success, module = pcall(function()
+        return require(moduleScript)
+    end)
     
-    local t = type(value)
+    if not success or module == nil then
+        return nil
+    end
     
-    if t == "nil" then
-        return "nil"
-    elseif t == "boolean" then
-        return tostring(value)
-    elseif t == "number" then
-        return tostring(value)
-    elseif t == "string" then
-        local escaped = value:gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"')
-        if #escaped > 200 then
-            escaped = escaped:sub(1, 200) .. "... [truncated]"
-        end
-        return '"' .. escaped .. '"'
-    elseif t == "function" then
-        local info = debug and debug.getinfo and debug.getinfo(value)
-        if info then
-            return "function() --[[ " .. (info.source or "unknown") .. ":" .. (info.linedefined or "?") .. " ]]"
-        end
-        return "function() --[[ compiled ]]"
-    elseif t == "table" then
-        if visited[value] then
-            return "{--[[ circular reference ]]}"
-        end
-        visited[value] = true
+    local result = "-- Decompiled with speed's decompiler (enhanced)\n"
+    result = result .. "-- ModuleScript: " .. moduleScript:GetFullName() .. "\n\n"
+    
+    if type(module) == "table" then
+        result = result .. "return {\n"
         
-        local parts = {}
-        local arrayPart = {}
-        local dictPart = {}
-        local index = 1
-        
-        -- Check array part
-        for i, v in ipairs(value) do
-            arrayPart[i] = deepSerialize(v, indent + 1, visited)
-            index = i + 1
-        end
-        
-        -- Check dict part
-        for k, v in pairs(value) do
-            if type(k) ~= "number" or k < 1 or k >= index or k ~= math.floor(k) then
-                local keyStr
-                if type(k) == "string" and k:match("^[%a_][%w_]*$") then
-                    keyStr = k
-                else
-                    keyStr = "[" .. deepSerialize(k, 0, visited) .. "]"
+        local function serializeValue(value, indent)
+            indent = indent or 1
+            local spacing = string.rep("    ", indent)
+            local t = type(value)
+            
+            if t == "string" then
+                local escaped = value:gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub('"', '\\"')
+                if #escaped > 100 then
+                    escaped = escaped:sub(1, 100) .. "..."
                 end
-                table.insert(dictPart, nextSpacing .. keyStr .. " = " .. deepSerialize(v, indent + 1, visited))
+                return '"' .. escaped .. '"'
+            elseif t == "number" or t == "boolean" then
+                return tostring(value)
+            elseif t == "function" then
+                return "function() --[[ compiled ]] end"
+            elseif t == "table" then
+                local parts = {}
+                local isArray = true
+                local maxIndex = 0
+                
+                for k, v in pairs(value) do
+                    if type(k) ~= "number" or k < 1 or k ~= math.floor(k) then
+                        isArray = false
+                        break
+                    end
+                    maxIndex = math.max(maxIndex, k)
+                end
+                
+                if isArray and maxIndex > 0 then
+                    for i = 1, math.min(maxIndex, 20) do
+                        table.insert(parts, spacing .. serializeValue(value[i], indent + 1))
+                    end
+                    if maxIndex > 20 then
+                        table.insert(parts, spacing .. "-- ... " .. (maxIndex - 20) .. " more items")
+                    end
+                else
+                    local count = 0
+                    for k, v in pairs(value) do
+                        if count >= 30 then
+                            table.insert(parts, spacing .. "-- ... more entries")
+                            break
+                        end
+                        local keyStr
+                        if type(k) == "string" and k:match("^[%a_][%w_]*$") then
+                            keyStr = k
+                        else
+                            keyStr = "[" .. serializeValue(k, 0) .. "]"
+                        end
+                        table.insert(parts, spacing .. keyStr .. " = " .. serializeValue(v, indent + 1))
+                        count = count + 1
+                    end
+                end
+                
+                if #parts == 0 then
+                    return "{}"
+                end
+                return "{\n" .. table.concat(parts, ",\n") .. "\n" .. string.rep("    ", indent - 1) .. "}"
+            else
+                return "nil --[[ " .. t .. " ]]"
             end
         end
         
-        if #arrayPart == 0 and #dictPart == 0 then
-            return "{}"
-        end
-        
-        local result = "{\n"
-        
-        for i, v in ipairs(arrayPart) do
-            result = result .. nextSpacing .. v .. ",\n"
-        end
-        
-        for _, v in ipairs(dictPart) do
-            result = result .. v .. ",\n"
-        end
-        
-        result = result .. spacing .. "}"
-        return result
-    elseif t == "userdata" then
-        local success, str = pcall(tostring, value)
-        if success then
-            return "--[[ userdata: " .. str .. " ]]"
-        end
-        return "--[[ userdata ]]"
-    else
-        return "--[[ " .. t .. " ]]"
-    end
-end
-
-local function safeToString(value, depth)
-    depth = depth or 0
-    if depth > 4 then return "..." end
-    
-    local t = type(value)
-    if t == "string" then
-        return '"' .. value:sub(1, 100) .. (value:len() > 100 and "..." or "") .. '"'
-    elseif t == "table" then
-        local parts = {}
         local count = 0
-        for k, v in pairs(value) do
-            if count >= 10 then
-                table.insert(parts, "...")
+        for key, value in pairs(module) do
+            if count >= 50 then
+                result = result .. "    -- ... more entries\n"
                 break
             end
-            table.insert(parts, "[" .. safeToString(k, depth+1) .. "] = " .. safeToString(v, depth+1))
+            
+            local keyStr
+            if type(key) == "string" and key:match("^[%a_][%w_]*$") then
+                keyStr = key
+            else
+                keyStr = "[" .. tostring(key) .. "]"
+            end
+            
+            result = result .. "    " .. keyStr .. " = " .. serializeValue(value, 2) .. ",\n"
             count = count + 1
         end
-        return "{" .. table.concat(parts, ", ") .. "}"
+        
+        result = result .. "}\n"
+    elseif type(module) == "function" then
+        result = result .. "return function()\n    -- compiled function\nend\n"
+    elseif type(module) == "string" then
+        result = result .. 'return "' .. module:sub(1, 500) .. '"\n'
+    elseif type(module) == "number" or type(module) == "boolean" then
+        result = result .. "return " .. tostring(module) .. "\n"
     else
-        return tostring(value)
+        result = result .. "return " .. tostring(module) .. " --[[ " .. type(module) .. " ]]\n"
     end
+    
+    return result
 end
 
 local function getScriptSource(scriptInstance)
@@ -1253,7 +754,6 @@ local function getScriptSource(scriptInstance)
         method = "unknown",
         lineCount = 0,
         byteSize = 0,
-        isObfuscated = false,
     }
     
     local methods = {
@@ -1263,14 +763,14 @@ local function getScriptSource(scriptInstance)
             end
         end},
         
-        {name = "closure_decompile", fn = function()
+        {name = "getscriptclosure", fn = function()
             if type(getscriptclosure) == "function" and type(decompile) == "function" then
                 local closure = getscriptclosure(scriptInstance)
                 if closure then return decompile(closure) end
             end
         end},
         
-        {name = "hidden_property", fn = function()
+        {name = "gethiddenproperty", fn = function()
             if type(gethiddenproperty) == "function" then
                 local success, source = pcall(gethiddenproperty, scriptInstance, "Source")
                 if success and source and #source > 0 then return source end
@@ -1290,7 +790,7 @@ local function getScriptSource(scriptInstance)
             end
         end},
         
-        {name = "debug_getinfo", fn = function()
+        {name = "debug.getinfo", fn = function()
             if type(getscriptclosure) == "function" and type(debug) == "table" and type(debug.getinfo) == "function" then
                 local closure = getscriptclosure(scriptInstance)
                 if closure then
@@ -1302,42 +802,39 @@ local function getScriptSource(scriptInstance)
             end
         end},
         
-        {name = "bytecode", fn = function()
+        {name = "getscriptbytecode", fn = function()
             local getBytecode = getscriptbytecode or get_script_bytecode or dumpstring
             if type(getBytecode) == "function" then
                 local success, bytecode = pcall(getBytecode, scriptInstance)
                 if success and bytecode and #bytecode > 0 then
-                    result.isObfuscated = true
-                    return "-- ⚠️ BYTECODE ONLY (" .. #bytecode .. " bytes)\n-- Script is compiled/protected"
+                    return "-- ⚠️ BYTECODE ONLY (" .. #bytecode .. " bytes)\n-- Script is compiled/protected\n-- Raw bytecode available but not human-readable"
                 end
             end
         end},
         
-        {name = "script_hash", fn = function()
+        {name = "getscripthash", fn = function()
             if type(getscripthash) == "function" then
                 local success, hash = pcall(getscripthash, scriptInstance)
                 if success and hash then
-                    result.isObfuscated = true
-                    return "-- 🔒 Script Hash: " .. tostring(hash)
+                    return "-- 🔒 Script Hash: " .. tostring(hash) .. "\n-- Script exists but source is protected"
                 end
             end
         end},
         
-        {name = "require", fn = function()
+        {name = "speed_decompiler", fn = function()
+            if scriptInstance:IsA("ModuleScript") then
+                return decompileModule(scriptInstance)
+            end
+        end},
+        
+        {name = "require_tostring", fn = function()
             if scriptInstance:IsA("ModuleScript") then
                 local success, moduleResult = pcall(function()
                     return require(scriptInstance)
                 end)
                 if success and moduleResult ~= nil then
-                    local serialized = deepSerialize(moduleResult, 0, {})
-                    return "-- 📦 ModuleScript Decompiled (speed's decompiler enhanced)\n-- Type: " .. type(moduleResult) .. "\n-- Path: " .. scriptInstance:GetFullName() .. "\n\nreturn " .. serialized
+                    return "-- ModuleScript require() result\n-- Type: " .. type(moduleResult) .. "\n\nreturn " .. tostring(moduleResult)
                 end
-            end
-        end},
-        
-        {name = "saveinstance", fn = function()
-            if type(saveinstance) == "function" then
-                return "-- Script exists but cannot be decompiled\n-- Use saveinstance() to save the game"
             end
         end},
     }
@@ -1359,9 +856,38 @@ local function getScriptSource(scriptInstance)
         end
     end
     
-    result.source = "-- Script: " .. scriptInstance:GetFullName() .. "\n-- Could not retrieve source (executor limitation)"
-    result.method = "none"
-    result.lineCount = 2
+    -- Fallback - show script info instead of "failed"
+    local info = "-- 📜 " .. scriptInstance.Name .. "\n"
+    info = info .. "-- Class: " .. scriptInstance.ClassName .. "\n"
+    info = info .. "-- Path: " .. scriptInstance:GetFullName() .. "\n"
+    info = info .. "-- \n"
+    info = info .. "-- Source could not be retrieved with available methods.\n"
+    info = info .. "-- This is normal for some protected scripts.\n"
+    info = info .. "-- \n"
+    info = info .. "-- Script Properties:\n"
+    
+    pcall(function()
+        if scriptInstance:IsA("LocalScript") or scriptInstance:IsA("Script") then
+            info = info .. "--   Disabled: " .. tostring(scriptInstance.Disabled) .. "\n"
+        end
+    end)
+    
+    pcall(function()
+        local children = scriptInstance:GetChildren()
+        info = info .. "--   Children: " .. #children .. "\n"
+        for i, child in ipairs(children) do
+            if i <= 10 then
+                info = info .. "--     - " .. child.Name .. " [" .. child.ClassName .. "]\n"
+            elseif i == 11 then
+                info = info .. "--     ... and " .. (#children - 10) .. " more\n"
+            end
+        end
+    end)
+    
+    result.source = info
+    result.method = "info"
+    result.lineCount = 15
+    result.byteSize = #info
     
     return result
 end
@@ -1371,7 +897,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "ScriptExplorerV9"
+screenGui.Name = "ScriptExplorerV95"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.IgnoreGuiInset = true
@@ -1382,12 +908,10 @@ if not screenGui.Parent then
     screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
--- Show Game Map on start
 if CONFIG.ShowGameMapOnStart then
     showGameMap()
 end
 
--- Main Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.fromScale(CONFIG.WindowWidth, CONFIG.WindowHeight)
@@ -1400,7 +924,6 @@ mainFrame.Parent = screenGui
 createCorner(mainFrame, 14)
 createStroke(mainFrame, 2, CONFIG.Colors.Accent, 0.3)
 
--- Header
 local header = Instance.new("Frame")
 header.Name = "Header"
 header.Size = UDim2.new(1, 0, 0, 56)
@@ -1420,14 +943,13 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -180, 1, 0)
 title.Position = UDim2.new(0, 20, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "🚀 Script Explorer v9.0 ULTIMATE"
+title.Text = "🚀 Script Explorer v9.5 ULTRA"
 title.TextColor3 = CONFIG.Colors.Text
 title.Font = Enum.Font.GothamBold
 title.TextSize = 20
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
--- Game Map Button
 local gameMapBtn = Instance.new("TextButton")
 gameMapBtn.Name = "GameMapBtn"
 gameMapBtn.Size = UDim2.new(0, 44, 0, 44)
@@ -1444,7 +966,6 @@ gameMapBtn.MouseButton1Click:Connect(function()
     showGameMap()
 end)
 
--- Minimize Button
 local minimizeBtn = Instance.new("TextButton")
 minimizeBtn.Size = UDim2.new(0, 44, 0, 44)
 minimizeBtn.Position = UDim2.new(1, -92, 0, 6)
@@ -1468,7 +989,6 @@ minimizeBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Close Button
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 44, 0, 44)
 closeBtn.Position = UDim2.new(1, -50, 0, 6)
@@ -1487,7 +1007,6 @@ closeBtn.MouseButton1Click:Connect(function()
     screenGui:Destroy()
 end)
 
--- Toolbar
 local toolbar = Instance.new("Frame")
 toolbar.Size = UDim2.new(1, -24, 0, 46)
 toolbar.Position = UDim2.new(0, 12, 0, 64)
@@ -1495,7 +1014,7 @@ toolbar.BackgroundTransparency = 1
 toolbar.Parent = mainFrame
 
 local searchBox = Instance.new("TextBox")
-searchBox.Size = UDim2.new(0.75, -8, 1, 0)
+searchBox.Size = UDim2.new(0.85, -8, 1, 0)
 searchBox.BackgroundColor3 = CONFIG.Colors.Secondary
 searchBox.Text = ""
 searchBox.PlaceholderText = "🔍 Search scripts, models, parts..."
@@ -1509,8 +1028,8 @@ createCorner(searchBox, 10)
 createPadding(searchBox, 14)
 
 local refreshBtn = Instance.new("TextButton")
-refreshBtn.Size = UDim2.new(0.125, -4, 1, 0)
-refreshBtn.Position = UDim2.new(0.75, 4, 0, 0)
+refreshBtn.Size = UDim2.new(0.15, -4, 1, 0)
+refreshBtn.Position = UDim2.new(0.85, 4, 0, 0)
 refreshBtn.BackgroundColor3 = CONFIG.Colors.Accent
 refreshBtn.Text = "🔄"
 refreshBtn.TextColor3 = CONFIG.Colors.Text
@@ -1519,18 +1038,6 @@ refreshBtn.TextSize = 20
 refreshBtn.Parent = toolbar
 createCorner(refreshBtn, 10)
 
-local settingsBtn = Instance.new("TextButton")
-settingsBtn.Size = UDim2.new(0.125, -4, 1, 0)
-settingsBtn.Position = UDim2.new(0.875, 4, 0, 0)
-settingsBtn.BackgroundColor3 = CONFIG.Colors.Tertiary
-settingsBtn.Text = "⚙️"
-settingsBtn.TextColor3 = CONFIG.Colors.Text
-settingsBtn.Font = Enum.Font.GothamBold
-settingsBtn.TextSize = 20
-settingsBtn.Parent = toolbar
-createCorner(settingsBtn, 10)
-
--- Path Display
 local pathBar = Instance.new("Frame")
 pathBar.Size = UDim2.new(1, -24, 0, 30)
 pathBar.Position = UDim2.new(0, 12, 0, 116)
@@ -1561,7 +1068,6 @@ copyPathBtn.TextSize = 11
 copyPathBtn.Parent = pathBar
 createCorner(copyPathBtn, 6)
 
--- Split Container
 local splitContainer = Instance.new("Frame")
 splitContainer.Size = UDim2.new(1, -24, 1, -160)
 splitContainer.Position = UDim2.new(0, 12, 0, 152)
@@ -1569,7 +1075,6 @@ splitContainer.BackgroundTransparency = 1
 splitContainer.ClipsDescendants = true
 splitContainer.Parent = mainFrame
 
--- Tree Panel (Left)
 local treePanel = Instance.new("Frame")
 treePanel.Size = UDim2.new(CONFIG.TreePanelWidth, -6, 1, 0)
 treePanel.BackgroundColor3 = CONFIG.Colors.Secondary
@@ -1596,7 +1101,6 @@ treeLayout.Parent = treeScroll
 
 createPadding(treeScroll, 8)
 
--- Code Panel (Right)
 local codePanel = Instance.new("Frame")
 codePanel.Size = UDim2.new(1 - CONFIG.TreePanelWidth, -6, 1, 0)
 codePanel.Position = UDim2.new(CONFIG.TreePanelWidth, 6, 0, 0)
@@ -1615,7 +1119,7 @@ local codeTitle = Instance.new("TextLabel")
 codeTitle.Size = UDim2.new(1, -100, 1, 0)
 codeTitle.Position = UDim2.new(0, 14, 0, 0)
 codeTitle.BackgroundTransparency = 1
-codeTitle.Text = "📜 Select an item"
+codeTitle.Text = "📜 Select a script"
 codeTitle.TextColor3 = CONFIG.Colors.Text
 codeTitle.Font = Enum.Font.GothamBold
 codeTitle.TextSize = 15
@@ -1672,7 +1176,7 @@ local codeContent = Instance.new("TextBox")
 codeContent.Size = UDim2.new(1, -20, 0, 0)
 codeContent.Position = UDim2.new(0, 10, 0, 10)
 codeContent.BackgroundTransparency = 1
-codeContent.Text = "-- 🚀 Script Explorer v9.0 ULTIMATE\n-- Click 🗺️ to view Game Map\n-- Select any item from the tree"
+codeContent.Text = "-- 🚀 Script Explorer v9.5 ULTRA\n-- Click 🗺️ to view Game Map\n-- Select any item from the tree"
 codeContent.TextColor3 = CONFIG.Colors.Text
 codeContent.Font = Enum.Font.Code
 codeContent.TextSize = 13
@@ -1766,7 +1270,6 @@ local function createTreeNode(instance, parentFrame, indentLevel, layoutOrder)
         local fullPath = instance:GetFullName()
         pathLabel.Text = "📍 " .. fullPath
         
-        -- Highlight in 3D world
         highlightObject(instance)
         
         if isScript then
@@ -1777,11 +1280,7 @@ local function createTreeNode(instance, parentFrame, indentLevel, layoutOrder)
             currentSource = result.source
             codeContent.Text = result.source
             
-            local meta = "📊 " .. result.lineCount .. " lines | " .. result.byteSize .. " bytes | " .. result.method
-            if result.isObfuscated then
-                meta = meta .. " | ⚠️ Protected"
-            end
-            metaLabel.Text = meta
+            metaLabel.Text = "📊 " .. result.lineCount .. " lines | " .. result.byteSize .. " bytes | " .. result.method
         else
             codeTitle.Text = icon .. " " .. instance.Name
             local info = "-- 📌 " .. instance.Name .. "\n"
@@ -1798,16 +1297,9 @@ local function createTreeNode(instance, parentFrame, indentLevel, layoutOrder)
                     info = info .. "-- Size = " .. tostring(instance.Size) .. "\n"
                     info = info .. "-- BrickColor = " .. tostring(instance.BrickColor) .. "\n"
                     info = info .. "-- Material = " .. tostring(instance.Material) .. "\n"
-                    info = info .. "-- Transparency = " .. instance.Transparency .. "\n"
-                    info = info .. "-- CanCollide = " .. tostring(instance.CanCollide) .. "\n"
-                    info = info .. "-- Anchored = " .. tostring(instance.Anchored) .. "\n"
                 end
                 if instance:IsA("Model") and instance.PrimaryPart then
                     info = info .. "-- PrimaryPart = " .. instance.PrimaryPart.Name .. "\n"
-                end
-                if instance:IsA("Sound") then
-                    info = info .. "-- SoundId = " .. instance.SoundId .. "\n"
-                    info = info .. "-- Volume = " .. instance.Volume .. "\n"
                 end
             end)
             
@@ -1939,7 +1431,6 @@ local function buildTree(searchQuery)
             end
         end
     else
-        -- Search mode
         local results = 0
         local function searchIn(instance, path)
             if results >= CONFIG.MaxSearchResults then return end
@@ -2057,10 +1548,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════════
--- INITIALIZE
--- ═══════════════════════════════════════════════════════════════════
-
+-- Initialize
 buildTree()
 
 mainFrame.Size = UDim2.new(0, 0, 0, 0)
@@ -2071,11 +1559,8 @@ tween(mainFrame, {
     Position = UDim2.fromScale(0.5 - CONFIG.WindowWidth/2, 0.5 - CONFIG.WindowHeight/2)
 }, 0.35)
 
-print("═══════════════════════════════════════════════════════════════")
-print("🚀 Script Explorer v9.0 ULTIMATE loaded!")
-print("═══════════════════════════════════════════════════════════════")
-print("✅ Game Map shows on startup - Full copyable list!")
+print("🚀 Script Explorer v9.5 ULTRA loaded!")
+print("✅ Game Map shows on startup")
 print("✅ Click 🗺️ anytime to reopen Game Map")
 print("✅ In-game highlight when clicking objects")
-print("✅ " .. #CONFIG.Services .. " services scanned")
-print("═══════════════════════════════════════════════════════════════")
+print("✅ speed's ModuleScript decompiler integrated")
