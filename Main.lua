@@ -1156,6 +1156,55 @@ function GameMap.show()
             end
         end)
         
+        -- Save Files Button (writes per-service maps into executor files)
+        local saveBtn = UI.button({ 
+            Text = "💾 Save Files", 
+            Size = UDim2.new(0, 110, 0, 32), 
+            Color = Config.Colors.Item, 
+            TextSize = 10, 
+            Corner = 6, 
+            Parent = tabs 
+        })
+        saveBtn.LayoutOrder = 997
+
+        saveBtn.MouseButton1Click:Connect(function()
+            if not Executor.has("writefile") then
+                Toast.show("❌ writefile not supported by this executor", 3, Config.Colors.Error)
+                return
+            end
+
+            local folderName = "ScriptExplorer_Maps"
+            pcall(function()
+                if Executor.has("isfolder") then
+                    if not Executor.call("isfolder", folderName) then
+                        Executor.call("makefolder", folderName)
+                    end
+                elseif Executor.has("makefolder") then
+                    Executor.call("makefolder", folderName)
+                end
+            end)
+
+            local saved = 0
+            for serviceName, data in pairs(maps) do
+                if data and data.lines and #data.lines > 0 then
+                    local filePath = folderName .. "/" .. serviceName .. ".txt"
+                    local header = "-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)" .. string.char(10) .. string.char(10)
+                    local ok = pcall(function()
+                        Executor.call("writefile", filePath, header .. table.concat(data.lines, string.char(10)))
+                    end)
+                    if ok then
+                        saved = saved + 1
+                    end
+                end
+            end
+
+            if saved > 0 then
+                Toast.show("💾 Saved " .. saved .. " files to /" .. folderName, 3, Config.Colors.Success)
+            else
+                Toast.show("⚠️ Nothing to save", 3, Config.Colors.Error)
+            end
+        end)
+        
         -- Create tabs for each service
         local order = 0
         for _, serviceName in ipairs(Config.Services) do
