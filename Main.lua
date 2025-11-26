@@ -1168,38 +1168,92 @@ function GameMap.show()
         saveBtn.LayoutOrder = 997
 
         saveBtn.MouseButton1Click:Connect(function()
-            if not Executor.has("writefile") then
-                Toast.show("❌ writefile not supported by this executor", 3, Config.Colors.Error)
+            local saved = 0
+
+            -- Prefer executor filesystem if available
+            if Executor.has("writefile") then
+                local folderName = "ScriptExplorer_Maps"
+                pcall(function()
+                    if Executor.has("isfolder") then
+                        if not Executor.call("isfolder", folderName) then
+                            Executor.call("makefolder", folderName)
+                        end
+                    elseif Executor.has("makefolder") then
+                        Executor.call("makefolder", folderName)
+                    end
+                end)
+
+                for serviceName, data in pairs(maps) do
+                    if data and data.lines and #data.lines > 0 then
+                        local filePath = folderName .. "/" .. serviceName .. ".txt"
+                        local header = "-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)" .. string.char(10) .. string.char(10)
+                        local ok = pcall(function()
+                            Executor.call("writefile", filePath, header .. table.concat(data.lines, string.char(10)))
+                        end)
+                        if ok then
+                            saved = saved + 1
+                        end
+                    end
+                end
+
+                if saved > 0 then
+                    Toast.show("💾 Saved " .. saved .. " files to /" .. folderName, 3, Config.Colors.Success)
+                else
+                    Toast.show("⚠️ Nothing to save", 3, Config.Colors.Error)
+                end
                 return
             end
 
-            local folderName = "ScriptExplorer_Maps"
-            pcall(function()
-                if Executor.has("isfolder") then
-                    if not Executor.call("isfolder", folderName) then
-                        Executor.call("makefolder", folderName)
-                    end
-                elseif Executor.has("makefolder") then
-                    Executor.call("makefolder", folderName)
-                end
-            end)
+            -- Fallback: save into Workspace / Workspace.Delta as StringValues
+            local root = game:GetService("Workspace")
+            local parentFolder = root:FindFirstChild("Delta") or root
 
-            local saved = 0
+            local mapsFolder = parentFolder:FindFirstChild("ScriptExplorer_Maps")
+            if not mapsFolder then
+                mapsFolder = Instance.new("Folder")
+                mapsFolder.Name = "ScriptExplorer_Maps"
+                mapsFolder.Parent = parentFolder
+            end
+
+            -- Clear previous contents
+            for _, child in ipairs(mapsFolder:GetChildren()) do
+                pcall(function() child:Destroy() end)
+            end
+
+            local MAX_CHUNK = 180000 -- keep below Roblox's 200k StringValue limit
+
             for serviceName, data in pairs(maps) do
                 if data and data.lines and #data.lines > 0 then
-                    local filePath = folderName .. "/" .. serviceName .. ".txt"
-                    local header = "-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)" .. string.char(10) .. string.char(10)
-                    local ok = pcall(function()
-                        Executor.call("writefile", filePath, header .. table.concat(data.lines, string.char(10)))
-                    end)
-                    if ok then
-                        saved = saved + 1
+                    local serviceFolder = Instance.new("Folder")
+                    serviceFolder.Name = serviceName
+                    serviceFolder.Parent = mapsFolder
+
+                    local header = "-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)"
+                    local combined = {header, ""}
+                    for _, line in ipairs(data.lines) do
+                        table.insert(combined, line)
                     end
+                    local fullText = table.concat(combined, string.char(10))
+
+                    local index = 1
+                    while #fullText > 0 do
+                        local chunk = fullText:sub(1, MAX_CHUNK)
+                        fullText = fullText:sub(#chunk + 1)
+
+                        local sv = Instance.new("StringValue")
+                        sv.Name = serviceName .. "_part" .. index
+                        sv.Value = chunk
+                        sv.Parent = serviceFolder
+                        index = index + 1
+                    end
+
+                    saved = saved + 1
                 end
             end
 
             if saved > 0 then
-                Toast.show("💾 Saved " .. saved .. " files to /" .. folderName, 3, Config.Colors.Success)
+                local locName = (parentFolder == root) and "workspace" or ("workspace." .. parentFolder.Name)
+                Toast.show("💾 Saved " .. saved .. " maps under " .. locName .. ".ScriptExplorer_Maps", 4, Config.Colors.Success)
             else
                 Toast.show("⚠️ Nothing to save", 3, Config.Colors.Error)
             end
