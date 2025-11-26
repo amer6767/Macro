@@ -963,7 +963,48 @@ function GameMap.show()
         local copyTabIndex = 0
         local copyAllIndex = 0
         local copyAllLines = {}
-        local LINES_PER_COPY = 100
+        local LINES_PER_COPY = 300
+        local copyCurrent
+
+        -- Limit for how much text we put into the on-screen label.
+        -- Roblox Text objects cannot exceed 200,000 characters.
+        local MAX_DISPLAY_CHARS = 180000
+
+        local function buildDisplayText(serviceName)
+            local data = maps[serviceName]
+            if not (data and data.lines and #data.lines > 0) then
+                return "-- No data for " .. serviceName
+            end
+
+            local headerText = "-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)" .. string.char(10) .. string.char(10)
+            local buffer = { headerText }
+            local totalLen = #headerText
+
+            for i, line in ipairs(data.lines) do
+                local part = line .. string.char(10)
+                local newLen = totalLen + #part
+                if newLen > MAX_DISPLAY_CHARS then
+                    table.insert(buffer, string.char(10))
+                    table.insert(buffer, "-- [Display truncated at " .. (i - 1) .. " lines]")
+                    table.insert(buffer, string.char(10))
+                    table.insert(buffer, "-- Use the copy buttons to get the full content in chunks of 300 lines.")
+                    table.insert(buffer, string.char(10))
+                    break
+                end
+                table.insert(buffer, part)
+                totalLen = newLen
+            end
+
+            return table.concat(buffer)
+        end
+
+        local function getBaseStart(serviceName, totalLines)
+            local baseStart = ((serviceName == "Workspace") or (serviceName == "ReplicatedStorage")) and 1500 or 1
+            if baseStart > totalLines then
+                baseStart = 1
+            end
+            return baseStart
+        end
         
         local function showService(serviceName)
             if currentTab then 
@@ -977,12 +1018,18 @@ function GameMap.show()
             currentServiceName = serviceName
             copyTabIndex = 0
             
-            local data = maps[serviceName]
-            if data and data.lines and #data.lines > 0 then
-                local headerText = "-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)" .. string.char(10) .. string.char(10)
-                contentBox.Text = headerText .. table.concat(data.lines, string.char(10))
-            else
-                contentBox.Text = "-- No data for " .. serviceName
+            contentBox.Text = buildDisplayText(serviceName)
+
+            -- Update copy button label for this service
+            if copyCurrent and maps[serviceName] and maps[serviceName].lines then
+                local totalLines = #maps[serviceName].lines
+                local baseStart = getBaseStart(serviceName, totalLines)
+                local baseEnd = math.min(baseStart + LINES_PER_COPY - 1, totalLines)
+                if baseStart == 1 then
+                    copyCurrent.Text = "📋 Copy 1-" .. baseEnd
+                else
+                    copyCurrent.Text = "📋 " .. baseStart .. "-" .. baseEnd
+                end
             end
 
             -- Force update of scroll area so content is always visible
@@ -993,37 +1040,9 @@ function GameMap.show()
             end)
         end
         
-        -- Create tabs for each service
-        local order = 0
-        for _, serviceName in ipairs(Config.Services) do
-            local data = maps[serviceName]
-            if data and data.lines and #data.lines > 0 then
-                order = order + 1
-                local tabBtn = UI.button({ 
-                    Text = "📂 " .. serviceName:sub(1, 10), 
-                    Size = UDim2.new(0, 110, 0, 32), 
-                    Color = Config.Colors.Item, 
-                    TextSize = 10, 
-                    Corner = 6, 
-                    Parent = tabs 
-                })
-                tabBtn.LayoutOrder = order
-                tabButtons[serviceName] = tabBtn
-                
-                tabBtn.MouseButton1Click:Connect(function() 
-                    showService(serviceName) 
-                end)
-                
-                -- Show first service by default
-                if order == 1 then 
-                    showService(serviceName) 
-                end
-            end
-        end
-        
-        -- Copy Tab Button (100 lines per click)
-        local copyCurrent = UI.button({ 
-            Text = "📋 Copy 1-100", 
+        -- Copy Tab Button (300 lines per click)
+        copyCurrent = UI.button({ 
+            Text = "📋 Copy 1-300", 
             Size = UDim2.new(0, 100, 0, 32), 
             Color = Config.Colors.Accent, 
             TextSize = 10, 
@@ -1036,13 +1055,14 @@ function GameMap.show()
             if currentServiceName and maps[currentServiceName] then
                 local allLines = maps[currentServiceName].lines
                 local totalLines = #allLines
-                local startLine = copyTabIndex * LINES_PER_COPY + 1
-                local endLine = math.min((copyTabIndex + 1) * LINES_PER_COPY, totalLines)
+                local baseStart = getBaseStart(currentServiceName, totalLines)
+                local startLine = baseStart + copyTabIndex * LINES_PER_COPY
+                local endLine = math.min(startLine + LINES_PER_COPY - 1, totalLines)
                 
                 if startLine > totalLines then
                     copyTabIndex = 0
-                    startLine = 1
-                    endLine = math.min(LINES_PER_COPY, totalLines)
+                    startLine = baseStart
+                    endLine = math.min(startLine + LINES_PER_COPY - 1, totalLines)
                 end
                 
                 local chunk = {}
@@ -1056,13 +1076,18 @@ function GameMap.show()
                 copyCurrent.Text = "✅ " .. startLine .. "-" .. endLine
                 copyTabIndex = copyTabIndex + 1
                 
-                local nextStart = copyTabIndex * LINES_PER_COPY + 1
+                local nextStart = baseStart + copyTabIndex * LINES_PER_COPY
                 task.wait(1)
                 if nextStart > totalLines then
-                    copyCurrent.Text = "📋 Copy 1-100"
+                    local baseEnd = math.min(baseStart + LINES_PER_COPY - 1, totalLines)
+                    if baseStart == 1 then
+                        copyCurrent.Text = "📋 Copy 1-" .. baseEnd
+                    else
+                        copyCurrent.Text = "📋 " .. baseStart .. "-" .. baseEnd
+                    end
                     copyTabIndex = 0
                 else
-                    local nextEnd = math.min((copyTabIndex + 1) * LINES_PER_COPY, totalLines)
+                    local nextEnd = math.min(nextStart + LINES_PER_COPY - 1, totalLines)
                     copyCurrent.Text = "📋 " .. nextStart .. "-" .. nextEnd
                 end
             end
@@ -1070,7 +1095,7 @@ function GameMap.show()
         
         -- Copy All Button
         local copyAll = UI.button({ 
-            Text = "📋 All 1-100", 
+            Text = "📋 All 1-300", 
             Size = UDim2.new(0, 100, 0, 32), 
             Color = Config.Colors.Success, 
             TextSize = 10, 
@@ -1100,7 +1125,7 @@ function GameMap.show()
             
             local totalLines = #copyAllLines
             local startLine = copyAllIndex * LINES_PER_COPY + 1
-            local endLine = math.min((copyAllIndex + 1) * LINES_PER_COPY, totalLines)
+            local endLine = math.min(startLine + LINES_PER_COPY - 1, totalLines)
             
             if startLine > totalLines then
                 copyAllIndex = 0
@@ -1122,14 +1147,42 @@ function GameMap.show()
             local nextStart = copyAllIndex * LINES_PER_COPY + 1
             task.wait(1)
             if nextStart > totalLines then
-                copyAll.Text = "📋 All 1-100"
+                copyAll.Text = "📋 All 1-300"
                 copyAllIndex = 0
                 copyAllLines = {}
             else
-                local nextEnd = math.min((copyAllIndex + 1) * LINES_PER_COPY, totalLines)
+                local nextEnd = math.min(nextStart + LINES_PER_COPY - 1, totalLines)
                 copyAll.Text = "📋 All " .. nextStart .. "-" .. nextEnd
             end
         end)
+        
+        -- Create tabs for each service
+        local order = 0
+        for _, serviceName in ipairs(Config.Services) do
+            local data = maps[serviceName]
+            if data and data.lines and #data.lines > 0 then
+                order = order + 1
+                local tabBtn = UI.button({ 
+                    Text = "📂 " .. serviceName:sub(1, 10), 
+                    Size = UDim2.new(0, 110, 0, 32), 
+                    Color = Config.Colors.Item, 
+                    TextSize = 10, 
+                    Corner = 6, 
+                    Parent = tabs 
+                })
+                tabBtn.LayoutOrder = order
+                tabButtons[serviceName] = tabBtn
+                
+                tabBtn.MouseButton1Click:Connect(function() 
+                    showService(serviceName) 
+                end)
+                
+                -- Show first service by default
+                if order == 1 then 
+                    showService(serviceName) 
+                end
+            end
+        end
     end)
 end
 
