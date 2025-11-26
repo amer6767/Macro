@@ -941,7 +941,8 @@ function GameMap.show()
         content.BackgroundTransparency = 0
         UI.corner(content, 10)
         
-        local contentBox = Instance.new("TextBox")
+        -- Use TextLabel for maximum compatibility and reliable auto sizing
+        local contentBox = Instance.new("TextLabel")
         contentBox.Size = UDim2.new(1, -20, 0, 0)
         contentBox.Position = UDim2.new(0, 10, 0, 10)
         contentBox.BackgroundTransparency = 1
@@ -951,9 +952,6 @@ function GameMap.show()
         contentBox.TextXAlignment = Enum.TextXAlignment.Left
         contentBox.TextYAlignment = Enum.TextYAlignment.Top
         contentBox.TextWrapped = false
-        contentBox.MultiLine = true
-        contentBox.ClearTextOnFocus = false
-        contentBox.TextEditable = false
         contentBox.AutomaticSize = Enum.AutomaticSize.Y
         contentBox.Parent = content
         
@@ -986,6 +984,13 @@ function GameMap.show()
             else
                 contentBox.Text = "-- No data for " .. serviceName
             end
+
+            -- Force update of scroll area so content is always visible
+            task.delay(0, function()
+                pcall(function()
+                    content.CanvasSize = UDim2.new(0, 0, 0, contentBox.TextBounds.Y + 20)
+                end)
+            end)
         end
         
         -- Create tabs for each service
