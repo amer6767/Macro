@@ -1,1 +1,616 @@
-Hey ejd
+--[[
+    BSS Ultimate Hub v3.0 - FIXED VERSION
+    Features: Auto Dig, Mob Detection, Backpack Tracker, Auto Claim Hive (WORKING)
+    
+    FIXES IN THIS VERSION:
+    - Auto Claim Hive now has a toggle button
+    - Added background loop that actually claims hives
+    - Proper teleport + touch mechanism
+    - Checks if player already owns a hive
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════════
+-- CONFIGURATION
+-- ═══════════════════════════════════════════════════════════════
+local Config = {
+    Field = nil,
+    Farming = false,
+    AutoDig = true,
+    MobAlert = true,
+    AutoClaimHive = false,
+    TokenCollect = true,
+    FarmSpeed = 45,
+    TokenRange = 70
+}
+
+-- ═══════════════════════════════════════════════════════════════
+-- GUI CREATION
+-- ═══════════════════════════════════════════════════════════════
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "BSSUltimateHub"
+Gui.ResetOnSpawn = false
+Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() Gui.Parent = game:GetService("CoreGui") end)
+
+-- Toggle Button (Always visible when minimized)
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Position = UDim2.new(0, 15, 0.5, -25)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+ToggleBtn.Text = "🐝"
+ToggleBtn.TextSize = 24
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.Parent = Gui
+ToggleBtn.Visible = false
+local ToggleCorner = Instance.new("UICorner", ToggleBtn)
+ToggleCorner.CornerRadius = UDim.new(0, 12)
+
+-- Main Frame
+local Main = Instance.new("Frame")
+Main.Name = "MainFrame"
+Main.Size = UDim2.new(0, 280, 0, 450)
+Main.Position = UDim2.new(0, 20, 0.5, -225)
+Main.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+Main.BorderSizePixel = 0
+Main.Parent = Gui
+
+local MainCorner = Instance.new("UICorner", Main)
+MainCorner.CornerRadius = UDim.new(0, 14)
+
+local MainStroke = Instance.new("UIStroke", Main)
+MainStroke.Color = Color3.fromRGB(40, 40, 55)
+MainStroke.Thickness = 1
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 50)
+Header.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+Header.BorderSizePixel = 0
+Header.Parent = Main
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 14)
+
+local HeaderFix = Instance.new("Frame")
+HeaderFix.Size = UDim2.new(1, 0, 0, 20)
+HeaderFix.Position = UDim2.new(0, 0, 1, -20)
+HeaderFix.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+HeaderFix.BorderSizePixel = 0
+HeaderFix.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -50, 1, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "  🐝 BSS Ultimate Hub v3"
+Title.TextColor3 = Color3.fromRGB(15, 15, 22)
+Title.Font = Enum.Font.GothamBlack
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+-- Minimize Button
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 30, 0, 30)
+MinBtn.Position = UDim2.new(1, -40, 0, 10)
+MinBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+MinBtn.Text = "−"
+MinBtn.TextColor3 = Color3.fromRGB(245, 158, 11)
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 20
+MinBtn.Parent = Header
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 8)
+
+-- Status Bar
+local StatusBar = Instance.new("Frame")
+StatusBar.Size = UDim2.new(1, -20, 0, 55)
+StatusBar.Position = UDim2.new(0, 10, 0, 58)
+StatusBar.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+StatusBar.BorderSizePixel = 0
+StatusBar.Parent = Main
+Instance.new("UICorner", StatusBar).CornerRadius = UDim.new(0, 10)
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -10, 0, 20)
+StatusLabel.Position = UDim2.new(0, 10, 0, 5)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: Idle"
+StatusLabel.TextColor3 = Color3.fromRGB(120, 200, 120)
+StatusLabel.Font = Enum.Font.GothamSemibold
+StatusLabel.TextSize = 12
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Parent = StatusBar
+
+-- Backpack Tracker
+local BackpackLabel = Instance.new("TextLabel")
+BackpackLabel.Size = UDim2.new(1, -10, 0, 20)
+BackpackLabel.Position = UDim2.new(0, 10, 0, 28)
+BackpackLabel.BackgroundTransparency = 1
+BackpackLabel.Text = "🎒 Backpack: 0 / 0"
+BackpackLabel.TextColor3 = Color3.fromRGB(150, 150, 180)
+BackpackLabel.Font = Enum.Font.Gotham
+BackpackLabel.TextSize = 11
+BackpackLabel.TextXAlignment = Enum.TextXAlignment.Left
+BackpackLabel.Parent = StatusBar
+
+-- Mob Alert Display
+local MobAlert = Instance.new("TextLabel")
+MobAlert.Size = UDim2.new(1, -20, 0, 22)
+MobAlert.Position = UDim2.new(0, 10, 0, 118)
+MobAlert.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+MobAlert.BackgroundTransparency = 1
+MobAlert.Text = ""
+MobAlert.TextColor3 = Color3.fromRGB(255, 100, 100)
+MobAlert.Font = Enum.Font.GothamBold
+MobAlert.TextSize = 11
+MobAlert.Parent = Main
+Instance.new("UICorner", MobAlert).CornerRadius = UDim.new(0, 6)
+
+-- Field Scroll Container
+local ScrollContainer = Instance.new("Frame")
+ScrollContainer.Size = UDim2.new(1, -20, 0, 140)
+ScrollContainer.Position = UDim2.new(0, 10, 0, 145)
+ScrollContainer.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+ScrollContainer.BorderSizePixel = 0
+ScrollContainer.Parent = Main
+Instance.new("UICorner", ScrollContainer).CornerRadius = UDim.new(0, 10)
+
+local FieldLabel = Instance.new("TextLabel")
+FieldLabel.Size = UDim2.new(1, 0, 0, 25)
+FieldLabel.BackgroundTransparency = 1
+FieldLabel.Text = "  📍 Select Field"
+FieldLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+FieldLabel.Font = Enum.Font.GothamSemibold
+FieldLabel.TextSize = 11
+FieldLabel.TextXAlignment = Enum.TextXAlignment.Left
+FieldLabel.Parent = ScrollContainer
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -10, 1, -30)
+Scroll.Position = UDim2.new(0, 5, 0, 27)
+Scroll.BackgroundTransparency = 1
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = Color3.fromRGB(245, 158, 11)
+Scroll.BorderSizePixel = 0
+Scroll.Parent = ScrollContainer
+
+local List = Instance.new("UIListLayout", Scroll)
+List.Padding = UDim.new(0, 4)
+List.SortOrder = Enum.SortOrder.Name
+
+-- Toggle Buttons Container
+local TogglesFrame = Instance.new("Frame")
+TogglesFrame.Size = UDim2.new(1, -20, 0, 95)
+TogglesFrame.Position = UDim2.new(0, 10, 0, 292)
+TogglesFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+TogglesFrame.BorderSizePixel = 0
+TogglesFrame.Parent = Main
+Instance.new("UICorner", TogglesFrame).CornerRadius = UDim.new(0, 10)
+
+local function CreateToggle(name, yPos, default, callback)
+    local Toggle = Instance.new("Frame")
+    Toggle.Size = UDim2.new(1, -16, 0, 26)
+    Toggle.Position = UDim2.new(0, 8, 0, yPos)
+    Toggle.BackgroundTransparency = 1
+    Toggle.Parent = TogglesFrame
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -50, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(180, 180, 200)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Toggle
+    
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(0, 44, 0, 22)
+    Btn.Position = UDim2.new(1, -44, 0.5, -11)
+    Btn.BackgroundColor3 = default and Color3.fromRGB(80, 180, 80) or Color3.fromRGB(60, 60, 75)
+    Btn.Text = default and "ON" or "OFF"
+    Btn.TextColor3 = Color3.new(1, 1, 1)
+    Btn.Font = Enum.Font.GothamBold
+    Btn.TextSize = 10
+    Btn.Parent = Toggle
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    
+    local state = default
+    Btn.MouseButton1Click:Connect(function()
+        state = not state
+        Btn.BackgroundColor3 = state and Color3.fromRGB(80, 180, 80) or Color3.fromRGB(60, 60, 75)
+        Btn.Text = state and "ON" or "OFF"
+        callback(state)
+    end)
+    return Btn
+end
+
+-- CREATE ALL 3 TOGGLES
+CreateToggle("🔨 Auto Dig", 5, true, function(v) Config.AutoDig = v end)
+CreateToggle("👁️ Mob Alert", 33, true, function(v) Config.MobAlert = v end)
+CreateToggle("🏠 Auto Claim Hive", 61, false, function(v) Config.AutoClaimHive = v end)
+
+-- Stop Button
+local StopBtn = Instance.new("TextButton")
+StopBtn.Size = UDim2.new(1, -20, 0, 32)
+StopBtn.Position = UDim2.new(0, 10, 1, -42)
+StopBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+StopBtn.Text = "⏹ STOP FARMING"
+StopBtn.TextColor3 = Color3.new(1, 1, 1)
+StopBtn.Font = Enum.Font.GothamBold
+StopBtn.TextSize = 12
+StopBtn.Parent = Main
+Instance.new("UICorner", StopBtn).CornerRadius = UDim.new(0, 8)
+
+-- ═══════════════════════════════════════════════════════════════
+-- UI FUNCTIONS
+-- ═══════════════════════════════════════════════════════════════
+local function ToggleUI()
+    Main.Visible = not Main.Visible
+    ToggleBtn.Visible = not Main.Visible
+    if not Main.Visible then
+        ToggleBtn.Position = UDim2.new(0, Main.Position.X.Offset, 0.5, -25)
+    end
+end
+
+MinBtn.MouseButton1Click:Connect(ToggleUI)
+ToggleBtn.MouseButton1Click:Connect(ToggleUI)
+
+-- Dragging
+local dragging, dragStart, startPos
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Main.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+Header.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- LOAD FIELDS (FlowerZones)
+-- ═══════════════════════════════════════════════════════════════
+local function LoadFields()
+    for _, c in pairs(Scroll:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    
+    local FlowerZones = Workspace:FindFirstChild("FlowerZones")
+    if not FlowerZones then
+        StatusLabel.Text = "Status: FlowerZones not found!"
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        return
+    end
+    
+    for _, zone in pairs(FlowerZones:GetChildren()) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -6, 0, 28)
+        btn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+        btn.Text = "  " .. zone.Name
+        btn.TextColor3 = Color3.fromRGB(220, 220, 240)
+        btn.Font = Enum.Font.GothamSemibold
+        btn.TextSize = 11
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Parent = Scroll
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        
+        btn.MouseButton1Click:Connect(function()
+            Config.Field = zone
+            Config.Farming = true
+            StatusLabel.Text = "Status: Farming " .. zone.Name
+            StatusLabel.TextColor3 = Color3.fromRGB(120, 200, 120)
+            
+            for _, b in pairs(Scroll:GetChildren()) do
+                if b:IsA("TextButton") then
+                    b.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+                end
+            end
+            btn.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+        end)
+    end
+    Scroll.CanvasSize = UDim2.new(0, 0, 0, List.AbsoluteContentSize.Y + 8)
+end
+
+LoadFields()
+
+-- Stop Button Logic
+StopBtn.MouseButton1Click:Connect(function()
+    Config.Farming = false
+    Config.Field = nil
+    StatusLabel.Text = "Status: Stopped"
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 180, 100)
+    for _, b in pairs(Scroll:GetChildren()) do
+        if b:IsA("TextButton") then
+            b.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+        end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- BACKPACK TRACKER (CoreStats: Pollen & Capacity)
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    while task.wait(0.5) do
+        pcall(function()
+            local CoreStats = LocalPlayer:FindFirstChild("CoreStats")
+            if CoreStats then
+                local Pollen = CoreStats:FindFirstChild("Pollen")
+                local Capacity = CoreStats:FindFirstChild("Capacity")
+                if Pollen and Capacity then
+                    local percent = math.floor((Pollen.Value / Capacity.Value) * 100)
+                    BackpackLabel.Text = string.format("🎒 Backpack: %s / %s (%d%%)", 
+                        tostring(math.floor(Pollen.Value)), 
+                        tostring(math.floor(Capacity.Value)), 
+                        percent)
+                    
+                    if percent >= 95 then
+                        BackpackLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                    elseif percent >= 70 then
+                        BackpackLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+                    else
+                        BackpackLabel.TextColor3 = Color3.fromRGB(150, 200, 150)
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- MOB DETECTION (FlyingEntities, Mondo Chick, etc.)
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    while task.wait(1) do
+        if Config.MobAlert then
+            pcall(function()
+                local mobs = {}
+                
+                local FlyingEntities = Workspace:FindFirstChild("FlyingEntities")
+                if FlyingEntities then
+                    for _, entity in pairs(FlyingEntities:GetChildren()) do
+                        table.insert(mobs, entity.Name)
+                    end
+                end
+                
+                if Workspace:FindFirstChild("Mondo Chick") then
+                    table.insert(mobs, "Mondo Chick")
+                end
+                
+                if Workspace:FindFirstChild("Coconut Crab") then
+                    table.insert(mobs, "Coconut Crab")
+                end
+                
+                if #mobs > 0 then
+                    MobAlert.BackgroundTransparency = 0
+                    MobAlert.Text = "⚠️ MOBS: " .. table.concat(mobs, ", ")
+                else
+                    MobAlert.BackgroundTransparency = 1
+                    MobAlert.Text = ""
+                end
+            end)
+        else
+            MobAlert.Text = ""
+            MobAlert.BackgroundTransparency = 1
+        end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- AUTO CLAIM HIVE - FIXED VERSION
+-- ═══════════════════════════════════════════════════════════════
+
+local function PlayerHasHive()
+    local honeycomb = LocalPlayer:FindFirstChild("Honeycomb")
+    if honeycomb and honeycomb:IsA("ObjectValue") then
+        return honeycomb.Value ~= nil
+    end
+    return false
+end
+
+local function FindUnclaimedHive()
+    local Honeycombs = Workspace:FindFirstChild("Honeycombs")
+    if not Honeycombs then return nil end
+    
+    for _, Hive in pairs(Honeycombs:GetChildren()) do
+        if Hive:IsA("Model") or Hive:IsA("Folder") then
+            local Cells = Hive:FindFirstChild("Cells")
+            if Cells then
+                for _, cell in pairs(Cells:GetChildren()) do
+                    local HiveID = cell:FindFirstChild("HiveID")
+                    if HiveID then
+                        if HiveID.Value == 0 then
+                            return Hive
+                        else
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function GetHiveClaimPart(hive)
+    local claimPart = hive:FindFirstChild("Platform") 
+        or hive:FindFirstChild("ClaimPlatform")
+        or hive:FindFirstChild("HivePlatform")
+        or hive:FindFirstChild("Base")
+        or hive:FindFirstChildOfClass("Part")
+        or hive:FindFirstChildOfClass("MeshPart")
+    
+    if not claimPart then
+        for _, part in pairs(hive:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name:lower():find("claim") then
+                claimPart = part
+                break
+            end
+        end
+    end
+    
+    if not claimPart then
+        local largestSize = 0
+        for _, part in pairs(hive:GetDescendants()) do
+            if part:IsA("BasePart") then
+                local size = part.Size.X * part.Size.Y * part.Size.Z
+                if size > largestSize then
+                    largestSize = size
+                    claimPart = part
+                end
+            end
+        end
+    end
+    
+    return claimPart
+end
+
+local function TouchPart(part)
+    local Character = LocalPlayer.Character
+    if not Character then return end
+    
+    local HRP = Character:FindFirstChild("HumanoidRootPart")
+    if not HRP then return end
+    
+    if firetouchinterest then
+        firetouchinterest(HRP, part, 0)
+        task.wait(0.1)
+        firetouchinterest(HRP, part, 1)
+        return true
+    end
+    
+    HRP.CFrame = part.CFrame + Vector3.new(0, 3, 0)
+    task.wait(0.5)
+    return true
+end
+
+-- AUTO CLAIM HIVE LOOP
+task.spawn(function()
+    while task.wait(2) do
+        if Config.AutoClaimHive then
+            pcall(function()
+                if PlayerHasHive() then return end
+                
+                local unclaimedHive = FindUnclaimedHive()
+                if unclaimedHive then
+                    StatusLabel.Text = "Status: Claiming " .. unclaimedHive.Name .. "..."
+                    StatusLabel.TextColor3 = Color3.fromRGB(180, 120, 255)
+                    
+                    local claimPart = GetHiveClaimPart(unclaimedHive)
+                    if claimPart then
+                        TouchPart(claimPart)
+                        task.wait(1)
+                        if PlayerHasHive() then
+                            StatusLabel.Text = "Status: Hive Claimed! ✓"
+                            StatusLabel.TextColor3 = Color3.fromRGB(120, 255, 120)
+                            Config.AutoClaimHive = false
+                        end
+                    end
+                else
+                    StatusLabel.Text = "Status: No unclaimed hives"
+                    StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+                end
+            end)
+        end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- MAIN FARM LOOP
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    while task.wait() do
+        if Config.Farming and Config.Field then
+            pcall(function()
+                local Character = LocalPlayer.Character
+                local HRP = Character and Character:FindFirstChild("HumanoidRootPart")
+                if not HRP then return end
+                
+                local fieldPos = Config.Field.CFrame.Position
+                
+                if Config.AutoDig then
+                    for _, tool in pairs(Character:GetChildren()) do
+                        if tool:IsA("Tool") then
+                            tool:Activate()
+                        end
+                    end
+                end
+                
+                if Config.TokenCollect then
+                    local tokens = {}
+                    
+                    local Collectibles = Workspace:FindFirstChild("Collectibles")
+                    if Collectibles then
+                        for _, token in pairs(Collectibles:GetChildren()) do
+                            if token:IsA("BasePart") and token.Transparency < 1 then
+                                local dist = (token.Position - fieldPos).Magnitude
+                                if dist < Config.TokenRange then
+                                    table.insert(tokens, token)
+                                end
+                            end
+                        end
+                    end
+                    
+                    local CamCollectibles = Workspace.CurrentCamera:FindFirstChild("Collectibles")
+                    if CamCollectibles then
+                        for _, token in pairs(CamCollectibles:GetChildren()) do
+                            if token:IsA("BasePart") then
+                                local dist = (token.Position - fieldPos).Magnitude
+                                if dist < Config.TokenRange then
+                                    table.insert(tokens, token)
+                                end
+                            end
+                        end
+                    end
+                    
+                    table.sort(tokens, function(a, b)
+                        return (a.Position - HRP.Position).Magnitude < (b.Position - HRP.Position).Magnitude
+                    end)
+                    
+                    local target
+                    if #tokens > 0 then
+                        target = tokens[1].CFrame + Vector3.new(0, 2, 0)
+                    else
+                        target = CFrame.new(fieldPos + Vector3.new(math.random(-25, 25), 4, math.random(-25, 25)))
+                    end
+                    
+                    local dist = (HRP.Position - target.Position).Magnitude
+                    if dist > 2 then
+                        local tweenTime = dist / Config.FarmSpeed
+                        local tween = TweenService:Create(HRP, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {CFrame = target})
+                        tween:Play()
+                        
+                        local completed = false
+                        tween.Completed:Once(function() completed = true end)
+                        
+                        local startTime = tick()
+                        while not completed and tick() - startTime < tweenTime + 0.3 do
+                            if not Config.Farming then
+                                tween:Cancel()
+                                break
+                            end
+                            task.wait()
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+print("🐝 BSS Ultimate Hub v3.0 Loaded - Auto Claim Hive FIXED!")
