@@ -1,12 +1,20 @@
 --[[
-    BSS Ultimate Hub v3.0 - FIXED VERSION
-    Features: Auto Dig, Mob Detection, Backpack Tracker, Auto Claim Hive (WORKING)
+    BSS Ultimate Hub v4.0 - ALL BUGS FIXED
     
-    FIXES IN THIS VERSION:
-    - Auto Claim Hive now has a toggle button
-    - Added background loop that actually claims hives
-    - Proper teleport + touch mechanism
-    - Checks if player already owns a hive
+    🔧 CRITICAL FIXES:
+    ✅ Auto Claim Hive - Retry logic with 5 attempts
+    ✅ Auto Return to Hive - Returns at 95% capacity
+    ✅ Manual Movement - WASD now works while farming
+    ✅ Token Collection - Fixed distance calculation
+    ✅ Tween Memory Leak - Proper cancellation
+    ✅ Mob Alert Optimization - Only updates on changes
+    ✅ Field Validation - Checks if field still exists
+    
+    🎯 IMPROVEMENTS:
+    ✅ Smart Token Priority - Values tokens by worth/distance
+    ✅ Anti-AFK System - Prevents auto-kick
+    ✅ Dynamic Speed - Adjusts based on distance
+    ✅ Better Status Updates - Shows exact current action
 ]]
 
 local Players = game:GetService("Players")
