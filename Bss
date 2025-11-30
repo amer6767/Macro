@@ -1,1 +1,284 @@
-// AI will write code here...
+--[[
+    Axiora GUI Framework
+    Developed by AI Assistant
+    Style: Modern, Clean, Dark Mode
+    Features: Draggable Main UI, Draggable Floating Toggle Button
+]]
+
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+
+local Player = Players.LocalPlayer
+local Mouse = Player:GetMouse()
+
+--// Configuration
+local CONFIG = {
+    AccentColor = Color3.fromRGB(0, 170, 255), -- Electric Cyan
+    BackgroundColor = Color3.fromRGB(25, 25, 25),
+    SecondaryColor = Color3.fromRGB(35, 35, 35),
+    TextColor = Color3.fromRGB(240, 240, 240),
+    CornerRadius = UDim.new(0, 12),
+    StrokeThickness = 2,
+    Transparency = 0.05
+}
+
+--// Protect GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AxioraGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Try to parent to CoreGui for security, fallback to PlayerGui
+local success, _ = pcall(function()
+    ScreenGui.Parent = CoreGui
+end)
+if not success then
+    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+end
+
+--// Utility: Draggable Function
+local function MakeDraggable(frame, dragHandle)
+    local dragToggle = nil
+    local dragSpeed = 0.15 -- Smoothness
+    local dragInput = nil
+    local dragStart = nil
+    local startPos = nil
+
+    local function updateInput(input)
+        local delta = input.Position - dragStart
+        local targetPos = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X, 
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+        
+        -- Smooth Tween
+        local tween = TweenService:Create(frame, TweenInfo.new(dragSpeed), {Position = targetPos})
+        tween:Play()
+    end
+
+    local handle = dragHandle or frame
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragToggle = true
+            dragStart = input.Position
+            startPos = frame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragToggle = false
+                end
+            end)
+        end
+    end)
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragToggle then
+            updateInput(input)
+        end
+    end)
+end
+
+--// Utility: Create Rounded Corner
+local function AddCorner(parent, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = radius or CONFIG.CornerRadius
+    corner.Parent = parent
+    return corner
+end
+
+--// Utility: Create Stroke
+local function AddStroke(parent, color, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color or CONFIG.AccentColor
+    stroke.Thickness = thickness or CONFIG.StrokeThickness
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Transparency = 0.2
+    stroke.Parent = parent
+    return stroke
+end
+
+--// MAIN WINDOW (The Rectangle)
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 450, 0, 300)
+MainFrame.Position = UDim2.new(0.5, -225, 0.5, -150) -- Center
+MainFrame.BackgroundColor3 = CONFIG.BackgroundColor
+MainFrame.BackgroundTransparency = CONFIG.Transparency
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+AddCorner(MainFrame)
+AddStroke(MainFrame)
+
+-- Drop Shadow (Simulated with ImageLabel or just Darker Stroke)
+local Shadow = Instance.new("ImageLabel")
+Shadow.Name = "Shadow"
+Shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+Shadow.BackgroundTransparency = 1
+Shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+Shadow.Size = UDim2.new(1, 40, 1, 40)
+Shadow.ZIndex = -1
+Shadow.Image = "rbxassetid://6015897843" -- Generic blurry shadow
+Shadow.ImageColor3 = Color3.new(0, 0, 0)
+Shadow.ImageTransparency = 0.4
+Shadow.SliceCenter = Rect.new(49, 49, 450, 450)
+Shadow.ScaleType = Enum.ScaleType.Slice
+Shadow.SliceScale = 1
+Shadow.Parent = MainFrame
+
+-- Top Bar (Title & Drag Area)
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BackgroundTransparency = 1
+TopBar.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Text = "AXIORA"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 18
+Title.TextColor3 = CONFIG.TextColor
+Title.Size = UDim2.new(1, -20, 1, 0)
+Title.Position = UDim2.new(0, 20, 0, 0)
+Title.BackgroundTransparency = 1
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+-- Divider Line
+local Divider = Instance.new("Frame")
+Divider.Name = "Divider"
+Divider.Size = UDim2.new(1, 0, 0, 1)
+Divider.Position = UDim2.new(0, 0, 0, 40)
+Divider.BackgroundColor3 = CONFIG.AccentColor
+Divider.BackgroundTransparency = 0.5
+Divider.BorderSizePixel = 0
+Divider.Parent = MainFrame
+
+-- Make Main Frame Draggable via TopBar
+MakeDraggable(MainFrame, TopBar)
+
+--// FLOATING TOGGLE BUTTON (Draggable Pill)
+local ToggleButton = Instance.new("Frame")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Size = UDim2.new(0, 50, 0, 50)
+ToggleButton.Position = UDim2.new(0.1, 0, 0.1, 0) -- Start top leftish
+ToggleButton.BackgroundColor3 = CONFIG.SecondaryColor
+ToggleButton.Parent = ScreenGui
+
+AddCorner(ToggleButton, UDim.new(1, 0)) -- Circle
+AddStroke(ToggleButton, CONFIG.TextColor, 1)
+
+local ToggleIcon = Instance.new("ImageButton")
+ToggleIcon.Name = "Icon"
+ToggleIcon.Size = UDim2.new(1, 0, 1, 0)
+ToggleIcon.BackgroundTransparency = 1
+ToggleIcon.Image = "rbxassetid://3926305904" -- Generic UI icon
+ToggleIcon.ImageColor3 = CONFIG.TextColor
+ToggleIcon.ScaleType = Enum.ScaleType.Fit
+ToggleIcon.Parent = ToggleButton
+
+-- Shrink icon slightly
+local IconPadding = Instance.new("UIPadding")
+IconPadding.PaddingTop = UDim.new(0, 10)
+IconPadding.PaddingBottom = UDim.new(0, 10)
+IconPadding.PaddingLeft = UDim.new(0, 10)
+IconPadding.PaddingRight = UDim.new(0, 10)
+IconPadding.Parent = ToggleIcon
+
+-- Make Toggle Button Draggable
+MakeDraggable(ToggleButton)
+
+--// LOGIC: Toggle Visibility
+local isOpen = true
+
+local function ToggleUI()
+    isOpen = not isOpen
+    
+    if isOpen then
+        MainFrame.Visible = true
+        -- Animate In
+        MainFrame.Size = UDim2.new(0, 0, 0, 0)
+        MainFrame.BackgroundTransparency = 1
+        
+        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 450, 0, 300),
+            BackgroundTransparency = CONFIG.Transparency
+        }):Play()
+        
+        -- Hide Divider/Shadow initially for clean animation
+        task.delay(0.2, function()
+            -- Restore properties if needed
+        end)
+    else
+        -- Animate Out
+        local tween = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+            Size = UDim2.new(0, 0, 0, 0),
+            BackgroundTransparency = 1
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            if not isOpen then MainFrame.Visible = false end
+        end)
+    end
+end
+
+ToggleIcon.MouseButton1Click:Connect(ToggleUI)
+
+--// EXAMPLE CONTENT (Toggle Switch inside GUI)
+local ExampleSwitchFrame = Instance.new("Frame")
+ExampleSwitchFrame.Name = "ExampleSwitch"
+ExampleSwitchFrame.Size = UDim2.new(0, 60, 0, 30)
+ExampleSwitchFrame.Position = UDim2.new(0.5, -30, 0.5, -15)
+ExampleSwitchFrame.BackgroundColor3 = CONFIG.SecondaryColor
+ExampleSwitchFrame.Parent = MainFrame
+
+AddCorner(ExampleSwitchFrame, UDim.new(1, 0))
+
+local SwitchCircle = Instance.new("Frame")
+SwitchCircle.Size = UDim2.new(0, 24, 0, 24)
+SwitchCircle.Position = UDim2.new(0, 3, 0.5, -12)
+SwitchCircle.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
+SwitchCircle.Parent = ExampleSwitchFrame
+
+AddCorner(SwitchCircle, UDim.new(1, 0))
+
+local SwitchButton = Instance.new("TextButton")
+SwitchButton.Size = UDim2.new(1, 0, 1, 0)
+SwitchButton.BackgroundTransparency = 1
+SwitchButton.Text = ""
+SwitchButton.Parent = ExampleSwitchFrame
+
+local switchState = false
+SwitchButton.MouseButton1Click:Connect(function()
+    switchState = not switchState
+    
+    local targetPos = switchState and UDim2.new(1, -27, 0.5, -12) or UDim2.new(0, 3, 0.5, -12)
+    local targetColor = switchState and CONFIG.AccentColor or Color3.fromRGB(150, 150, 150)
+    
+    TweenService:Create(SwitchCircle, TweenInfo.new(0.2), {Position = targetPos, BackgroundColor3 = targetColor}):Play()
+end)
+
+local Label = Instance.new("TextLabel")
+Label.Text = "Example Feature"
+Label.TextColor3 = CONFIG.TextColor
+Label.Font = Enum.Font.Gotham
+Label.TextSize = 14
+Label.BackgroundTransparency = 1
+Label.Size = UDim2.new(0, 100, 0, 30)
+Label.Position = UDim2.new(0.5, -50, 0.5, -50)
+Label.Parent = MainFrame
+
+print("Axiora Loaded")
