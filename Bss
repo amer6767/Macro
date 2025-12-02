@@ -1,37 +1,48 @@
 --[[
-    Axiora GUI Framework
+    Axiora GUI Framework - Bee Swarm Simulator Edition
     Developed by AI Assistant
     Style: Modern, Clean, Dark Mode
-    Features: Draggable Main UI, Draggable Floating Toggle Button
+    Features: Tab System, Natural Pathfinding, Field Selection
 ]]
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local PathfindingService = game:GetService("PathfindingService")
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 
 local Player = Players.LocalPlayer
-local Mouse = Player:GetMouse()
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- Update character references on respawn
+Player.CharacterAdded:Connect(function(newChar)
+    Character = newChar
+    Humanoid = newChar:WaitForChild("Humanoid")
+    RootPart = newChar:WaitForChild("HumanoidRootPart")
+end)
 
 --// Configuration
 local CONFIG = {
     AccentColor = Color3.fromRGB(0, 170, 255), -- Electric Cyan
     BackgroundColor = Color3.fromRGB(25, 25, 25),
-    SecondaryColor = Color3.fromRGB(35, 35, 35),
+    SidebarColor = Color3.fromRGB(30, 30, 30),
+    ContentColor = Color3.fromRGB(35, 35, 35),
     TextColor = Color3.fromRGB(240, 240, 240),
-    CornerRadius = UDim.new(0, 12),
-    StrokeThickness = 2,
+    CornerRadius = UDim.new(0, 8),
+    StrokeThickness = 1,
     Transparency = 0.05
 }
 
 --// Protect GUI
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AxioraGUI"
+ScreenGui.Name = "AxioraGUI_BSS"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Try to parent to CoreGui for security, fallback to PlayerGui
 local success, _ = pcall(function()
     ScreenGui.Parent = CoreGui
 end)
@@ -39,28 +50,27 @@ if not success then
     ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 end
 
---// Utility: Draggable Function
+--// Utility Functions
+local function AddCorner(parent, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = radius or CONFIG.CornerRadius
+    corner.Parent = parent
+    return corner
+end
+
+local function AddStroke(parent, color, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color or CONFIG.AccentColor
+    stroke.Thickness = thickness or CONFIG.StrokeThickness
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Transparency = 0.5
+    stroke.Parent = parent
+    return stroke
+end
+
 local function MakeDraggable(frame, dragHandle)
-    local dragToggle = nil
-    local dragSpeed = 0.15 -- Smoothness
-    local dragInput = nil
-    local dragStart = nil
-    local startPos = nil
-
-    local function updateInput(input)
-        local delta = input.Position - dragStart
-        local targetPos = UDim2.new(
-            startPos.X.Scale, 
-            startPos.X.Offset + delta.X, 
-            startPos.Y.Scale, 
-            startPos.Y.Offset + delta.Y
-        )
-        
-        -- Smooth Tween
-        local tween = TweenService:Create(frame, TweenInfo.new(dragSpeed), {Position = targetPos})
-        tween:Play()
-    end
-
+    local dragToggle, dragInput, dragStart, startPos
+    local dragSpeed = 0.15
     local handle = dragHandle or frame
 
     handle.InputBegan:Connect(function(input)
@@ -68,11 +78,8 @@ local function MakeDraggable(frame, dragHandle)
             dragToggle = true
             dragStart = input.Position
             startPos = frame.Position
-            
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragToggle = false
-                end
+                if input.UserInputState == Enum.UserInputState.End then dragToggle = false end
             end)
         end
     end)
@@ -85,200 +92,324 @@ local function MakeDraggable(frame, dragHandle)
 
     UserInputService.InputChanged:Connect(function(input)
         if input == dragInput and dragToggle then
-            updateInput(input)
+            local delta = input.Position - dragStart
+            local targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            TweenService:Create(frame, TweenInfo.new(dragSpeed), {Position = targetPos}):Play()
         end
     end)
 end
 
---// Utility: Create Rounded Corner
-local function AddCorner(parent, radius)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = radius or CONFIG.CornerRadius
-    corner.Parent = parent
-    return corner
-end
-
---// Utility: Create Stroke
-local function AddStroke(parent, color, thickness)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = color or CONFIG.AccentColor
-    stroke.Thickness = thickness or CONFIG.StrokeThickness
-    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    stroke.Transparency = 0.2
-    stroke.Parent = parent
-    return stroke
-end
-
---// MAIN WINDOW (The Rectangle)
+--// MAIN WINDOW
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 450, 0, 300)
-MainFrame.Position = UDim2.new(0.5, -225, 0.5, -150) -- Center
+MainFrame.Size = UDim2.new(0, 600, 0, 350) -- Larger for tabs
+MainFrame.Position = UDim2.new(0.5, -300, 0.5, -175)
 MainFrame.BackgroundColor3 = CONFIG.BackgroundColor
 MainFrame.BackgroundTransparency = CONFIG.Transparency
-MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
 
 AddCorner(MainFrame)
 AddStroke(MainFrame)
 
--- Drop Shadow (Simulated with ImageLabel or just Darker Stroke)
-local Shadow = Instance.new("ImageLabel")
-Shadow.Name = "Shadow"
-Shadow.AnchorPoint = Vector2.new(0.5, 0.5)
-Shadow.BackgroundTransparency = 1
-Shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
-Shadow.Size = UDim2.new(1, 40, 1, 40)
-Shadow.ZIndex = -1
-Shadow.Image = "rbxassetid://6015897843" -- Generic blurry shadow
-Shadow.ImageColor3 = Color3.new(0, 0, 0)
-Shadow.ImageTransparency = 0.4
-Shadow.SliceCenter = Rect.new(49, 49, 450, 450)
-Shadow.ScaleType = Enum.ScaleType.Slice
-Shadow.SliceScale = 1
-Shadow.Parent = MainFrame
-
--- Top Bar (Title & Drag Area)
+-- Top Bar
 local TopBar = Instance.new("Frame")
 TopBar.Name = "TopBar"
-TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.Size = UDim2.new(1, 0, 0, 35)
 TopBar.BackgroundTransparency = 1
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
-Title.Text = "AXIORA"
+Title.Text = "AXIORA | BSS MACRO"
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 18
+Title.TextSize = 16
 Title.TextColor3 = CONFIG.TextColor
 Title.Size = UDim2.new(1, -20, 1, 0)
-Title.Position = UDim2.new(0, 20, 0, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = TopBar
 
--- Divider Line
-local Divider = Instance.new("Frame")
-Divider.Name = "Divider"
-Divider.Size = UDim2.new(1, 0, 0, 1)
-Divider.Position = UDim2.new(0, 0, 0, 40)
-Divider.BackgroundColor3 = CONFIG.AccentColor
-Divider.BackgroundTransparency = 0.5
-Divider.BorderSizePixel = 0
-Divider.Parent = MainFrame
-
--- Make Main Frame Draggable via TopBar
 MakeDraggable(MainFrame, TopBar)
 
---// FLOATING TOGGLE BUTTON (Draggable Pill)
-local ToggleButton = Instance.new("Frame")
-ToggleButton.Name = "ToggleButton"
-ToggleButton.Size = UDim2.new(0, 50, 0, 50)
-ToggleButton.Position = UDim2.new(0.1, 0, 0.1, 0) -- Start top leftish
-ToggleButton.BackgroundColor3 = CONFIG.SecondaryColor
-ToggleButton.Parent = ScreenGui
+-- Sidebar
+local Sidebar = Instance.new("Frame")
+Sidebar.Name = "Sidebar"
+Sidebar.Size = UDim2.new(0.25, 0, 1, -35)
+Sidebar.Position = UDim2.new(0, 0, 0, 35)
+Sidebar.BackgroundColor3 = CONFIG.SidebarColor
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = MainFrame
 
-AddCorner(ToggleButton, UDim.new(1, 0)) -- Circle
-AddStroke(ToggleButton, CONFIG.TextColor, 1)
+local SidebarCorner = AddCorner(Sidebar)
+SidebarCorner.CornerRadius = UDim.new(0, 0) -- Flat edges inside
+local SidebarList = Instance.new("UIListLayout")
+SidebarList.Parent = Sidebar
+SidebarList.SortOrder = Enum.SortOrder.LayoutOrder
+SidebarList.Padding = UDim.new(0, 5)
 
-local ToggleIcon = Instance.new("ImageButton")
-ToggleIcon.Name = "Icon"
-ToggleIcon.Size = UDim2.new(1, 0, 1, 0)
-ToggleIcon.BackgroundTransparency = 1
-ToggleIcon.Image = "rbxassetid://3926305904" -- Generic UI icon
-ToggleIcon.ImageColor3 = CONFIG.TextColor
-ToggleIcon.ScaleType = Enum.ScaleType.Fit
-ToggleIcon.Parent = ToggleButton
+local SidebarPadding = Instance.new("UIPadding")
+SidebarPadding.PaddingTop = UDim.new(0, 10)
+SidebarPadding.PaddingLeft = UDim.new(0, 5)
+SidebarPadding.Parent = Sidebar
 
--- Shrink icon slightly
-local IconPadding = Instance.new("UIPadding")
-IconPadding.PaddingTop = UDim.new(0, 10)
-IconPadding.PaddingBottom = UDim.new(0, 10)
-IconPadding.PaddingLeft = UDim.new(0, 10)
-IconPadding.PaddingRight = UDim.new(0, 10)
-IconPadding.Parent = ToggleIcon
+-- Content Area
+local ContentArea = Instance.new("Frame")
+ContentArea.Name = "ContentArea"
+ContentArea.Size = UDim2.new(0.75, 0, 1, -35)
+ContentArea.Position = UDim2.new(0.25, 0, 0, 35)
+ContentArea.BackgroundColor3 = CONFIG.ContentColor
+ContentArea.BackgroundTransparency = 1
+ContentArea.BorderSizePixel = 0
+ContentArea.Parent = MainFrame
 
--- Make Toggle Button Draggable
-MakeDraggable(ToggleButton)
+--// TAB SYSTEM
+local Tabs = {}
+local CurrentTab = nil
 
---// LOGIC: Toggle Visibility
-local isOpen = true
-
-local function ToggleUI()
-    isOpen = not isOpen
+local function CreateTab(name, iconId)
+    -- Button
+    local TabButton = Instance.new("TextButton")
+    TabButton.Name = name .. "Button"
+    TabButton.Size = UDim2.new(1, -10, 0, 35)
+    TabButton.BackgroundColor3 = CONFIG.SidebarColor
+    TabButton.BackgroundTransparency = 1
+    TabButton.Text = "  " .. name
+    TabButton.TextColor3 = Color3.fromRGB(150, 150, 150)
+    TabButton.Font = Enum.Font.GothamSemibold
+    TabButton.TextSize = 14
+    TabButton.TextXAlignment = Enum.TextXAlignment.Left
+    TabButton.Parent = Sidebar
+    AddCorner(TabButton, UDim.new(0, 6))
     
-    if isOpen then
-        MainFrame.Visible = true
-        -- Animate In
-        MainFrame.Size = UDim2.new(0, 0, 0, 0)
-        MainFrame.BackgroundTransparency = 1
+    -- Page
+    local Page = Instance.new("ScrollingFrame")
+    Page.Name = name .. "Page"
+    Page.Size = UDim2.new(1, -20, 1, -20)
+    Page.Position = UDim2.new(0, 10, 0, 10)
+    Page.BackgroundTransparency = 1
+    Page.ScrollBarThickness = 2
+    Page.Visible = false
+    Page.Parent = ContentArea
+    
+    local PageLayout = Instance.new("UIListLayout")
+    PageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    PageLayout.Padding = UDim.new(0, 10)
+    PageLayout.Parent = Page
+
+    TabButton.MouseButton1Click:Connect(function()
+        if CurrentTab then
+            CurrentTab.Button.TextColor3 = Color3.fromRGB(150, 150, 150)
+            CurrentTab.Button.BackgroundTransparency = 1
+            CurrentTab.Page.Visible = false
+        end
         
-        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 450, 0, 300),
-            BackgroundTransparency = CONFIG.Transparency
-        }):Play()
+        CurrentTab = {Button = TabButton, Page = Page}
+        TabButton.TextColor3 = CONFIG.AccentColor
+        TabButton.BackgroundTransparency = 0.9
+        TabButton.BackgroundColor3 = CONFIG.AccentColor
+        Page.Visible = true
+    end)
+    
+    if CurrentTab == nil then -- Select first tab by default
+        CurrentTab = {Button = TabButton, Page = Page}
+        TabButton.TextColor3 = CONFIG.AccentColor
+        TabButton.BackgroundTransparency = 0.9
+        TabButton.BackgroundColor3 = CONFIG.AccentColor
+        Page.Visible = true
+    end
+    
+    return Page
+end
+
+local SettingsPage = CreateTab("Settings", "")
+local AutoFarmPage = CreateTab("Auto Farm", "")
+local ConfigPage = CreateTab("Config", "")
+
+--// AUTO FARM FEATURES
+
+-- Field Selector
+local FieldLabel = Instance.new("TextLabel")
+FieldLabel.Text = "Select Field"
+FieldLabel.Font = Enum.Font.GothamBold
+FieldLabel.TextColor3 = CONFIG.TextColor
+FieldLabel.TextSize = 14
+FieldLabel.Size = UDim2.new(1, 0, 0, 20)
+FieldLabel.BackgroundTransparency = 1
+FieldLabel.TextXAlignment = Enum.TextXAlignment.Left
+FieldLabel.Parent = AutoFarmPage
+
+local FieldScroll = Instance.new("ScrollingFrame")
+FieldScroll.Name = "FieldList"
+FieldScroll.Size = UDim2.new(1, 0, 0, 120)
+FieldScroll.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+FieldScroll.ScrollBarThickness = 4
+FieldScroll.Parent = AutoFarmPage
+AddCorner(FieldScroll)
+AddStroke(FieldScroll, CONFIG.AccentColor, 1)
+
+local FieldLayout = Instance.new("UIListLayout")
+FieldLayout.Parent = FieldScroll
+FieldLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local SelectedField = nil
+local StatusLabel = Instance.new("TextLabel")
+
+-- Populate Fields
+local function LoadFields()
+    local zones = Workspace:FindFirstChild("FlowerZones")
+    if not zones then return end
+    
+    for _, zone in pairs(zones:GetChildren()) do
+        if zone:IsA("BasePart") then
+            local btn = Instance.new("TextButton")
+            btn.Name = zone.Name
+            btn.Text = "  " .. zone.Name
+            btn.Size = UDim2.new(1, 0, 0, 25)
+            btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+            btn.Font = Enum.Font.Gotham
+            btn.TextSize = 12
+            btn.TextXAlignment = Enum.TextXAlignment.Left
+            btn.Parent = FieldScroll
+            
+            btn.MouseButton1Click:Connect(function()
+                SelectedField = zone
+                StatusLabel.Text = "Target: " .. zone.Name
+                -- Reset other buttons
+                for _, b in pairs(FieldScroll:GetChildren()) do
+                    if b:IsA("TextButton") then b.TextColor3 = Color3.fromRGB(200, 200, 200) end
+                end
+                btn.TextColor3 = CONFIG.AccentColor
+            end)
+        end
+    end
+    FieldScroll.CanvasSize = UDim2.new(0, 0, 0, FieldLayout.AbsoluteContentSize.Y)
+end
+
+task.spawn(LoadFields)
+
+-- Status
+StatusLabel.Text = "Target: None"
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+StatusLabel.TextSize = 12
+StatusLabel.Size = UDim2.new(1, 0, 0, 20)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Parent = AutoFarmPage
+
+-- Pathfinding Logic (Natural Movement)
+local isWalking = false
+local walkLoop = nil
+
+local function WalkTo(targetPosition)
+    if not Character or not Humanoid or not RootPart then return end
+    
+    local path = PathfindingService:CreatePath({
+        AgentRadius = 2,
+        AgentHeight = 5,
+        AgentCanJump = true,
+        WaypointSpacing = 4
+    })
+    
+    local success, errorMessage = pcall(function()
+        path:ComputeAsync(RootPart.Position, targetPosition)
+    end)
+    
+    if success and path.Status == Enum.PathStatus.Success then
+        local waypoints = path:GetWaypoints()
         
-        -- Hide Divider/Shadow initially for clean animation
-        task.delay(0.2, function()
-            -- Restore properties if needed
-        end)
+        for i, waypoint in pairs(waypoints) do
+            if not isWalking then break end
+            
+            -- Jump if needed
+            if waypoint.Action == Enum.PathWaypointAction.Jump then
+                Humanoid.ChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
+            end
+            
+            Humanoid:MoveTo(waypoint.Position)
+            
+            -- Wait for move to finish with timeout check
+            local moveFinished = Humanoid.MoveToFinished:Wait()
+            
+            -- Stuck check logic could go here (e.g. if position hasn't changed)
+        end
     else
-        -- Animate Out
-        local tween = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-            Size = UDim2.new(0, 0, 0, 0),
-            BackgroundTransparency = 1
-        })
-        tween:Play()
-        tween.Completed:Connect(function()
-            if not isOpen then MainFrame.Visible = false end
-        end)
+        StatusLabel.Text = "Pathfinding Failed: " .. tostring(errorMessage)
+        -- Fallback: Tween if path fails? (Disabled for now to stay 'legit')
     end
 end
 
-ToggleIcon.MouseButton1Click:Connect(ToggleUI)
+-- Toggle Button (Start/Stop)
+local ToggleWalk = Instance.new("TextButton")
+ToggleWalk.Text = "Start Walking (Pathfind)"
+ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+ToggleWalk.TextColor3 = Color3.new(1,1,1)
+ToggleWalk.Font = Enum.Font.GothamBold
+ToggleWalk.TextSize = 14
+ToggleWalk.Size = UDim2.new(1, 0, 0, 40)
+ToggleWalk.Parent = AutoFarmPage
+AddCorner(ToggleWalk)
 
---// EXAMPLE CONTENT (Toggle Switch inside GUI)
-local ExampleSwitchFrame = Instance.new("Frame")
-ExampleSwitchFrame.Name = "ExampleSwitch"
-ExampleSwitchFrame.Size = UDim2.new(0, 60, 0, 30)
-ExampleSwitchFrame.Position = UDim2.new(0.5, -30, 0.5, -15)
-ExampleSwitchFrame.BackgroundColor3 = CONFIG.SecondaryColor
-ExampleSwitchFrame.Parent = MainFrame
-
-AddCorner(ExampleSwitchFrame, UDim.new(1, 0))
-
-local SwitchCircle = Instance.new("Frame")
-SwitchCircle.Size = UDim2.new(0, 24, 0, 24)
-SwitchCircle.Position = UDim2.new(0, 3, 0.5, -12)
-SwitchCircle.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
-SwitchCircle.Parent = ExampleSwitchFrame
-
-AddCorner(SwitchCircle, UDim.new(1, 0))
-
-local SwitchButton = Instance.new("TextButton")
-SwitchButton.Size = UDim2.new(1, 0, 1, 0)
-SwitchButton.BackgroundTransparency = 1
-SwitchButton.Text = ""
-SwitchButton.Parent = ExampleSwitchFrame
-
-local switchState = false
-SwitchButton.MouseButton1Click:Connect(function()
-    switchState = not switchState
+ToggleWalk.MouseButton1Click:Connect(function()
+    isWalking = not isWalking
     
-    local targetPos = switchState and UDim2.new(1, -27, 0.5, -12) or UDim2.new(0, 3, 0.5, -12)
-    local targetColor = switchState and CONFIG.AccentColor or Color3.fromRGB(150, 150, 150)
-    
-    TweenService:Create(SwitchCircle, TweenInfo.new(0.2), {Position = targetPos, BackgroundColor3 = targetColor}):Play()
+    if isWalking then
+        ToggleWalk.Text = "Stop Walking"
+        ToggleWalk.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+        
+        if SelectedField then
+            task.spawn(function()
+                while isWalking and SelectedField do
+                    -- Simple logic: Go to center of field
+                    -- In future: Randomize position within field size
+                    WalkTo(SelectedField.Position)
+                    task.wait(1)
+                    if (RootPart.Position - SelectedField.Position).Magnitude < 10 then
+                        StatusLabel.Text = "Arrived at " .. SelectedField.Name
+                        isWalking = false -- Stop when arrived
+                        ToggleWalk.Text = "Start Walking (Pathfind)"
+                        ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+                    end
+                end
+            end)
+        else
+            StatusLabel.Text = "Error: Select a field first!"
+            isWalking = false
+            ToggleWalk.Text = "Start Walking (Pathfind)"
+            ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+        end
+    else
+        ToggleWalk.Text = "Start Walking (Pathfind)"
+        ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+        Humanoid:MoveTo(RootPart.Position) -- Stop moving
+    end
 end)
 
-local Label = Instance.new("TextLabel")
-Label.Text = "Example Feature"
-Label.TextColor3 = CONFIG.TextColor
-Label.Font = Enum.Font.Gotham
-Label.TextSize = 14
-Label.BackgroundTransparency = 1
-Label.Size = UDim2.new(0, 100, 0, 30)
-Label.Position = UDim2.new(0.5, -50, 0.5, -50)
-Label.Parent = MainFrame
+--// FLOATING TOGGLE
+local FloatToggle = Instance.new("Frame")
+FloatToggle.Size = UDim2.new(0, 50, 0, 50)
+FloatToggle.Position = UDim2.new(0.1, 0, 0.1, 0)
+FloatToggle.BackgroundColor3 = CONFIG.SidebarColor
+FloatToggle.Parent = ScreenGui
+AddCorner(FloatToggle, UDim.new(1, 0))
+AddStroke(FloatToggle, CONFIG.AccentColor)
+MakeDraggable(FloatToggle)
 
-print("Axiora Loaded")
+local FloatBtn = Instance.new("TextButton")
+FloatBtn.Size = UDim2.new(1, 0, 1, 0)
+FloatBtn.BackgroundTransparency = 1
+FloatBtn.Text = "A"
+FloatBtn.TextColor3 = CONFIG.AccentColor
+FloatBtn.Font = Enum.Font.GothamBold
+FloatBtn.TextSize = 24
+FloatBtn.Parent = FloatToggle
+
+local uiVisible = true
+FloatBtn.MouseButton1Click:Connect(function()
+    uiVisible = not uiVisible
+    MainFrame.Visible = uiVisible
+end)
+
+print("Axiora BSS Loaded")
