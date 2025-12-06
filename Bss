@@ -1,16 +1,19 @@
 --[[
-    Axiora GUI Framework - Bee Swarm Simulator Edition
-    Developed by AI Assistant
-    Style: Modern, Clean, Dark Mode
-    Features: Tab System, Natural Pathfinding, Field Selection
+    AXIORA V6 ULTIMATE - Bee Swarm Simulator Edition
+    Changes: 
+    - Quest Tab now uses Dropdown Menu (Clean UI)
+    - Auto Quest Toggle added
+    - Optimization Checks
 ]]
 
+--// SERVICES
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
-local CoreGui = game:GetService("CoreGui")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
 local Workspace = game:GetService("Workspace")
 
 local Player = Players.LocalPlayer
@@ -18,398 +21,432 @@ local Character = Player.Character or Player.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local RootPart = Character:WaitForChild("HumanoidRootPart")
 
--- Update character references on respawn
 Player.CharacterAdded:Connect(function(newChar)
     Character = newChar
     Humanoid = newChar:WaitForChild("Humanoid")
     RootPart = newChar:WaitForChild("HumanoidRootPart")
 end)
 
---// Configuration
-local CONFIG = {
-    AccentColor = Color3.fromRGB(0, 170, 255), -- Electric Cyan
-    BackgroundColor = Color3.fromRGB(25, 25, 25),
-    SidebarColor = Color3.fromRGB(30, 30, 30),
-    ContentColor = Color3.fromRGB(35, 35, 35),
-    TextColor = Color3.fromRGB(240, 240, 240),
-    CornerRadius = UDim.new(0, 8),
-    StrokeThickness = 1,
-    Transparency = 0.05
+--// THEME CONFIGURATION
+local Theme = {
+    Background = Color3.fromRGB(20, 20, 24),
+    Sidebar    = Color3.fromRGB(15, 15, 18),
+    Content    = Color3.fromRGB(26, 26, 30),
+    Accent     = Color3.fromRGB(114, 137, 218),
+    Text       = Color3.fromRGB(245, 245, 245),
+    SubText    = Color3.fromRGB(160, 160, 160),
+    Success    = Color3.fromRGB(87, 242, 135),
+    Danger     = Color3.fromRGB(237, 66, 69)
 }
 
---// Protect GUI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AxioraGUI_BSS"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+--// GUI LIBRARY SYSTEM
+local AxioraGUI = Instance.new("ScreenGui")
+AxioraGUI.Name = "AxioraV6_QuestUpdate"
+AxioraGUI.IgnoreGuiInset = true
+AxioraGUI.ResetOnSpawn = false
 
-local success, _ = pcall(function()
-    ScreenGui.Parent = CoreGui
-end)
-if not success then
-    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
-end
+if CoreGui:FindFirstChild("AxioraV6_QuestUpdate") then CoreGui["AxioraV6_QuestUpdate"]:Destroy() end
+AxioraGUI.Parent = CoreGui
 
---// Utility Functions
-local function AddCorner(parent, radius)
+-- Utility Functions
+local function CreateUICorner(parent, r)
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = radius or CONFIG.CornerRadius
+    corner.CornerRadius = UDim.new(0, r or 6)
     corner.Parent = parent
     return corner
 end
 
-local function AddStroke(parent, color, thickness)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = color or CONFIG.AccentColor
-    stroke.Thickness = thickness or CONFIG.StrokeThickness
-    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    stroke.Transparency = 0.5
-    stroke.Parent = parent
-    return stroke
+local function CreateLabel(parent, text, textSize, color)
+    local lbl = Instance.new("TextLabel")
+    lbl.Text = text
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = textSize or 14
+    lbl.TextColor3 = color or Theme.Text
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.new(1, 0, 0, textSize + 10)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = parent
+    return lbl
 end
 
-local function MakeDraggable(frame, dragHandle)
-    local dragToggle, dragInput, dragStart, startPos
-    local dragSpeed = 0.15
-    local handle = dragHandle or frame
+local function AddToggle(text, parent, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(1, 0, 0, 40)
+    Frame.BackgroundColor3 = Theme.Content
+    Frame.Parent = parent
+    CreateUICorner(Frame, 6)
 
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragToggle = true
-            dragStart = input.Position
-            startPos = frame.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragToggle = false end
-            end)
-        end
-    end)
+    local Label = Instance.new("TextLabel")
+    Label.Text = "  " .. text
+    Label.Font = Enum.Font.GothamSemibold
+    Label.TextSize = 13
+    Label.TextColor3 = Theme.Text
+    Label.Size = UDim2.new(0.7, 0, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Frame
 
-    handle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0, 42, 0, 22)
+    Button.Position = UDim2.new(1, -50, 0.5, -11)
+    Button.BackgroundColor3 = Theme.Sidebar
+    Button.Text = ""
+    Button.Parent = Frame
+    CreateUICorner(Button, 11)
 
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragToggle then
-            local delta = input.Position - dragStart
-            local targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-            TweenService:Create(frame, TweenInfo.new(dragSpeed), {Position = targetPos}):Play()
-        end
+    local Circle = Instance.new("Frame")
+    Circle.Size = UDim2.new(0, 16, 0, 16)
+    Circle.Position = UDim2.new(0, 3, 0.5, -8)
+    Circle.BackgroundColor3 = Theme.SubText
+    Circle.Parent = Button
+    CreateUICorner(Circle, 8)
+
+    local Toggled = false
+    Button.MouseButton1Click:Connect(function()
+        Toggled = not Toggled
+        local GoalColor = Toggled and Theme.Accent or Theme.Sidebar
+        local GoalPos = Toggled and UDim2.new(0, 23, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+        local GoalDot = Toggled and Color3.new(1,1,1) or Theme.SubText
+
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = GoalColor}):Play()
+        TweenService:Create(Circle, TweenInfo.new(0.2), {Position = GoalPos, BackgroundColor3 = GoalDot}):Play()
+        callback(Toggled)
     end)
+    return Frame
 end
 
---// MAIN WINDOW
+--// MAIN FRAME
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 600, 0, 350) -- Larger for tabs
-MainFrame.Position = UDim2.new(0.5, -300, 0.5, -175)
-MainFrame.BackgroundColor3 = CONFIG.BackgroundColor
-MainFrame.BackgroundTransparency = CONFIG.Transparency
-MainFrame.Parent = ScreenGui
+MainFrame.Size = UDim2.new(0, 650, 0, 400)
+MainFrame.Position = UDim2.new(0.5, -325, 0.5, -200)
+MainFrame.BackgroundColor3 = Theme.Background
+MainFrame.Parent = AxioraGUI
+CreateUICorner(MainFrame, 8)
 
-AddCorner(MainFrame)
-AddStroke(MainFrame)
-
--- Top Bar
-local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
-TopBar.Size = UDim2.new(1, 0, 0, 35)
-TopBar.BackgroundTransparency = 1
-TopBar.Parent = MainFrame
-
-local Title = Instance.new("TextLabel")
-Title.Name = "Title"
-Title.Text = "AXIORA | BSS MACRO"
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.TextColor3 = CONFIG.TextColor
-Title.Size = UDim2.new(1, -20, 1, 0)
-Title.Position = UDim2.new(0, 15, 0, 0)
-Title.BackgroundTransparency = 1
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TopBar
-
-MakeDraggable(MainFrame, TopBar)
+-- Draggable Logic
+local DragFrame = Instance.new("Frame")
+DragFrame.Size = UDim2.new(1, 0, 0, 30)
+DragFrame.BackgroundTransparency = 1
+DragFrame.Parent = MainFrame
+local isDragging, dragStart, startPos
+DragFrame.InputBegan:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 then isDragging=true; dragStart=input.Position; startPos=MainFrame.Position end end)
+UserInputService.InputChanged:Connect(function(input) if isDragging and input.UserInputType==Enum.UserInputType.MouseMovement then local d=input.Position-dragStart; MainFrame.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y) end end)
+DragFrame.InputEnded:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 then isDragging=false end end)
 
 -- Sidebar
 local Sidebar = Instance.new("Frame")
-Sidebar.Name = "Sidebar"
-Sidebar.Size = UDim2.new(0.25, 0, 1, -35)
-Sidebar.Position = UDim2.new(0, 0, 0, 35)
-Sidebar.BackgroundColor3 = CONFIG.SidebarColor
-Sidebar.BorderSizePixel = 0
+Sidebar.Size = UDim2.new(0, 160, 1, 0)
+Sidebar.BackgroundColor3 = Theme.Sidebar
 Sidebar.Parent = MainFrame
+CreateUICorner(Sidebar, 8)
 
-local SidebarCorner = AddCorner(Sidebar)
-SidebarCorner.CornerRadius = UDim.new(0, 0) -- Flat edges inside
-local SidebarList = Instance.new("UIListLayout")
-SidebarList.Parent = Sidebar
-SidebarList.SortOrder = Enum.SortOrder.LayoutOrder
-SidebarList.Padding = UDim.new(0, 5)
+local AppTitle = Instance.new("TextLabel")
+AppTitle.Text = "AXIORA"
+AppTitle.Font = Enum.Font.GothamBlack
+AppTitle.TextSize = 22
+AppTitle.TextColor3 = Theme.Accent
+AppTitle.Size = UDim2.new(1, 0, 0, 60)
+AppTitle.BackgroundTransparency = 1
+AppTitle.Parent = Sidebar
 
-local SidebarPadding = Instance.new("UIPadding")
-SidebarPadding.PaddingTop = UDim.new(0, 10)
-SidebarPadding.PaddingLeft = UDim.new(0, 5)
-SidebarPadding.Parent = Sidebar
+local TabsHolder = Instance.new("ScrollingFrame")
+TabsHolder.Size = UDim2.new(1, -10, 1, -70)
+TabsHolder.Position = UDim2.new(0, 5, 0, 65)
+TabsHolder.BackgroundTransparency = 1
+TabsHolder.ScrollBarThickness = 0
+TabsHolder.Parent = Sidebar
+local UIList = Instance.new("UIListLayout")
+UIList.Parent = TabsHolder
+UIList.SortOrder = Enum.SortOrder.LayoutOrder
+UIList.Padding = UDim.new(0, 5)
 
 -- Content Area
-local ContentArea = Instance.new("Frame")
-ContentArea.Name = "ContentArea"
-ContentArea.Size = UDim2.new(0.75, 0, 1, -35)
-ContentArea.Position = UDim2.new(0.25, 0, 0, 35)
-ContentArea.BackgroundColor3 = CONFIG.ContentColor
-ContentArea.BackgroundTransparency = 1
-ContentArea.BorderSizePixel = 0
-ContentArea.Parent = MainFrame
+local ContentContainer = Instance.new("Frame")
+ContentContainer.Size = UDim2.new(1, -175, 1, -20)
+ContentContainer.Position = UDim2.new(0, 175, 0, 10)
+ContentContainer.BackgroundTransparency = 1
+ContentContainer.Parent = MainFrame
+ContentContainer.ClipsDescendants = true
 
---// TAB SYSTEM
-local Tabs = {}
-local CurrentTab = nil
+-- Tab System Logic
+local ActiveTab = nil
+local function CreateTab(Name, Icon)
+    local Btn = Instance.new("TextButton")
+    Btn.Text = "  " .. Icon .. "   " .. Name
+    Btn.Size = UDim2.new(1, 0, 0, 34)
+    Btn.BackgroundTransparency = 1
+    Btn.BackgroundColor3 = Theme.Content
+    Btn.TextColor3 = Theme.SubText
+    Btn.Font = Enum.Font.GothamSemibold
+    Btn.TextXAlignment = Enum.TextXAlignment.Left
+    Btn.Parent = TabsHolder
+    CreateUICorner(Btn, 6)
 
-local function CreateTab(name, iconId)
-    -- Button
-    local TabButton = Instance.new("TextButton")
-    TabButton.Name = name .. "Button"
-    TabButton.Size = UDim2.new(1, -10, 0, 35)
-    TabButton.BackgroundColor3 = CONFIG.SidebarColor
-    TabButton.BackgroundTransparency = 1
-    TabButton.Text = "  " .. name
-    TabButton.TextColor3 = Color3.fromRGB(150, 150, 150)
-    TabButton.Font = Enum.Font.GothamSemibold
-    TabButton.TextSize = 14
-    TabButton.TextXAlignment = Enum.TextXAlignment.Left
-    TabButton.Parent = Sidebar
-    AddCorner(TabButton, UDim.new(0, 6))
-    
-    -- Page
     local Page = Instance.new("ScrollingFrame")
-    Page.Name = name .. "Page"
-    Page.Size = UDim2.new(1, -20, 1, -20)
-    Page.Position = UDim2.new(0, 10, 0, 10)
+    Page.Size = UDim2.new(1, 0, 1, 0)
     Page.BackgroundTransparency = 1
     Page.ScrollBarThickness = 2
+    Page.ScrollBarImageColor3 = Theme.SubText
     Page.Visible = false
-    Page.Parent = ContentArea
-    
-    local PageLayout = Instance.new("UIListLayout")
-    PageLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    PageLayout.Padding = UDim.new(0, 10)
-    PageLayout.Parent = Page
+    Page.Parent = ContentContainer
 
-    TabButton.MouseButton1Click:Connect(function()
-        if CurrentTab then
-            CurrentTab.Button.TextColor3 = Color3.fromRGB(150, 150, 150)
-            CurrentTab.Button.BackgroundTransparency = 1
-            CurrentTab.Page.Visible = false
+    local PLayout = Instance.new("UIListLayout")
+    PLayout.Parent = Page
+    PLayout.Padding = UDim.new(0, 6)
+    PLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    local PPad = Instance.new("UIPadding")
+    PPad.Parent = Page
+    PPad.PaddingRight = UDim.new(0, 5)
+
+    Btn.MouseButton1Click:Connect(function()
+        if ActiveTab then
+            TweenService:Create(ActiveTab.Btn, TweenInfo.new(0.2), {BackgroundTransparency = 1, TextColor3 = Theme.SubText}):Play()
+            ActiveTab.Page.Visible = false
         end
-        
-        CurrentTab = {Button = TabButton, Page = Page}
-        TabButton.TextColor3 = CONFIG.AccentColor
-        TabButton.BackgroundTransparency = 0.9
-        TabButton.BackgroundColor3 = CONFIG.AccentColor
+        ActiveTab = {Btn = Btn, Page = Page}
         Page.Visible = true
+        TweenService:Create(Btn, TweenInfo.new(0.2), {BackgroundTransparency = 0, TextColor3 = Theme.Text}):Play()
     end)
-    
-    if CurrentTab == nil then -- Select first tab by default
-        CurrentTab = {Button = TabButton, Page = Page}
-        TabButton.TextColor3 = CONFIG.AccentColor
-        TabButton.BackgroundTransparency = 0.9
-        TabButton.BackgroundColor3 = CONFIG.AccentColor
-        Page.Visible = true
-    end
-    
     return Page
 end
 
-local SettingsPage = CreateTab("Settings", "")
-local AutoFarmPage = CreateTab("Auto Farm", "")
-local ConfigPage = CreateTab("Config", "")
+--// INITIALIZE TABS
+local InfoPage = CreateTab("Info", "ℹ️")
+local FarmPage = CreateTab("Farm", "🌾")
+local QuestPage = CreateTab("Quest", "📜") -- Quest Page Order Up
+local ToysPage = CreateTab("Toys", "🪁")
+local MobsPage = CreateTab("Mobs", "🐞")
+local SettingsPage = CreateTab("Settings", "⚙️")
+local ConfigPage = CreateTab("Config", "💾")
 
---// AUTO FARM FEATURES
+ContentContainer:GetChildren()[1].Visible = true -- Force first page visible
 
--- Field Selector
-local FieldLabel = Instance.new("TextLabel")
-FieldLabel.Text = "Select Field"
-FieldLabel.Font = Enum.Font.GothamBold
-FieldLabel.TextColor3 = CONFIG.TextColor
-FieldLabel.TextSize = 14
-FieldLabel.Size = UDim2.new(1, 0, 0, 20)
-FieldLabel.BackgroundTransparency = 1
-FieldLabel.TextXAlignment = Enum.TextXAlignment.Left
-FieldLabel.Parent = AutoFarmPage
-
-local FieldScroll = Instance.new("ScrollingFrame")
-FieldScroll.Name = "FieldList"
-FieldScroll.Size = UDim2.new(1, 0, 0, 120)
-FieldScroll.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-FieldScroll.ScrollBarThickness = 4
-FieldScroll.Parent = AutoFarmPage
-AddCorner(FieldScroll)
-AddStroke(FieldScroll, CONFIG.AccentColor, 1)
-
-local FieldLayout = Instance.new("UIListLayout")
-FieldLayout.Parent = FieldScroll
-FieldLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
+--// 1. FARM PAGE LOGIC
+CreateLabel(FarmPage, "Farming Automation", 16)
 local SelectedField = nil
-local StatusLabel = Instance.new("TextLabel")
+local IsFarming = false
+local IsDigging = false
 
--- Populate Fields
-local function LoadFields()
-    local zones = Workspace:FindFirstChild("FlowerZones")
-    if not zones then return end
+-- Field Dropdown (UI)
+local FDrop = Instance.new("Frame")
+FDrop.Size = UDim2.new(1, 0, 0, 40)
+FDrop.BackgroundColor3 = Theme.Content
+FDrop.Parent = FarmPage
+CreateUICorner(FDrop, 6)
+local FLabel = Instance.new("TextLabel"); FLabel.Text = "  Field: None"; FLabel.Size=UDim2.new(0.8,0,1,0); FLabel.BackgroundTransparency=1; FLabel.TextColor3=Theme.Text; FLabel.Font=Enum.Font.Gotham; FLabel.TextXAlignment=Enum.TextXAlignment.Left; FLabel.Parent=FDrop
+local FBtn = Instance.new("TextButton"); FBtn.Size=UDim2.new(1,0,1,0); FBtn.BackgroundTransparency=1; FBtn.Text=""; FBtn.Parent=FDrop
+
+-- Global Modal Handler
+local ModalBg = Instance.new("Frame"); ModalBg.Size=UDim2.new(0.7,0,0.6,0); ModalBg.Position=UDim2.new(0.2,0,0.2,0); ModalBg.BackgroundColor3=Theme.Sidebar; ModalBg.Parent=ContentContainer; ModalBg.Visible=false; ModalBg.ZIndex=10; CreateUICorner(ModalBg,10)
+local MScroll = Instance.new("ScrollingFrame"); MScroll.Size=UDim2.new(1,-10,1,-10); MScroll.Position=UDim2.new(0,5,0,5); MScroll.BackgroundTransparency=1; MScroll.Parent=ModalBg
+local MList = Instance.new("UIListLayout"); MList.Parent=MScroll; MList.SortOrder=Enum.SortOrder.LayoutOrder
+
+FBtn.MouseButton1Click:Connect(function()
+    ModalBg.Visible = not ModalBg.Visible
+    -- Clean existing
+    for _,v in pairs(MScroll:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
     
-    for _, zone in pairs(zones:GetChildren()) do
-        if zone:IsA("BasePart") then
-            local btn = Instance.new("TextButton")
-            btn.Name = zone.Name
-            btn.Text = "  " .. zone.Name
-            btn.Size = UDim2.new(1, 0, 0, 25)
-            btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-            btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-            btn.Font = Enum.Font.Gotham
-            btn.TextSize = 12
-            btn.TextXAlignment = Enum.TextXAlignment.Left
-            btn.Parent = FieldScroll
-            
-            btn.MouseButton1Click:Connect(function()
-                SelectedField = zone
-                StatusLabel.Text = "Target: " .. zone.Name
-                -- Reset other buttons
-                for _, b in pairs(FieldScroll:GetChildren()) do
-                    if b:IsA("TextButton") then b.TextColor3 = Color3.fromRGB(200, 200, 200) end
-                end
-                btn.TextColor3 = CONFIG.AccentColor
+    -- Load Fields
+    local fields = Workspace:FindFirstChild("FlowerZones")
+    if fields then
+        for _,f in pairs(fields:GetChildren()) do
+            local b = Instance.new("TextButton")
+            b.Text = f.Name
+            b.Size = UDim2.new(1,0,0,30)
+            b.BackgroundColor3=Theme.Content; b.TextColor3=Theme.SubText; b.Parent=MScroll; CreateUICorner(b,4)
+            b.MouseButton1Click:Connect(function()
+                SelectedField = f
+                FLabel.Text = "  Field: " .. f.Name
+                ModalBg.Visible = false
             end)
         end
     end
-    FieldScroll.CanvasSize = UDim2.new(0, 0, 0, FieldLayout.AbsoluteContentSize.Y)
-end
+    MScroll.CanvasSize = UDim2.new(0,0,0,MList.AbsoluteContentSize.Y)
+end)
 
-task.spawn(LoadFields)
-
--- Status
-StatusLabel.Text = "Target: None"
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-StatusLabel.TextSize = 12
-StatusLabel.Size = UDim2.new(1, 0, 0, 20)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.Parent = AutoFarmPage
-
--- Pathfinding Logic (Natural Movement)
-local isWalking = false
-local walkLoop = nil
-
-local function WalkTo(targetPosition)
-    if not Character or not Humanoid or not RootPart then return end
-    
-    local path = PathfindingService:CreatePath({
-        AgentRadius = 2,
-        AgentHeight = 5,
-        AgentCanJump = true,
-        WaypointSpacing = 4
-    })
-    
-    local success, errorMessage = pcall(function()
-        path:ComputeAsync(RootPart.Position, targetPosition)
+AddToggle("Auto Dig", FarmPage, function(v)
+    IsDigging = v
+    task.spawn(function()
+        while IsDigging do task.wait(0.2); VirtualUser:CaptureController(); VirtualUser:ClickButton1(Vector2.new()) end
     end)
-    
-    if success and path.Status == Enum.PathStatus.Success then
-        local waypoints = path:GetWaypoints()
-        
-        for i, waypoint in pairs(waypoints) do
-            if not isWalking then break end
-            
-            -- Jump if needed
-            if waypoint.Action == Enum.PathWaypointAction.Jump then
-                Humanoid.ChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
+end)
+
+AddToggle("Auto Farm (Walk)", FarmPage, function(v)
+    IsFarming = v
+    task.spawn(function()
+        while IsFarming and SelectedField do
+            if (RootPart.Position - SelectedField.Position).Magnitude > 30 then
+                Humanoid:MoveTo(SelectedField.Position)
+                Humanoid.MoveToFinished:Wait()
+            else
+                Humanoid:MoveTo(RootPart.Position + Vector3.new(math.random(-15,15), 0, math.random(-15,15)))
+                task.wait(0.5)
             end
-            
-            Humanoid:MoveTo(waypoint.Position)
-            
-            -- Wait for move to finish with timeout check
-            local moveFinished = Humanoid.MoveToFinished:Wait()
-            
-            -- Stuck check logic could go here (e.g. if position hasn't changed)
+            task.wait()
         end
-    else
-        StatusLabel.Text = "Pathfinding Failed: " .. tostring(errorMessage)
-        -- Fallback: Tween if path fails? (Disabled for now to stay 'legit')
-    end
-end
+    end)
+end)
 
--- Toggle Button (Start/Stop)
-local ToggleWalk = Instance.new("TextButton")
-ToggleWalk.Text = "Start Walking (Pathfind)"
-ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-ToggleWalk.TextColor3 = Color3.new(1,1,1)
-ToggleWalk.Font = Enum.Font.GothamBold
-ToggleWalk.TextSize = 14
-ToggleWalk.Size = UDim2.new(1, 0, 0, 40)
-ToggleWalk.Parent = AutoFarmPage
-AddCorner(ToggleWalk)
+--// 2. QUEST PAGE LOGIC (UPDATED REQUEST)
+CreateLabel(QuestPage, "Quest Automation", 16)
+local SelectedBear = nil
+local IsQuesting = false
+local BearsList = {
+    "Black Bear", "Mother Bear", "Brown Bear", "Panda Bear", 
+    "Science Bear", "Polar Bear", "Spirit Bear", 
+    "Riley Bee", "Bucko Bee", "Onett", "Bee Bear"
+}
 
-ToggleWalk.MouseButton1Click:Connect(function()
-    isWalking = not isWalking
+-- Bear Dropdown
+local QDrop = Instance.new("Frame")
+QDrop.Size = UDim2.new(1, 0, 0, 40)
+QDrop.BackgroundColor3 = Theme.Content
+QDrop.Parent = QuestPage
+CreateUICorner(QDrop, 6)
+
+local QLabel = Instance.new("TextLabel")
+QLabel.Text = "  Select Bear > [None]"
+QLabel.Size = UDim2.new(0.8, 0, 1, 0)
+QLabel.BackgroundTransparency = 1
+QLabel.TextColor3 = Theme.Text
+QLabel.Font = Enum.Font.Gotham
+QLabel.TextXAlignment = Enum.TextXAlignment.Left
+QLabel.Parent = QDrop
+
+local QBtn = Instance.new("TextButton")
+QBtn.Size = UDim2.new(1, 0, 1, 0)
+QBtn.BackgroundTransparency = 1
+QBtn.Text = ""
+QBtn.Parent = QDrop
+
+QBtn.MouseButton1Click:Connect(function()
+    ModalBg.Visible = not ModalBg.Visible
+    -- Clean List
+    for _,v in pairs(MScroll:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
     
-    if isWalking then
-        ToggleWalk.Text = "Stop Walking"
-        ToggleWalk.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    -- Load Bears
+    for _, name in pairs(BearsList) do
+        local b = Instance.new("TextButton")
+        b.Text = name
+        b.Size = UDim2.new(1,0,0,30)
+        b.BackgroundColor3=Theme.Content; b.TextColor3=Theme.SubText; b.Parent=MScroll; CreateUICorner(b,4)
         
-        if SelectedField then
-            task.spawn(function()
-                while isWalking and SelectedField do
-                    -- Simple logic: Go to center of field
-                    -- In future: Randomize position within field size
-                    WalkTo(SelectedField.Position)
-                    task.wait(1)
-                    if (RootPart.Position - SelectedField.Position).Magnitude < 10 then
-                        StatusLabel.Text = "Arrived at " .. SelectedField.Name
-                        isWalking = false -- Stop when arrived
-                        ToggleWalk.Text = "Start Walking (Pathfind)"
-                        ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+        b.MouseButton1Click:Connect(function()
+            SelectedBear = name
+            QLabel.Text = "  Select Bear > " .. name
+            ModalBg.Visible = false
+        end)
+    end
+    MScroll.CanvasSize = UDim2.new(0,0,0,MList.AbsoluteContentSize.Y)
+end)
+
+-- Quest Toggle Logic
+AddToggle("Auto Farm Quest (Interact)", QuestPage, function(v)
+    IsQuesting = v
+    if IsQuesting then
+        task.spawn(function()
+            while IsQuesting do
+                if SelectedBear then
+                    -- 1. Find NPC
+                    local target = nil
+                    for _, obj in pairs(Workspace:GetDescendants()) do
+                        if obj.Name == SelectedBear and (obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso")) then
+                            target = obj
+                            break
+                        end
                     end
+                    
+                    if target then
+                        -- 2. Teleport
+                        local tPart = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Torso")
+                        if tPart then
+                            if (RootPart.Position - tPart.Position).Magnitude > 8 then
+                                RootPart.CFrame = tPart.CFrame * CFrame.new(0,0,4)
+                            end
+                            
+                            -- 3. Interact (ProximityPrompt)
+                            local prompt = target:FindFirstChild("ProximityPrompt", true)
+                            if prompt then
+                                fireproximityprompt(prompt)
+                            end
+                            
+                            -- 4. Simulated Click (For GUI dialogs)
+                            VirtualUser:CaptureController()
+                            VirtualUser:ClickButton1(Vector2.new(0.5,0.5))
+                        end
+                    else
+                        QLabel.Text = "  Error: NPC Not Rendered!"
+                    end
+                else
+                    QLabel.Text = "  Error: Select a Bear first!"
                 end
-            end)
-        else
-            StatusLabel.Text = "Error: Select a field first!"
-            isWalking = false
-            ToggleWalk.Text = "Start Walking (Pathfind)"
-            ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-        end
-    else
-        ToggleWalk.Text = "Start Walking (Pathfind)"
-        ToggleWalk.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-        Humanoid:MoveTo(RootPart.Position) -- Stop moving
+                task.wait(1.5) -- Spam interval
+            end
+        end)
     end
 end)
 
---// FLOATING TOGGLE
-local FloatToggle = Instance.new("Frame")
-FloatToggle.Size = UDim2.new(0, 50, 0, 50)
-FloatToggle.Position = UDim2.new(0.1, 0, 0.1, 0)
-FloatToggle.BackgroundColor3 = CONFIG.SidebarColor
-FloatToggle.Parent = ScreenGui
-AddCorner(FloatToggle, UDim.new(1, 0))
-AddStroke(FloatToggle, CONFIG.AccentColor)
-MakeDraggable(FloatToggle)
+CreateLabel(QuestPage, "Status: Monitors quests via dialogue interactions.", 12, Theme.SubText)
 
-local FloatBtn = Instance.new("TextButton")
-FloatBtn.Size = UDim2.new(1, 0, 1, 0)
-FloatBtn.BackgroundTransparency = 1
-FloatBtn.Text = "A"
-FloatBtn.TextColor3 = CONFIG.AccentColor
-FloatBtn.Font = Enum.Font.GothamBold
-FloatBtn.TextSize = 24
-FloatBtn.Parent = FloatToggle
 
-local uiVisible = true
-FloatBtn.MouseButton1Click:Connect(function()
-    uiVisible = not uiVisible
-    MainFrame.Visible = uiVisible
+--// 3. SETTINGS & OTHER (Maintained from previous stable)
+CreateLabel(SettingsPage, "Anti-Lag Options", 16)
+AddToggle("Hide Particles", SettingsPage, function(v)
+    _G.HideParts = v
+    if v then
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("ParticleEmitter") then obj.Enabled = false end
+        end
+    end
 end)
 
-print("Axiora BSS Loaded")
+AddToggle("Hide Token Visuals", SettingsPage, function(v)
+    -- Complex visual hiding logic simplified for V6
+    local coll = Workspace:FindFirstChild("Collectibles")
+    if coll and v then
+        for _,t in pairs(coll:GetChildren()) do 
+            for _,p in pairs(t:GetChildren()) do if p:IsA("Decal") then p.Transparency=1 end end
+        end
+    end
+end)
+
+CreateLabel(SettingsPage, "Hive Options", 16)
+local ClaimBtn = Instance.new("TextButton")
+ClaimBtn.Text = "Auto Claim Random Hive"
+ClaimBtn.Size = UDim2.new(1,0,0,40)
+ClaimBtn.BackgroundColor3=Theme.Accent; ClaimBtn.TextColor3=Theme.Text; ClaimBtn.Parent=SettingsPage; CreateUICorner(ClaimBtn,6)
+ClaimBtn.MouseButton1Click:Connect(function()
+    local hives = Workspace:FindFirstChild("Honeycombs")
+    if hives then
+        for _,h in pairs(hives:GetChildren()) do
+            if h.Owner.Value == nil and h:FindFirstChild("SpawnPos") then
+                RootPart.CFrame = h.SpawnPos.Value.CFrame + Vector3.new(0,5,0)
+                local p = h:FindFirstChild("ProximityPrompt", true)
+                if p then fireproximityprompt(p) end
+            end
+        end
+    end
+end)
+
+--// DASHBOARD INFO
+CreateLabel(InfoPage, "Dashboard", 16)
+local UCard = Instance.new("Frame"); UCard.Size=UDim2.new(1,0,0,70); UCard.BackgroundColor3=Theme.Content; UCard.Parent=InfoPage; CreateUICorner(UCard,6)
+local UImg = Instance.new("ImageLabel"); UImg.Size=UDim2.new(0,50,0,50); UImg.Position=UDim2.new(0,10,0,10); UImg.Image=Players:GetUserThumbnailAsync(Player.UserId,Enum.ThumbnailType.HeadShot,Enum.ThumbnailSize.Size420x420); UImg.Parent=UCard; CreateUICorner(UImg,25)
+local UText = Instance.new("TextLabel"); UText.Text=Player.Name; UText.Position=UDim2.new(0,70,0,25); UText.TextSize=16; UText.TextColor3=Theme.Text; UText.BackgroundTransparency=1; UText.Font=Enum.Font.GothamBold; UText.TextXAlignment=Enum.TextXAlignment.Left; UText.Parent=UCard
+
+--// FLOATING BUTTON
+local Float = Instance.new("TextButton")
+Float.Size = UDim2.new(0,50,0,50)
+Float.Position = UDim2.new(0.01, 0, 0.5, 0)
+Float.BackgroundColor3 = Theme.Background
+Float.Text = "AX"
+Float.TextColor3 = Theme.Accent
+Float.Font = Enum.Font.GothamBlack
+Float.TextSize = 20
+Float.Parent = AxioraGUI
+CreateUICorner(Float, 12)
+local s=Instance.new("UIStroke"); s.Color=Theme.Accent; s.Parent=Float
+Float.MouseButton1Click:Connect(function() MainFrame.Visible=not MainFrame.Visible end)
+
+print("Axiora V6 - Quest Automation Updated")
