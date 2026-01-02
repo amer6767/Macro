@@ -1,3 +1,6 @@
+ation = 5
+})
+--// END OF AXIORA OMEGA //
 --[[ 
     AXIORA OMEGA [TIER-2 ARCHITECTURE]
     Architect: Quantum Delta-Script Architect
@@ -219,9 +222,9 @@ function Math.GetLagFactor()
 end
 
 --// END OF PART A //
---// [PART B: THE HYBRID ENGINE LOGIC] //
+--// [PART B: FLUID ENGINE & AUTOMATION] //
 
---// 6. INTELLIGENT NAVIGATION (A* FALLBACK) //
+--// 6. FLUID NAVIGATION (STUTTER-FREE) //
 local Pathfinding = {}
 local PFS = GetService("PathfindingService")
 
@@ -231,38 +234,47 @@ function Pathfinding.SmartMove(targetPos)
     local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hum or not root then return end
 
-    -- Phase 1: Direct Attempt
     hum:MoveTo(targetPos)
     
-    -- Phase 2: Monitoring (The "Stuck" Detector)
-    local startT = tick()
-    local moved = false
-    local connection
+    -- FLUID MOMENTUM LOOP
+    -- Instead of waiting for a full stop, we check if we are 'close enough' (5 studs)
+    -- This allows the script to issue the NEXT command before the character stops moving.
+    local startT = os.clock()
+    local stuckTime = 0
+    local lastDist = 9999
     
-    connection = hum.MoveToFinished:Connect(function() moved = true end)
-    
-    -- Heuristic Loop: If velocity is near zero for > 1.5s, we are blocked
-    while not moved and (tick() - startT) < 8 do
-        local vel = root.AssemblyLinearVelocity.Magnitude
-        if (tick() - startT) > 1.5 and vel < 0.2 then
-            -- BLOCKED -> ENGAGE A* PATH
-            warn("[Axiora] Obstacle Detected. Calculating Path...")
+    while (root.Position - targetPos).Magnitude > 6 do
+        local dist = (root.Position - targetPos).Magnitude
+        
+        -- A* FALLBACK TRIGGER (Stuck logic)
+        -- If distance isn't shrinking, or we've been moving too long
+        if math.abs(dist - lastDist) < 0.2 then
+            stuckTime = stuckTime + RunService.Heartbeat:Wait()
+        else
+            stuckTime = 0
+            lastDist = dist
+        end
+        
+        -- Logic: If stuck for 1s, compute path around obstacle
+        if stuckTime > 1.0 then
+            -- [Obstacle Detected - Rerouting]
             local path = PFS:CreatePath({AgentRadius = 2, AgentCanJump = true})
-            local s, err = pcall(function() path:ComputeAsync(root.Position, targetPos) end)
-            
-            if s and path.Status == Enum.PathStatus.Success then
+            pcall(function() 
+                path:ComputeAsync(root.Position, targetPos)
                 for _, wp in ipairs(path:GetWaypoints()) do
                     if wp.Action == Enum.PathWaypointAction.Jump then hum.Jump = true end
                     hum:MoveTo(wp.Position)
-                    hum.MoveToFinished:Wait() -- Force wait for waypoint
-                    if (root.Position - targetPos).Magnitude < 5 then break end -- Close enough
+                    hum.MoveToFinished:Wait() -- Waypoints need precision
                 end
-                break -- Exit monitoring, destination likely reached
-            end
+            end)
+            return -- Resume normal flow
         end
+        
+        -- TIMEOUT
+        if (os.clock() - startT) > 10 then break end
+        
         RunService.Heartbeat:Wait()
     end
-    if connection then connection:Disconnect() end
 end
 
 --// 7. RECORDING HEURISTICS //
@@ -272,7 +284,6 @@ local RecordConn = {}
 function Engine.StartRecording()
     if Axiora.State.IsRecording then return end
     
-    -- Flush RAM
     Axiora.Cache.Data = {}
     Axiora.State.RecordingStart = os.clock()
     Axiora.State.IsRecording = true
@@ -280,21 +291,20 @@ function Engine.StartRecording()
     
     local lastPos = nil
     
-    -- STREAM A: MOVEMENT
+    -- MOVEMENT STREAM (Capped Rate for smoothness)
+    -- We record closer intervals to capture curves
     local mv = RunService.Heartbeat:Connect(function()
         if not LocalPlayer.Character then return end
         local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not root then return end
         
         local current = root.Position
-        local camFrame = Camera.CFrame -- Capture Camera Angle for "True-View" replay
         
-        -- Logic: Filter Micro-Jitter
+        -- Only record if moved > 2 studs (Optimizes file size)
         if not lastPos or (current - lastPos).Magnitude > 2 then
             table.insert(Axiora.Cache.Data, {
                 Type = "Move",
                 Pos = {X = current.X, Y = current.Y, Z = current.Z},
-                Cam = {P = camFrame.Position, L = camFrame.LookVector},
                 Time = os.clock() - Axiora.State.RecordingStart
             })
             lastPos = current
@@ -302,9 +312,12 @@ function Engine.StartRecording()
     end)
     table.insert(RecordConn, mv)
     
-    -- STREAM B: INPUT (Taps)
+    -- INPUT STREAM
     local inp = UserInputService.InputBegan:Connect(function(input, gpe)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            
+            -- AUTO-OFFSET LOGIC:
+            -- Capture raw position.
             local raw = UserInputService:GetMouseLocation()
             
             table.insert(Axiora.Cache.Data, {
@@ -322,54 +335,41 @@ function Engine.Stop()
     Axiora.State.IsRecording = false
     Axiora.State.IsReplaying = false
     Axiora.State.IsLooping = false
-    Thermal.SetEcoMode(false) -- Force visuals back on stop
+    Thermal.SetEcoMode(false) 
     
     for _, c in pairs(RecordConn) do c:Disconnect() end
     RecordConn = {}
-    
-    -- Clear Replay Threads
-    for tName, thread in pairs(Axiora.Threads) do
-        task.cancel(thread)
-        Axiora.Threads[tName] = nil
-    end
+    for tName, thread in pairs(Axiora.Threads) do task.cancel(thread) Axiora.Threads[tName] = nil end
 end
 
---// 8. THE PLAYBACK CORE (Humanized) //
+--// 8. PLAYBACK CORE (Humanized + AutoCorrect) //
 function Engine.ExecuteStep(action, prevTime)
-    -- 1. WAIT: Sync time delta using Lag Factor
     local delayTime = action.Time - prevTime
-    if delayTime > 0 then
-        task.wait(delayTime * Math.GetLagFactor()) 
-    end
+    if delayTime > 0 then task.wait(delayTime * Math.GetLagFactor()) end
     
-    -- 2. ACTION BRANCH
     if action.Type == "Move" then
-        -- RECONSTRUCT VECTOR3
         local dest = Vector3.new(action.Pos.X, action.Pos.Y, action.Pos.Z)
-        
-        -- OPTIONAL: CAMERA SYNC ("Absolute Perspective")
-        -- If user enabled Camera Lock, force camera to look direction of movement
-        -- Camera.CFrame = CFrame.new(Vector3.new(action.Cam.P.X, ...), ...) 
-        
         Pathfinding.SmartMove(dest)
         
     elseif action.Type == "Input" and action.Action == "Tap" then
-        -- CALCULATE FINAL COORDINATES
-        local finalX = action.XY.X + Config.Offset.X
-        local finalY = action.XY.Y + Config.Offset.Y
+        -- THE GENIUS FIX (Automatic GUI Inset)
+        -- We get the Inset (e.g., 58 pixels on iPhone notch)
+        -- VIM sends touch relative to VIEWPORT, but Input was SCREEN.
+        -- So we Subtract Inset to match the 1:1 overlap.
+        local Inset = GuiService:GetGuiInset() 
+        local AutoY = action.XY.Y - Inset.Y
         
-        -- APPLY HUMANIZER (Perlin Jitter)
+        local finalX = action.XY.X + Config.Offset.X
+        local finalY = AutoY + Config.Offset.Y -- Auto Logic Applied Here
+        
         if Config.Humanizer.Enabled then
-            local noiseX = (math.random() - 0.5) * Config.Humanizer.Strength * 2
-            local noiseY = (math.random() - 0.5) * Config.Humanizer.Strength * 2
-            finalX = finalX + noiseX
-            finalY = finalY + noiseY
+            finalX = finalX + (math.random(-Config.Humanizer.Strength, Config.Humanizer.Strength))
+            finalY = finalY + (math.random(-Config.Humanizer.Strength, Config.Humanizer.Strength))
         end
         
-        -- EXECUTE VIM CLICK
         pcall(function()
             VirtualInputManager:SendMouseButtonEvent(finalX, finalY, 0, true, game, 1)
-            task.wait(math.random(0.04, 0.08)) -- Variable hold time
+            task.wait(0.06)
             VirtualInputManager:SendMouseButtonEvent(finalX, finalY, 0, false, game, 1)
         end)
     end
@@ -379,325 +379,150 @@ function Engine.Play(isLoop)
     if Axiora.State.IsReplaying or #Axiora.Cache.Data == 0 then return end
     Axiora.State.IsReplaying = true
     Axiora.State.IsLooping = isLoop
-    Axiora.State.IsPaused = false
-    
     if Config.BatterySaver then Thermal.SetEcoMode(true) end
     
     Axiora.Threads["Replay"] = task.spawn(function()
         while Axiora.State.IsReplaying do
-            
-            -- PHOENIX PROTOCOL (Checkpoint Save)
+            local prevTime = 0
             Axiora.State.CurrentIndex = 0
+            
+            -- Initial Movement Sync
+            if Axiora.Cache.Data[1] and Axiora.Cache.Data[1].Type == "Move" then
+                 -- If far away, walk to start first?
+                 -- Engine handles this naturally via SmartMove
+            end
             
             for i, action in ipairs(Axiora.Cache.Data) do
                 if not Axiora.State.IsReplaying then break end
-                
-                -- Check for Pause
-                while Axiora.State.IsPaused do task.wait(0.5) end
-                
-                -- Execute Logic
-                local prev = Axiora.Cache.Data[i-1]
-                local pTime = prev and prev.Time or 0
-                
                 Axiora.State.CurrentIndex = i
-                Engine.ExecuteStep(action, pTime)
+                Engine.ExecuteStep(action, prevTime)
+                prevTime = action.Time
             end
             
             if not Axiora.State.IsLooping then break end
             
-            -- End of Loop Anti-AFK Packet
             if Config.AntiAFK then
-                Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(1), 0)
-                task.wait(0.1)
-                Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(-1), 0)
+                pcall(function() VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Unknown, false, game) end)
             end
-            
             task.wait(0.5)
         end
         Engine.Stop()
     end)
 end
+--// [PART C: VISUAL INTERFACE v1.2] //
 
---// 9. PHOENIX PROTOCOL (Rejoin Logic) //
--- Detection for standard Roblox Error Prompts
-task.spawn(function()
-    if not Config.AutoRejoin then return end
-    local promptGui = CoreGui:WaitForChild("RobloxPromptGui", 10)
-    if not promptGui then return end
-    
-    local function Rejoin()
-        Chronos.Save(true) -- Save State
-        if #Axiora.Cache.Data > 0 then
-             -- Persist the macro logic via queue_on_teleport (Delta Feature)
-             -- User must implement the 'Loader' URL here or autosave check
-        end
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-    end
-
-    promptGui.DescendantAdded:Connect(function(obj)
-        if obj.Name == "ErrorTitle" then
-            warn("[Phoenix] Disconnect Detected. Rejoining...")
-            task.wait(2)
-            Rejoin()
-        end
-    end)
-end)
-
---// END OF PART B //
---// [PART C: VISUAL INTERFACE & FINAL ASSEMBLY] //
-
---// 10. MOBILE UI FACTORY //
+-- UI Components
 local UI = {}
 local Screens = {}
 local MainUI = Instance.new("ScreenGui")
-MainUI.Name = "AxioraOmega_Tier2"
+MainUI.Name = "AxioraOmega_Clean"
 MainUI.Parent = CoreGui
-MainUI.IgnoreGuiInset = true -- Ensures recording alignment with screen edge
+MainUI.IgnoreGuiInset = true 
 MainUI.ResetOnSpawn = false
 
--- Dynamic Drag Logic (Touch Optimized)
-local function EnableDrag(frame, dragObj)
-    local dragging, dragInput, dragStart, startPos
-    dragObj.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
-        end
-    end)
-    dragObj.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+local function CreateCorner(p, r) local c=Instance.new("UICorner",p); c.CornerRadius=UDim.new(0,r) return c end
+
+local function EnableDrag(frame, handle)
+    local dragging, dragStart, startPos
+    handle.InputBegan:Connect(function(i) if i.UserInputType.Name:match("Touch") or i.UserInputType.Name:match("Mouse") then dragging=true; dragStart=i.Position; startPos=frame.Position end end)
+    handle.InputEnded:Connect(function(i) if i.UserInputType.Name:match("Touch") or i.UserInputType.Name:match("Mouse") then dragging=false end end)
+    UserInputService.InputChanged:Connect(function(i) if dragging and (i.UserInputType.Name:match("Mouse") or i.UserInputType.Name:match("Touch")) then local d = i.Position-dragStart; frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y) end end)
 end
 
--- UI Building Blocks
-local function CreateUICorner(p, r) local c=Instance.new("UICorner",p); c.CornerRadius=UDim.new(0,r) return c end
-
-local MainFrame = Instance.new("Frame", MainUI)
-MainFrame.Size = UDim2.fromOffset(580, 320) -- Optimized for Landscape Mobile
-MainFrame.Position = UDim2.fromScale(0.5, 0.5)
-MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-MainFrame.BackgroundColor3 = Theme.Background
-MainFrame.BorderSizePixel = 0
-CreateUICorner(MainFrame, 10)
-
--- Sidebar
-local Sidebar = Instance.new("Frame", MainFrame)
-Sidebar.Size = UDim2.new(0, 160, 1, 0)
-Sidebar.BackgroundColor3 = Theme.Sidebar
-CreateUICorner(Sidebar, 10)
-
-local Title = Instance.new("TextLabel", Sidebar)
-Title.Text = "AXIORA Ω"
-Title.Font = Enum.Font.GothamBlack
-Title.TextColor3 = Theme.Accent
-Title.TextSize = 22
-Title.Size = UDim2.new(1,0,0,50)
-Title.BackgroundTransparency = 1
-
-local TabContainer = Instance.new("Frame", Sidebar)
-TabContainer.Size = UDim2.new(1, -10, 1, -60)
-TabContainer.Position = UDim2.new(0, 5, 0, 60)
-TabContainer.BackgroundTransparency = 1
-
--- Page Container
-local Pages = Instance.new("Frame", MainFrame)
-Pages.Size = UDim2.new(1, -170, 1, -10)
-Pages.Position = UDim2.new(0, 170, 0, 10)
-Pages.BackgroundTransparency = 1
-Pages.ClipsDescendants = true
-
--- Tab Logic
-local currentTab = nil
-local function SwitchTab(btn, page)
-    for _, t in pairs(Screens) do 
-        t.Page.Visible = false 
-        TweenService:Create(t.Btn, TweenInfo.new(0.2), {TextTransparency = 0.5}):Play()
-    end
-    page.Visible = true
-    TweenService:Create(btn, TweenInfo.new(0.2), {TextTransparency = 0}):Play()
-end
-
-local function AddTab(name, icon)
-    local Page = Instance.new("ScrollingFrame", Pages)
-    Page.Size = UDim2.new(1,0,1,0)
-    Page.BackgroundTransparency = 1
-    Page.ScrollBarThickness = 2
-    Page.Visible = false
+-- Slider Component (The replacement for TextBoxes)
+local function AddSlider(parent, text, range, callback)
+    local min, max = -range, range
+    local Frame = Instance.new("Frame", parent)
+    Frame.Size = UDim2.new(1,0,0,50); Frame.BackgroundColor3=Theme.Content; CreateCorner(Frame,6)
     
-    local List = Instance.new("UIListLayout", Page); List.SortOrder = Enum.SortOrder.LayoutOrder; List.Padding = UDim.new(0,6)
-    local Pad = Instance.new("UIPadding", Page); Pad.PaddingRight = UDim.new(0,6)
+    local Title = Instance.new("TextLabel", Frame); Title.Text=text; Title.TextColor3=Theme.SubText; Title.BackgroundTransparency=1; Title.Size=UDim2.new(1,-10,0,20); Title.Position=UDim2.new(0,10,0,5); Title.Font=Enum.Font.GothamBold; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextSize=12
     
-    local Btn = Instance.new("TextButton", TabContainer)
-    Btn.Size = UDim2.new(1, 0, 0, 35)
-    Btn.BackgroundTransparency = 1
-    Btn.Text = " " .. icon .. "  " .. name
-    Btn.Font = Enum.Font.GothamBold
-    Btn.TextColor3 = Theme.Text
-    Btn.TextTransparency = 0.5
-    Btn.TextXAlignment = Enum.TextXAlignment.Left
-    Btn.Position = UDim2.new(0,0,0, (#Screens * 40))
+    local ValueL = Instance.new("TextLabel", Frame); ValueL.Text="0 px"; ValueL.TextColor3=Theme.Accent; ValueL.BackgroundTransparency=1; ValueL.Size=UDim2.new(1,-10,0,20); ValueL.Position=UDim2.new(0,0,0,5); ValueL.Font=Enum.Font.GothamBold; ValueL.TextXAlignment=Enum.TextXAlignment.Right; ValueL.TextSize=12
     
-    Btn.MouseButton1Click:Connect(function() SwitchTab(Btn, Page) end)
-    table.insert(Screens, {Btn=Btn, Page=Page})
-    return Page
-end
-
-local function AddToggle(parent, text, default, callback)
-    local f = Instance.new("Frame", parent)
-    f.Size = UDim2.new(1,0,0,40); f.BackgroundColor3=Theme.Content; CreateUICorner(f,6)
-    local l = Instance.new("TextLabel", f); l.Text=" "..text; l.Size=UDim2.new(0.7,0,1,0); l.TextColor3=Theme.Text; l.BackgroundTransparency=1; l.TextXAlignment=Enum.TextXAlignment.Left; l.Font=Enum.Font.Gotham
-    local b = Instance.new("TextButton", f); b.Size=UDim2.new(0,40,0,22); b.Position=UDim2.new(1,-45,0.5,-11); b.BackgroundColor3=Theme.Sidebar; CreateUICorner(b,12)
-    local c = Instance.new("Frame", b); c.Size=UDim2.new(0,18,0,18); c.Position=UDim2.new(0,2,0.5,-9); c.BackgroundColor3=Theme.SubText; CreateUICorner(c,9)
+    local BarBg = Instance.new("Frame", Frame); BarBg.Size=UDim2.new(0.9,0,0,4); BarBg.Position=UDim2.new(0.05,0,0.7,0); BarBg.BackgroundColor3=Theme.Sidebar; CreateCorner(BarBg,2)
+    local Fill = Instance.new("Frame", BarBg); Fill.Size=UDim2.new(0.5,0,1,0); Fill.BackgroundColor3=Theme.Accent; CreateCorner(Fill,2)
+    local Knob = Instance.new("Frame", BarBg); Knob.Size=UDim2.new(0,14,0,14); Knob.Position=UDim2.new(0.5,-7,0.5,-7); Knob.BackgroundColor3=Theme.Text; CreateCorner(Knob,7)
     
-    local on = default
-    local function Update()
-        TweenService:Create(c, TweenInfo.new(0.2), {Position = on and UDim2.new(0,20,0.5,-9) or UDim2.new(0,2,0.5,-9), BackgroundColor3 = on and Color3.new(1,1,1) or Theme.SubText}):Play()
-        TweenService:Create(b, TweenInfo.new(0.2), {BackgroundColor3 = on and Theme.Accent or Theme.Sidebar}):Play()
-        callback(on)
-    end
-    b.MouseButton1Click:Connect(function() on = not on; Update() end)
-    if default then Update() end
-end
-
---// 11. PAGE CONSTRUCTION //
-
--- [TAB: DASHBOARD]
-local P_Dash = AddTab("Dashboard", "🏠")
-local Status = Instance.new("TextLabel", P_Dash)
-Status.Size = UDim2.new(1,0,0,80); Status.BackgroundColor3 = Theme.Content; Status.TextColor3 = Theme.SubText; Status.Text = "SYSTEM IDLE"; Status.Font=Enum.Font.GothamBlack; Status.TextSize=20
-CreateUICorner(Status, 8)
-
-local RecBtn = Instance.new("TextButton", P_Dash)
-RecBtn.Size = UDim2.new(1,0,0,45); RecBtn.BackgroundColor3 = Theme.Content; RecBtn.Text="START RECORDING"; RecBtn.TextColor3=Theme.Text; RecBtn.Font=Enum.Font.GothamBold
-CreateUICorner(RecBtn, 8)
-
-local PlayBtn = Instance.new("TextButton", P_Dash)
-PlayBtn.Size = UDim2.new(1,0,0,45); PlayBtn.BackgroundColor3 = Theme.Accent; PlayBtn.Text="PLAY LOOP"; PlayBtn.TextColor3=Theme.Text; PlayBtn.Font=Enum.Font.GothamBold
-CreateUICorner(PlayBtn, 8)
-
-RecBtn.MouseButton1Click:Connect(function()
-    if Axiora.State.IsRecording then Engine.Stop() else Engine.StartRecording() end
-end)
-PlayBtn.MouseButton1Click:Connect(function()
-    if Axiora.State.IsReplaying then Engine.Stop() else Engine.Play(true) end
-end)
-
--- [TAB: SETTINGS]
-local P_Set = AddTab("Settings", "⚙️")
-
-local OffF = Instance.new("Frame", P_Set); OffF.Size=UDim2.new(1,0,0,40); OffF.BackgroundTransparency=1
-local BoxX = Instance.new("TextBox", OffF); BoxX.PlaceholderText="Offset X"; BoxX.Size=UDim2.new(0.48,0,1,0); BoxX.BackgroundColor3=Theme.Content; BoxX.TextColor3=Theme.Text
-local BoxY = Instance.new("TextBox", OffF); BoxY.PlaceholderText="Offset Y (TopBar)"; BoxY.Size=UDim2.new(0.48,0,1,0); BoxY.Position=UDim2.new(0.52,0,0,0); BoxY.BackgroundColor3=Theme.Content; BoxY.TextColor3=Theme.Text
-CreateUICorner(BoxX, 6); CreateUICorner(BoxY, 6)
-
-BoxX.FocusLost:Connect(function() Config.Offset.X = tonumber(BoxX.Text) or 0 end)
-BoxY.FocusLost:Connect(function() Config.Offset.Y = tonumber(BoxY.Text) or 0 end)
-
-AddToggle(P_Set, "Thermal Mode (Save Battery)", false, function(v) Config.BatterySaver = v; Thermal.SetEcoMode(v) end)
-AddToggle(P_Set, "Holographic Path (HUD)", true, function(v) Config.Visuals = v end)
-AddToggle(P_Set, "Anti-AFK Packet Spoof", true, function(v) Config.AntiAFK = v end)
-
---// 12. HOLOGRAPHIC VISUALIZER (HUD) //
--- Using Delta/Execution standard Drawing API for lightweight 2D lines
-local Visuals = {Lines = {}}
-
-task.spawn(function()
-    local LineCache = {} -- Reuse drawing objects to prevent memory leak
-    
-    while RunService.RenderStepped:Wait() do
-        -- Logic: If visualizer enabled and we have Waypoints
-        if Config.Visuals and (#Axiora.Cache.Data > 0) then
-            local Count = 0
-            local PreviousPoint = nil
-            
-            for _, act in ipairs(Axiora.Cache.Data) do
-                if act.Type == "Move" then
-                    -- Project 3D Point to 2D Screen
-                    local vec3 = Vector3.new(act.Pos.X, act.Pos.Y, act.Pos.Z)
-                    local screenPos, onScreen = Camera:WorldToViewportPoint(vec3)
-                    
-                    if onScreen and PreviousPoint then
-                        Count = Count + 1
-                        -- Create or reuse line
-                        local line = LineCache[Count]
-                        if not line then
-                            line = Drawing.new("Line")
-                            line.Thickness = 1.5
-                            line.Color = Theme.Accent
-                            line.Transparency = 0.6
-                            table.insert(LineCache, line)
-                        end
-                        
-                        line.From = Vector2.new(PreviousPoint.X, PreviousPoint.Y)
-                        line.To = Vector2.new(screenPos.X, screenPos.Y)
-                        line.Visible = true
-                    end
-                    
-                    PreviousPoint = screenPos
-                end
-            end
-            
-            -- Hide unused lines
-            for i = Count + 1, #LineCache do
-                LineCache[i].Visible = false
-            end
-        else
-            -- Cleanup if hidden
-            for _, l in pairs(LineCache) do l.Visible = false end
-        end
+    local dragging = false
+    local function Update(inputX)
+        local barPos = BarBg.AbsolutePosition.X
+        local barSize = BarBg.AbsoluteSize.X
+        local alpha = math.clamp((inputX - barPos) / barSize, 0, 1)
         
-        -- UI STATUS UPDATE (Linking Part B State to UI)
-        if Axiora.State.IsRecording then
-            Status.Text = "RECORDING | Actions: " .. #Axiora.Cache.Data
-            Status.TextColor3 = Theme.Danger
-            RecBtn.Text = "STOP RECORDING"
-        elseif Axiora.State.IsReplaying then
-            Status.Text = "PLAYING | Index: " .. Axiora.State.CurrentIndex
-            Status.TextColor3 = Theme.Success
-            PlayBtn.Text = "STOP PLAYBACK"
-        else
-            Status.Text = "SYSTEM READY"
-            Status.TextColor3 = Theme.SubText
-            RecBtn.Text = "START RECORDING"
-            PlayBtn.Text = "PLAY LOOP"
-        end
+        Knob.Position = UDim2.new(alpha, -7, 0.5, -7)
+        Fill.Size = UDim2.new(alpha, 0, 1, 0)
+        
+        local value = math.floor(min + (max - min) * alpha)
+        ValueL.Text = (value > 0 and "+" or "") .. value .. " px"
+        callback(value)
+    end
+    
+    Knob.InputBegan:Connect(function(i) if i.UserInputType.Name:match("Touch") or i.UserInputType.Name:match("Mouse") then dragging=true end end)
+    UserInputService.InputEnded:Connect(function(i) if i.UserInputType.Name:match("Touch") or i.UserInputType.Name:match("Mouse") then dragging=false end end)
+    UserInputService.InputChanged:Connect(function(i) if dragging and (i.UserInputType.Name:match("Mouse") or i.UserInputType.Name:match("Touch")) then Update(i.Position.X) end end)
+end
+
+-- New Button & Tab System
+local MainFrame = Instance.new("Frame", MainUI); MainFrame.Size=UDim2.new(0,500,0,300); MainFrame.Position=UDim2.fromScale(0.5,0.5); MainFrame.AnchorPoint=Vector2.new(0.5,0.5); MainFrame.BackgroundColor3=Theme.Background; CreateCorner(MainFrame,10)
+local Sidebar = Instance.new("Frame", MainFrame); Sidebar.Size=UDim2.new(0,130,1,0); Sidebar.BackgroundColor3=Theme.Sidebar; CreateCorner(Sidebar,10)
+local Title = Instance.new("TextLabel", Sidebar); Title.Text="AXIORA"; Title.TextColor3=Theme.Accent; Title.Font=Enum.Font.GothamBlack; Title.TextSize=20; Title.Size=UDim2.new(1,0,0,45); Title.BackgroundTransparency=1
+local PageCont = Instance.new("Frame", MainFrame); PageCont.Size=UDim2.new(1,-140,1,-10); PageCont.Position=UDim2.new(0,140,0,10); PageCont.BackgroundTransparency=1; PageCont.ClipsDescendants=true
+
+local Pages = {}
+local function CreatePage(name, icon)
+    local btn = Instance.new("TextButton", Sidebar); btn.Size=UDim2.new(1,-10,0,35); btn.Position=UDim2.new(0,5,0,50 + (#Pages*40)); btn.BackgroundColor3=Theme.Sidebar; btn.Text="   "..icon.." "..name; btn.TextColor3=Theme.SubText; btn.Font=Enum.Font.GothamBold; btn.TextSize=12; btn.TextXAlignment=Enum.TextXAlignment.Left; CreateCorner(btn,6)
+    local page = Instance.new("ScrollingFrame", PageCont); page.Size=UDim2.new(1,0,1,0); page.BackgroundTransparency=1; page.ScrollBarThickness=2; page.Visible=false;
+    local layout = Instance.new("UIListLayout", page); layout.Padding=UDim.new(0,6); layout.SortOrder=Enum.SortOrder.LayoutOrder
+    local pad = Instance.new("UIPadding", page); pad.PaddingRight=UDim.new(0,5)
+    
+    btn.MouseButton1Click:Connect(function()
+        for _,p in pairs(Pages) do p.page.Visible=false; TweenService:Create(p.btn,TweenInfo.new(0.2),{TextColor3=Theme.SubText}):Play() end
+        page.Visible=true; TweenService:Create(btn,TweenInfo.new(0.2),{TextColor3=Theme.Text}):Play()
+    end)
+    table.insert(Pages, {btn=btn, page=page})
+    return page
+end
+
+local function AddBigBtn(parent, text, color, callback)
+    local b = Instance.new("TextButton", parent); b.Size=UDim2.new(1,0,0,40); b.BackgroundColor3=color; b.Text=text; b.TextColor3=Theme.Text; b.Font=Enum.Font.GothamBold; CreateCorner(b,8)
+    b.MouseButton1Click:Connect(function() 
+        TweenService:Create(b,TweenInfo.new(0.1),{TextSize=12}):Play()
+        task.delay(0.1, function() TweenService:Create(b,TweenInfo.new(0.1),{TextSize=14}):Play() end)
+        callback() 
+    end)
+    return b -- Return for text updates
+end
+
+-- PAGE 1: HOME
+local P_Home = CreatePage("Home", "🏠")
+local Info = Instance.new("TextLabel", P_Home); Info.Size=UDim2.new(1,0,0,80); Info.BackgroundColor3=Theme.Content; Info.Text="SYSTEM READY\nStatus: IDLE"; Info.TextColor3=Theme.SubText; Info.Font=Enum.Font.GothamBold; Info.TextSize=16; CreateCorner(Info,8)
+
+local RecB = AddBigBtn(P_Home, "START RECORDING", Theme.Content, function()
+    if Axiora.State.IsRecording then Engine.Stop() Info.Text="SYSTEM READY" else Engine.StartRecording() Info.Text="● RECORDING" Info.TextColor3=Theme.Danger end
+end)
+local PlayB = AddBigBtn(P_Home, "PLAY LOOP", Theme.Accent, function()
+    if Axiora.State.IsReplaying then Engine.Stop() Info.Text="SYSTEM READY" else Engine.Play(true) Info.Text="▶ PLAYING" Info.TextColor3=Theme.Success end
+end)
+
+-- PAGE 2: SETTINGS (With SLIDERS)
+local P_Set = CreatePage("Settings", "⚙️")
+AddSlider(P_Set, "Manual Offset X", 50, function(v) Config.Offset.X = v end)
+AddSlider(P_Set, "Manual Offset Y", 100, function(v) Config.Offset.Y = v end)
+
+-- HUD Update Loop
+task.spawn(function()
+    while task.wait(0.2) do
+        if Axiora.State.IsRecording then RecB.Text="STOP RECORDING ("..#Axiora.Cache.Data..")" 
+        else RecB.Text="START RECORDING" end
+        if Axiora.State.IsReplaying then PlayB.Text="STOP ("..Axiora.State.CurrentIndex..")"
+        else PlayB.Text="PLAY LOOP" end
     end
 end)
 
---// 13. MASTER INIT //
--- Drag Support & Floating Toggle
+-- Initial State
 EnableDrag(MainFrame, Sidebar)
-local ToggleBtn = Instance.new("TextButton", MainUI)
-ToggleBtn.Size = UDim2.new(0,50,0,50); ToggleBtn.Position=UDim2.new(0,20,0.3,0); ToggleBtn.BackgroundColor3=Theme.Sidebar; ToggleBtn.Text="Ω"; ToggleBtn.TextColor3=Theme.Accent; ToggleBtn.Font=Enum.Font.GothamBlack; ToggleBtn.TextSize=24
-CreateUICorner(ToggleBtn, 25); EnableDrag(ToggleBtn, ToggleBtn)
+Pages[1].page.Visible = true
 
-ToggleBtn.MouseButton1Click:Connect(function() MainFrame.Visible = not MainFrame.Visible end)
-
--- Initial Tab
-SwitchTab(Screens[1].Btn, Screens[1].Page)
-
--- Phoenix Auto-Load Check
-task.delay(1, function()
-    if Config.AutoRejoin then
-        local loaded = Chronos.Load(true) -- Load Temp
-        if loaded and Axiora.State.CurrentIndex > 0 then
-            Chronos.Load(false) -- Load Data
-            Engine.Play(Axiora.State.IsLooping)
-        end
-    end
-end)
-
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AXIORA OMEGA",
-    Text = "Tier-2 Architecture Online.\n20/20 Systems Active.",
-    Duration = 5
-})
---// END OF AXIORA OMEGA //
+-- Toggle Button (Floating)
+local Toggle = Instance.new("TextButton", MainUI); Toggle.Size=UDim2.new(0,45,0,45); Toggle.Position=UDim2.new(0,20,0.5,-22); Toggle.BackgroundColor3=Theme.Sidebar; Toggle.Text="Ω"; Toggle.TextColor3=Theme.Accent; Toggle.Font=Enum.Font.GothamBlack; Toggle.TextSize=20; CreateCorner(Toggle,22); EnableDrag(Toggle,Toggle)
+Toggle.MouseButton1Click:Connect(function() MainFrame.Visible = not MainFrame.Visible end)
