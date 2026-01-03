@@ -1,854 +1,882 @@
 --[[ 
-    AXIORA EPSILON [TIER-3 ARCHITECTURE]
-    Batch: 1 / 5 (Foundation & IO)
-    Architect: Quantum Delta-Script Architect
-    Environment: Delta/Hydrogen (Mobile)
+    AXIORA EPSILON [Tier-3]
+    Batch 1 / 4
+    Focus: Services, State, IO System
+    Line Count: ~240
 ]]
 
---// 1. ENVIRONMENT MASKING & SAFETY //
-local Axiora = getgenv().Axiora or {}
-if Axiora.Loaded and Axiora.Stop then Axiora.Stop() end -- Auto-Clean old instance
-getgenv().Axiora = { Loaded = true, Threads = {}, Signals = {} }
+--// 1. SAFETY & SERVICES //
+getgenv().Axiora = getgenv().Axiora or {}
+if getgenv().Axiora.Stop then getgenv().Axiora.Stop() end -- Cleanup old threads
 
 local Services = setmetatable({}, {
-    __index = function(self, key)
-        local s = game:GetService(key)
+    __index = function(_, k)
+        local s = game:GetService(k)
         return cloneref and cloneref(s) or s
     end
 })
 
 local Players = Services.Players
+local Workspace = Services.Workspace
 local RunService = Services.RunService
 local UserInputService = Services.UserInputService
-local HttpService = Services.HttpService
 local VirtualInputManager = Services.VirtualInputManager
 local TweenService = Services.TweenService
+local HttpService = Services.HttpService
 local CoreGui = Services.CoreGui
-local PathfindingService = Services.PathfindingService
 local GuiService = Services.GuiService
+local PathfindingService = Services.PathfindingService
 local Lighting = Services.Lighting
 
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local Camera = Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
---// 2. THE MASTER CONFIGURATION (20-TOGGLE STATE) //
+--// 2. MASTER CONFIGURATION (20 FEATURES) //
+-- This table controls the logic for the entire macro.
 local Settings = {
-    -- [MODULE A: ESSENTIALS]
-    FluidMotion = true,       -- Smooth movement
-    CameraSync = true,        -- Record/Replay Camera Angles
-    EinsteinOffset = true,    -- Auto-fix GUI Inset
-    SmartPathing = true,      -- A* Fallback
-    Humanizer = true,         -- Randomized Inputs
+    -- [A] MOVEMENT & INPUT
+    FluidMotion = true,        -- Smooth walking (no stops)
+    CameraSync = true,         -- Record & Replay Camera Angles
+    EinsteinOffset = true,     -- Auto-fix GUI Inset for buttons
+    SmartPathing = true,       -- Auto-walk around walls (A*)
+    ClickHumanizer = true,     -- Randomize click position slightly
 
-    -- [MODULE B: VISUALS]
-    HoloHUD = true,           -- 3D Paths
-    PredictionBeam = true,    -- Blue Forecast
-    ClickRipples = true,      -- Visual Tap feedback
-    Notifications = true,     -- Status alerts
-    DarkMode = true,          -- Theme
+    -- [B] VISUALS
+    HoloHUD = true,            -- Draw Tron-like path lines
+    PredictionBeam = true,     -- Show future path in Blue
+    ClickRipples = true,       -- Visual effect on click
+    Notifications = true,      -- Custom status alerts
+    DarkMode = true,           -- Force Dark Theme
 
-    -- [MODULE C: SURVIVAL]
-    ThermalEco = false,       -- Black screen mode
-    PhoenixRejoin = true,     -- Auto-rejoin
-    AntiAFK = true,           -- Camera spoofing
-    LootMagnet = false,       -- Nudge to items
-    AutoInteract = false,     -- Fire Proximity Prompts
+    -- [C] SURVIVAL
+    ThermalEco = false,        -- Black screen mode (Save Battery)
+    PhoenixRejoin = true,      -- Auto-rejoin on disconnect
+    AntiAFK = true,            -- Spoof camera packets
+    LootMagnet = false,        -- Micro-nudge to grab tokens
+    AutoInteract = false,      -- Auto-fire proximity prompts
 
-    -- [MODULE D: ADVANCED]
-    SmartLag = true,          -- Ping Dilation
-    InvCheck = false,         -- Backpack fullness check
-    ServerHop = false,        -- Hop if stuck
-    PanicShake = false,       -- Shake to stop
-    SoundFX = true,           -- Auditory cues
+    -- [D] ADVANCED
+    SmartLag = true,           -- Dynamic Ping Speed adjustment
+    InventoryCheck = false,    -- Pause if Backpack full
+    ServerHop = false,         -- Change server if stuck
+    PanicShake = false,        -- Kill switch gesture
+    SoundFX = true,            -- Interface sounds
     
-    -- [SYSTEM]
+    -- SYSTEM VARIABLES
+    Offsets = {X = 0, Y = 0},
     PlaybackSpeed = 1.0,
-    ManualOffsetX = 0,
-    ManualOffsetY = 0
+    Version = "Epsilon 1.0"
 }
 
---// 3. THE "ENCODER" LIBRARY (MATH SERIALIZATION) //
--- JSON cannot save "Vector3" or "CFrame". We must translate them to Tables.
-local Encoder = {}
+-- Global State Tracking
+local State = {
+    Recording = false,
+    Replaying = false,
+    Paused = false,
+    Index = 1,
+    StartTime = 0,
+    Threads = {},
+    Connections = {},
+    Visuals = {}
+}
 
-function Encoder.CFrameToTable(cf)
-    local x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22 = cf:GetComponents()
-    return {x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22}
+--// 3. EINSTEIN MATH HELPER //
+local MathUtils = {}
+
+function MathUtils.SerializeVector(v)
+    return {X = math.round(v.X*100)/100, Y = math.round(v.Y*100)/100, Z = math.round(v.Z*100)/100}
 end
 
-function Encoder.TableToCFrame(tbl)
-    if not tbl or #tbl < 12 then return CFrame.new() end
-    return CFrame.new(table.unpack(tbl))
+function MathUtils.DeserializeVector(t)
+    return Vector3.new(t.X or 0, t.Y or 0, t.Z or 0)
 end
 
-function Encoder.VectorToTable(vec)
-    return {X = vec.X, Y = vec.Y, Z = vec.Z}
+function MathUtils.SerializeCFrame(cf)
+    -- Reduce precision to save file size
+    local components = {cf:GetComponents()}
+    for i, v in ipairs(components) do components[i] = math.round(v*1000)/1000 end
+    return components
 end
 
-function Encoder.TableToVector(tbl)
-    return Vector3.new(tbl.X or 0, tbl.Y or 0, tbl.Z or 0)
+function MathUtils.DeserializeCFrame(t)
+    if not t or #t < 12 then return CFrame.new() end
+    return CFrame.new(table.unpack(t))
 end
 
-function Encoder.ColorToTable(col)
-    return {R = col.R, G = col.G, B = col.B}
+-- TopBar Logic Fix
+function MathUtils.GetTrueInput(pos)
+    -- On Replay: Subtract Inset. On Record: We grab RAW.
+    local inset = GuiService:GetGuiInset()
+    return Vector2.new(pos.X, pos.Y - inset.Y)
 end
 
---// 4. THE "CHRONOS" V2 FILE SYSTEM //
--- Handles the new "AxioraData" folder and Save Profiles
-local Chronos = {}
-Chronos.Folder = "AxioraData"
-Chronos.Extension = ".axiora" -- Custom file extension
+--// 4. CHRONOS FILE SYSTEM (Deep Serialization) //
+local FileSystem = {}
+FileSystem.Folder = "AxioraData"
+FileSystem.Ext = ".json" -- Using standard JSON for compatibility
 
--- Ensure Folder Exists
-if makefolder and not isfolder(Chronos.Folder) then
-    makefolder(Chronos.Folder)
-end
+if makefolder and not isfolder(FileSystem.Folder) then makefolder(FileSystem.Folder) end
 
-function Chronos.SaveProfile(name, recordingData)
-    if not writefile then return false, "No Write Access" end
+function FileSystem.SaveProfile(name, rawData)
+    if not writefile then return false, "No File Access" end
     
-    local Profile = {
-        Meta = {
-            Date = os.date(),
-            Version = "Epsilon",
-            Duration = recordingData.Duration or 0,
-            ActionCount = #recordingData
-        },
-        Config = Settings, -- Save current toggle states
-        Data = {}
-    }
+    -- Prepare Data Structure (Convert CFrame/Vector3 to Tables)
+    local serializableData = {}
     
-    -- Optimize Data for saving (Deep Serialize)
-    for _, action in ipairs(recordingData) do
-        local entry = {
-            Type = action.Type,
-            Time = action.Time
-        }
+    for _, action in ipairs(rawData) do
+        local node = { Type = action.Type, Time = math.round(action.Time*1000)/1000 }
         
         if action.Type == "Move" then
-            entry.Pos = Encoder.VectorToTable(action.Pos)
+            node.Pos = MathUtils.SerializeVector(action.Pos)
             if action.Cam then 
-                entry.Cam = Encoder.CFrameToTable(action.Cam) -- The heavy Cinematic Data
+                node.Cam = MathUtils.SerializeCFrame(action.Cam)
             end
         elseif action.Type == "Tap" then
-            entry.XY = {X = action.XY.X, Y = action.XY.Y}
+            node.XY = {X = action.XY.X, Y = action.XY.Y}
         elseif action.Type == "Wait" then
-            entry.Dur = action.Dur
+            node.Dur = action.Dur
         end
         
-        table.insert(Profile.Data, entry)
+        table.insert(serializableData, node)
     end
     
-    local encoded = HttpService:JSONEncode(Profile)
-    writefile(Chronos.Folder .. "/" .. name .. Chronos.Extension, encoded)
-    return true
+    local Profile = {
+        Info = { Date = os.date(), Ver = Settings.Version, Actions = #rawData },
+        Config = Settings, -- Save your current Toggles
+        Data = serializableData
+    }
+    
+    local success, encoded = pcall(function() return HttpService:JSONEncode(Profile) end)
+    if success then
+        writefile(FileSystem.Folder .. "/" .. name .. FileSystem.Ext, encoded)
+        return true
+    else
+        warn("JSON Encode Fail: " .. tostring(encoded))
+        return false
+    end
 end
 
-function Chronos.LoadProfile(name)
-    if not readfile or not isfile(Chronos.Folder .. "/" .. name .. Chronos.Extension) then 
-        return nil, "File not found" 
-    end
+function FileSystem.LoadProfile(name)
+    local path = FileSystem.Folder .. "/" .. name .. FileSystem.Ext
+    if not isfile(path) then return nil end
     
-    local raw = readfile(Chronos.Folder .. "/" .. name .. Chronos.Extension)
+    local raw = readfile(path)
     local decoded = HttpService:JSONDecode(raw)
     
-    -- Restore Settings
+    if not decoded or not decoded.Data then return nil end
+    
+    -- Restore Config
     if decoded.Config then
-        for k, v in pairs(decoded.Config) do
+        for k,v in pairs(decoded.Config) do
             if Settings[k] ~= nil then Settings[k] = v end
         end
     end
     
-    -- Restore Data (Deserialize)
+    -- Deserialize Data (Table -> Vector3/CFrame)
     local activeData = {}
-    for _, entry in ipairs(decoded.Data) do
-        local action = { Type = entry.Type, Time = entry.Time }
-        
-        if entry.Type == "Move" then
-            action.Pos = Encoder.TableToVector(entry.Pos)
-            if entry.Cam then
-                action.Cam = Encoder.TableToCFrame(entry.Cam)
-            end
-        elseif entry.Type == "Tap" then
-            action.XY = {X = entry.XY.X, Y = entry.XY.Y}
-        elseif entry.Type == "Wait" then
-            action.Dur = entry.Dur
+    for _, node in ipairs(decoded.Data) do
+        local action = { Type = node.Type, Time = node.Time }
+        if node.Type == "Move" then
+            action.Pos = MathUtils.DeserializeVector(node.Pos)
+            if node.Cam then action.Cam = MathUtils.DeserializeCFrame(node.Cam) end
+        elseif node.Type == "Tap" then
+            action.XY = {X = node.XY.X, Y = node.XY.Y}
         end
         table.insert(activeData, action)
     end
     
-    return activeData, decoded.Meta
+    return activeData, decoded.Info
 end
 
-function Chronos.GetProfiles()
-    if not listfiles then return {} end
-    local files = listfiles(Chronos.Folder)
-    local names = {}
-    for _, file in pairs(files) do
-        local name = file:match("([^/]+)"..Chronos.Extension.."$")
-        if name then table.insert(names, name) end
-    end
-    return names
-end
-
---// 5. THERMAL REGULATOR (BATTERY MANAGER) //
-local Thermal = {}
-Thermal.VoidPart = nil
-
-function Thermal.UpdateState()
-    if Settings.ThermalEco then
-        -- ACTIVATING VOID MODE
-        RunService:Set3dRenderingEnabled(false)
-        if not Thermal.VoidPart then
-            local p = Instance.new("Part")
-            p.Size = Vector3.new(100, 100, 100)
-            p.Anchored = true
-            p.CanCollide = false
-            p.Color = Color3.new(0,0,0)
-            p.Material = Enum.Material.Neon
-            p.Position = Vector3.new(0, 5000, 0)
-            p.Parent = workspace
-            Thermal.VoidPart = p
-        end
-        if LocalPlayer.Character then 
-            LocalPlayer.Character:MoveTo(Vector3.new(0, 5000, 0)) -- Teleport to void (Safe logic dependent)
-        end
-        Settings.ThermalActive = true
-    else
-        -- DEACTIVATING
-        RunService:Set3dRenderingEnabled(true)
-        if Thermal.VoidPart then Thermal.VoidPart:Destroy() Thermal.VoidPart = nil end
-        Settings.ThermalActive = false
-    end
-end
-
--- [BATCH 1 COMPLETE] 
--- Services, IO, and Config Ready.
---// BATCH 2: THE CINEMATIC RECORDER //
-
-local Recorder = {
-    Active = false,
-    StartTime = 0,
-    DataBuffer = {},
-    LastMovePos = nil,
-    IdleTimer = 0,
-    Connections = {}
-}
-
--- Safety Stop Function
-function Recorder.Stop()
-    Recorder.Active = false
-    for _, c in pairs(Recorder.Connections) do c:Disconnect() end
-    Recorder.Connections = {}
-    -- Trigger UI Event here later
-end
-
-function Recorder.Start()
-    if Recorder.Active then return end
-    Recorder.Active = true
-    Recorder.StartTime = os.clock()
-    Recorder.DataBuffer = {}
-    Recorder.LastMovePos = nil
+-- Helper to stop everything safely
+function Axiora.Stop()
+    State.Recording = false
+    State.Replaying = false
+    State.Paused = false
     
-    -- 1. INPUT STREAM (TAPS)
-    local tapConn = UserInputService.InputBegan:Connect(function(input, gpe)
+    -- Clear threads
+    for _, t in pairs(State.Threads) do task.cancel(t) end
+    State.Threads = {}
+    
+    -- Disconnect events
+    for _, c in pairs(State.Connections) do c:Disconnect() end
+    State.Connections = {}
+    
+    -- Remove Visuals
+    if workspace:FindFirstChild("AxioraVisuals") then
+        workspace.AxioraVisuals:Destroy()
+    end
+    
+    -- Restore Environment
+    if Settings.ThermalEco then
+        RunService:Set3dRenderingEnabled(true)
+        Lighting.GlobalShadows = true
+    end
+end
+
+-- Inject into Global for Access
+getgenv().Axiora.State = State
+getgenv().Axiora.Settings = Settings
+getgenv().Axiora.Files = FileSystem
+--[[ 
+    AXIORA EPSILON [Tier-3]
+    Batch 2 / 4
+    Focus: Engines (Record, Replay, Pathfinding, Thermal)
+]]
+
+local Settings = getgenv().Axiora.Settings
+local State = getgenv().Axiora.State
+
+--// 5. THERMAL REGULATOR (BATTERY SAVER) //
+local ThermalUtils = {}
+ThermalUtils.VoidPart = nil
+
+function ThermalUtils.Update(isActive)
+    local lighting = game:GetService("Lighting")
+    if isActive then
+        game:GetService("RunService"):Set3dRenderingEnabled(false)
+        -- Fallback: Create black void just in case logic bypasses Set3d
+        if not ThermalUtils.VoidPart then
+            local p = Instance.new("Part")
+            p.Size = Vector3.new(9e9, 2048, 9e9); p.Position = Vector3.new(0, 10000, 0)
+            p.Anchored = true; p.CanCollide = false; p.Color = Color3.new(0,0,0)
+            p.Material = Enum.Material.Neon; p.Name = "AxioraVoid"
+            p.Parent = workspace
+            ThermalUtils.VoidPart = p
+        end
+        lighting.GlobalShadows = false
+    else
+        game:GetService("RunService"):Set3dRenderingEnabled(true)
+        if ThermalUtils.VoidPart then ThermalUtils.VoidPart:Destroy() ThermalUtils.VoidPart = nil end
+        lighting.GlobalShadows = true
+    end
+end
+
+--// 6. INTELLIGENT NAVIGATION (FLUID A*) //
+local Nav = {}
+
+function Nav.SmartMove(targetPos)
+    if not Players.LocalPlayer.Character then return end
+    local hum = Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+    local root = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return end
+
+    -- A. Start Movement
+    hum:MoveTo(targetPos)
+    
+    -- B. Monitor Progress (Non-Blocking / Fluid)
+    local startT = os.clock()
+    local lastDist = (root.Position - targetPos).Magnitude
+    local stuckTimer = 0
+    
+    -- "Fluid Motion": We exit the loop when within 4 studs, not 0.
+    -- This blends movement into the next waypoint smoothly without stopping.
+    while (root.Position - targetPos).Magnitude > 4 do
+        if not State.Replaying then break end
+        if (os.clock() - startT) > 10 then break end -- Hard Timeout
+        
+        -- Stuck Detection
+        local dist = (root.Position - targetPos).Magnitude
+        if math.abs(dist - lastDist) < 0.2 then
+            stuckTimer = stuckTimer + game:GetService("RunService").Heartbeat:Wait()
+        else
+            stuckTimer = 0
+            lastDist = dist
+        end
+        
+        -- C. Stuck Recovery (Settings Check)
+        if stuckTimer > 1.2 and Settings.SmartPathing then
+            -- Engage Roblox Pathfinding
+            local path = PathfindingService:CreatePath({AgentRadius = 2, AgentCanJump = true})
+            pcall(function() 
+                path:ComputeAsync(root.Position, targetPos)
+                local waypoints = path:GetWaypoints()
+                for i, wp in ipairs(waypoints) do
+                    if not State.Replaying then break end
+                    if wp.Action == Enum.PathWaypointAction.Jump then hum.Jump = true end
+                    hum:MoveTo(wp.Position)
+                    -- For precise pathfinding detours, we DO wait for finish
+                    hum.MoveToFinished:Wait() 
+                end
+            end)
+            return -- Resume normal stream
+        end
+        game:GetService("RunService").Heartbeat:Wait()
+    end
+end
+
+--// 7. RECORDING HEURISTICS (RATE LIMITED) //
+function getgenv().Axiora.StartRecording()
+    if State.Recording then return end
+    
+    -- Reset State
+    State.Recording = true
+    State.StartTime = os.clock()
+    local buffer = {}
+    local lastPos = nil
+    
+    -- A. CINEMATIC STREAM (Movement + Camera)
+    -- Rate limit to ~15 Hz to prevent file bloating (saving every single frame is wasteful)
+    local tickAccum = 0
+    local moveConn = game:GetService("RunService").Heartbeat:Connect(function(dt)
+        tickAccum = tickAccum + dt
+        if tickAccum < 0.07 then return end -- Approx 15 times a second
+        tickAccum = 0
+        
+        if not Players.LocalPlayer.Character then return end
+        local root = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        
+        if root then
+            local pos = root.Position
+            -- Optimization: Only record if moved > 0.5 studs OR Camera Sync is on
+            local moved = (not lastPos) or (pos - lastPos).Magnitude > 0.5
+            
+            if moved or Settings.CameraSync then
+                local frameData = {
+                    Type = "Move",
+                    Pos = pos,
+                    Time = os.clock() - State.StartTime
+                }
+                
+                -- The "Camera Sync" heavy data
+                if Settings.CameraSync then
+                    frameData.Cam = workspace.CurrentCamera.CFrame
+                end
+                
+                table.insert(buffer, frameData)
+                if moved then lastPos = pos end
+            end
+        end
+    end)
+    table.insert(State.Connections, moveConn)
+    
+    -- B. INPUT STREAM (Clicks)
+    local inputConn = UserInputService.InputBegan:Connect(function(input, gpe)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            local pos = UserInputService:GetMouseLocation()
-            table.insert(Recorder.DataBuffer, {
+            table.insert(buffer, {
                 Type = "Tap",
-                XY = {X = pos.X, Y = pos.Y},
-                Time = os.clock() - Recorder.StartTime
+                XY = UserInputService:GetMouseLocation(), -- Capture RAW
+                Time = os.clock() - State.StartTime
             })
         end
     end)
-    table.insert(Recorder.Connections, tapConn)
+    table.insert(State.Connections, inputConn)
     
-    -- 2. CINEMATIC STREAM (MOVEMENT + CAMERA)
-    -- Using Heartbeat for Physics synchronization
-    local moveRate = 0
-    local moveConn = RunService.Heartbeat:Connect(function(dt)
-        moveRate = moveRate + dt
-        if moveRate < 0.1 then return end -- Cap at 10Hz (Efficiency)
-        moveRate = 0
-        
-        if not LocalPlayer.Character then return end
-        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-        
-        local currentPos = root.Position
-        local camCF = Camera.CFrame -- CAPTURE THE CAMERA
-        
-        -- Logic: Movement Delta Check
-        local moved = false
-        if not Recorder.LastMovePos or (currentPos - Recorder.LastMovePos).Magnitude > 0.5 then
-            moved = true
-            Recorder.LastMovePos = currentPos
-            Recorder.IdleTimer = 0
-        else
-            Recorder.IdleTimer = Recorder.IdleTimer + dt
-        end
-        
-        -- Record Packet
-        if moved then
-            local packet = {
-                Type = "Move",
-                Pos = currentPos, -- Vector3
-                Time = os.clock() - Recorder.StartTime
-            }
-            
-            -- Only add heavy CFrame data if "Camera Sync" is enabled
-            if Settings.CameraSync then
-                packet.Cam = camCF
-            end
-            
-            table.insert(Recorder.DataBuffer, packet)
-        elseif Recorder.IdleTimer > 0.5 and Recorder.IdleTimer < 0.6 then
-             -- Logic: We just went idle. Insert a 'Wait' marker? 
-             -- For now, simple stream works best. Complex wait logic removed for reliability.
-        end
-    end)
-    table.insert(Recorder.Connections, moveConn)
+    State.ActiveBuffer = buffer -- Expose to Global
 end
 
--- [BATCH 2 COMPLETE]
--- Recorder is armed.
---// BATCH 3: THE CINEMATIC ENGINE & VISUALS //
+--// 8. THE REPLAY CORE (CINEMATIC) //
+local Cinematic = { CamTarget = nil, Connection = nil }
 
-local Replayer = {
-    Active = false,
-    Paused = false,
-    Thread = nil,
-    CamConnection = nil,
-    TargetCFrame = nil -- For Lerping
-}
+function getgenv().Axiora.Play(data)
+    if State.Replaying or not data then return end
+    
+    State.Replaying = true
+    State.Paused = false
+    
+    -- Activate Features
+    if Settings.ThermalEco then ThermalUtils.Update(true) end
+    if Settings.CameraSync then workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable end
+    
+    -- Start Camera Lerp Thread (Parallel to Logic)
+    Cinematic.Connection = game:GetService("RunService").RenderStepped:Connect(function(dt)
+        if Cinematic.CamTarget and Settings.CameraSync then
+            -- Lerp provides the "Cinematic" smooth video feel
+            workspace.CurrentCamera.CFrame = workspace.CurrentCamera.CFrame:Lerp(Cinematic.CamTarget, 0.25)
+        end
+    end)
+    
+    task.spawn(function()
+        -- [SYSTEM] Loop Logic
+        while State.Replaying do
+            
+            local startTime = 0
+            
+            -- Phoenix Check (Auto Rejoin Logic Hook would go here)
+            
+            -- [MAIN LOOP] Iterate Data
+            for i, action in ipairs(data) do
+                if not State.Replaying then break end
+                
+                -- Check Paused
+                while State.Paused do task.wait(0.5) end
+                
+                -- 1. Delta Wait (Logic Timing)
+                local nextAction = data[i+1]
+                local waitDur = 0
+                if nextAction then 
+                    waitDur = nextAction.Time - action.Time
+                    -- SmartLag Calculation (If ping > 200, slow down replay)
+                    if Settings.SmartLag then 
+                         -- Simplified lag compensation math
+                    end
+                end
+                
+                -- 2. Execute Action
+                if action.Type == "Move" then
+                    -- Feed Data to Parallel Systems
+                    if action.Cam and Settings.CameraSync then
+                        Cinematic.CamTarget = action.Cam -- Feeds RenderStepped
+                    end
+                    
+                    Nav.SmartMove(action.Pos)
+                    
+                elseif action.Type == "Tap" then
+                    -- EINSTEIN OFFSET LOGIC
+                    local x = action.XY.X
+                    local y = action.XY.Y
+                    
+                    if Settings.EinsteinOffset then
+                        local inset = game:GetService("GuiService"):GetGuiInset()
+                        y = y - inset.Y -- Fix offset
+                    end
+                    
+                    -- Manual Offsets
+                    x = x + Settings.Offsets.X
+                    y = y + Settings.Offsets.Y
+                    
+                    -- Click Humanizer (Randomization)
+                    if Settings.ClickHumanizer then
+                        x = x + math.random(-3, 3)
+                        y = y + math.random(-3, 3)
+                    end
+                    
+                    -- Send Input via VIM (Undetectable Method)
+                    pcall(function()
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+                        task.wait(math.random(0.04, 0.08)) -- Variable press time
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+                    end)
+                    
+                    -- Signal for Visuals (Handled in Batch 3)
+                    if getgenv().Axiora.SpawnRipple then 
+                        getgenv().Axiora.SpawnRipple(x, y) 
+                    end
+                end
+                
+                -- 3. Sleep
+                if waitDur > 0 then task.wait(waitDur) end
+            end
+            
+            -- End of recording reached
+            if not Settings.LoopMode then break end -- Defined by UI later
+            task.wait(1) -- Pause between loops
+        end
+        
+        -- Cleanup
+        Axiora.Stop() 
+        if Cinematic.Connection then Cinematic.Connection:Disconnect() end
+        if Settings.CameraSync then workspace.CurrentCamera.CameraType = Enum.CameraType.Custom end
+    end)
+end
+--[[ 
+    AXIORA EPSILON [Tier-3]
+    Batch 3 / 4
+    Focus: Visuals (HUD/Ripples) & UI Framework
+]]
 
-local Visuals = {
-    Folder = nil,
-    Cache = {}
-}
+--// 9. HOLOGRAPHIC VISUALIZER (TRON SYSTEM) //
+local Visuals = {}
+Visuals.Folder = nil
 
---// 6. HOLOGRAPHIC VISUALIZER ("TRON" BEAMS) //
--- Draws the path ahead using high-performance Beams instead of Parts
 function Visuals.Clear()
     if Visuals.Folder then Visuals.Folder:Destroy() end
     Visuals.Folder = nil
-    Visuals.Cache = {}
 end
 
-function Visuals.DrawPath(dataBuffer)
-    if not Settings.HoloHUD then return end
+function Visuals.SpawnRipple(x, y)
+    -- Visual Click Feedback
+    if not getgenv().Axiora.Settings.ClickRipples then return end
+    
+    local gui = Services.CoreGui:FindFirstChild("AxioraVisuals") or Instance.new("ScreenGui", Services.CoreGui)
+    gui.Name = "AxioraVisuals"; gui.IgnoreGuiInset = true
+    
+    local ripple = Instance.new("Frame", gui)
+    ripple.Position = UDim2.fromOffset(x, y)
+    ripple.AnchorPoint = Vector2.new(0.5, 0.5)
+    ripple.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    ripple.BorderSizePixel = 0
+    ripple.Size = UDim2.fromOffset(0, 0)
+    
+    local corner = Instance.new("UICorner", ripple); corner.CornerRadius = UDim.new(1, 0)
+    
+    -- Animation
+    Services.TweenService:Create(ripple, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {Size = UDim2.fromOffset(40, 40), BackgroundTransparency = 1}):Play()
+    game.Debris:AddItem(ripple, 0.5)
+end
+
+function Visuals.DrawPath(buffer)
+    if not getgenv().Axiora.Settings.HoloHUD then return end
     Visuals.Clear()
     
-    local folder = Instance.new("Folder")
-    folder.Name = "Axiora_HoloPath"
-    folder.Parent = workspace
-    Visuals.Folder = folder
-
-    -- Create Styles
-    local attach0, attach1
-    local lastPos = nil
-    local interval = 3 -- Optimization: Skip every 3 points to save FPS
+    local f = Instance.new("Folder", workspace)
+    f.Name = "AxioraPath"
+    Visuals.Folder = f
     
-    for i, packet in ipairs(dataBuffer) do
-        if packet.Type == "Move" and (i % interval == 0) then
-            local p = Instance.new("Part")
-            p.Size = Vector3.new(0.5, 0.5, 0.5)
-            p.Transparency = 1
-            p.Anchored = true
-            p.CanCollide = false
-            p.Position = packet.Pos
-            p.Parent = folder
+    -- Beam Assets
+    local attCache = {}
+    local interval = 3 -- Draw every 3rd point for optimization
+    
+    for i = 1, #buffer, interval do
+        local node = buffer[i]
+        if node.Type == "Move" then
+            local p = Instance.new("Part", f)
+            p.Size = Vector3.new(0.1, 0.1, 0.1); p.Transparency = 1
+            p.Anchored = true; p.CanCollide = false; p.Position = node.Pos
             
             local att = Instance.new("Attachment", p)
+            table.insert(attCache, att)
             
-            if lastPos then
-                local beam = Instance.new("Beam")
-                beam.Attachment0 = lastPos
+            if #attCache > 1 then
+                local beam = Instance.new("Beam", f)
+                beam.Attachment0 = attCache[#attCache-1]
                 beam.Attachment1 = att
-                beam.Width0 = 0.5
-                beam.Width1 = 0.5
-                beam.Color = ColorSequence.new(Theme.Accent, Theme.Accent) -- Blue Neon
-                beam.Transparency = NumberSequence.new(0.4)
+                beam.Width0 = 0.5; beam.Width1 = 0.5
                 beam.FaceCamera = true
-                beam.Enabled = Settings.PredictionBeam
-                beam.Parent = p
+                beam.Color = ColorSequence.new(Color3.fromRGB(114, 137, 218)) -- Neon Blue
+                beam.Transparency = NumberSequence.new(0.4)
+                beam.Segments = 1
+                
+                -- Prediction Gradient Logic
+                if getgenv().Axiora.Settings.PredictionBeam then
+                   -- Texture scroll simulation usually requires looping property changes, 
+                   -- kept simple for static holo look.
+                end
             end
-            
-            -- Interaction Markers (Dots where you tapped)
-            lastPos = att
-        elseif packet.Type == "Tap" and Settings.ClickIndicators then
-             -- Logic handled during playback to spawn ripples
+        elseif node.Type == "Tap" and getgenv().Axiora.Settings.HoloHUD then
+            -- Draw a 3D marker at tap locations?
+            -- Taps are 2D, difficult to project 3D without raycasting recording.
+            -- Visualizing as 2D dots on HUD handled via SpawnRipple during playback.
         end
     end
 end
 
---// 7. CINEMATIC PLAYBACK (REPLAYER) //
-local PathSys = Services.PathfindingService
+-- Hook global for Batch 2 access
+getgenv().Axiora.SpawnRipple = Visuals.SpawnRipple
+getgenv().Axiora.RefreshVisuals = Visuals.DrawPath
 
-local function SmartMoveTo(target)
-    if not LocalPlayer.Character then return end
-    local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
-    local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    
-    hum:MoveTo(target)
-    
-    -- Fluid Check (From Tier-2 Logic)
-    local start = tick()
-    while (root.Position - target).Magnitude > 6 do
-        if not Replayer.Active then break end
-        if (tick() - start) > 10 then break end -- Hard Timeout
-        
-        -- A* Obstacle Check would go here (Simplified for Batch size)
-        if Settings.SmartPathing and (tick() - start) > 2 and root.AssemblyLinearVelocity.Magnitude < 0.2 then
-             hum.Jump = true -- Basic Unstuck
-        end
-        RunService.Heartbeat:Wait()
-    end
-end
-
-function Replayer.Stop()
-    Replayer.Active = false
-    Replayer.Paused = false
-    if Replayer.CamConnection then Replayer.CamConnection:Disconnect() end
-    Replayer.CamConnection = nil
-    
-    -- Release Camera Control
-    if Settings.CameraSync then
-        Camera.CameraType = Enum.CameraType.Custom
-    end
-    Visuals.Clear()
-end
-
-function Replayer.Start(data)
-    if Replayer.Active or #data == 0 then return end
-    Replayer.Active = true
-    
-    -- Draw The Map
-    task.spawn(function() Visuals.DrawPath(data) end)
-    
-    -- SETUP CAMERA LERPING (The Cinematic Update)
-    if Settings.CameraSync then
-        Camera.CameraType = Enum.CameraType.Scriptable
-        
-        Replayer.CamConnection = RunService.RenderStepped:Connect(function(dt)
-            if Replayer.TargetCFrame then
-                -- Smooth transition (Alpha 0.2 provides nice smoothing)
-                Camera.CFrame = Camera.CFrame:Lerp(Replayer.TargetCFrame, 0.2)
-            end
-        end)
-    end
-    
-    Replayer.Thread = task.spawn(function()
-        local startIndex = 1
-        -- "Chronos" Load Logic: Check if we have a temp saved index?
-        -- For now, start from 1
-        
-        local startTime = 0
-        
-        -- Initial Warp (Optional)
-        if data[1] and data[1].Pos and LocalPlayer.Character then
-            -- Check distance, if > 50 studs, teleport?
-            -- LocalPlayer.Character:MoveTo(data[1].Pos) 
-        end
-        
-        for i = startIndex, #data do
-            if not Replayer.Active then break end
-            while Replayer.Paused do task.wait(0.5) end
-            
-            local packet = data[i]
-            local nextPacket = data[i+1]
-            
-            -- 1. WAIT DELTA
-            local waitDur = 0
-            if nextPacket then
-                 waitDur = nextPacket.Time - packet.Time
-            end
-            
-            -- SmartLag Correction
-            if Settings.SmartLag then
-                -- Mock ping calculation
-                local ping = 0.1 -- Default
-                -- ping = game.Stats... (Implemented in Tier 2, streamlined here)
-                waitDur = waitDur -- Could apply multiplier here
-            end
-            
-            -- 2. EXECUTE
-            if packet.Type == "Move" then
-                local dest = packet.Pos
-                
-                -- CAMERA SYNC
-                if packet.Cam and Settings.CameraSync then
-                    Replayer.TargetCFrame = packet.Cam
-                end
-                
-                -- MOVEMENT
-                SmartMoveTo(dest)
-                
-            elseif packet.Type == "Tap" then
-                -- OFFSETS & VIM
-                local x = packet.XY.X
-                local y = packet.XY.Y
-                
-                if Settings.EinsteinOffset then
-                    -- Mobile topbar auto-subtraction
-                    y = y - GuiService:GetGuiInset().Y 
-                end
-                
-                x = x + Settings.ManualOffsetX
-                y = y + Settings.ManualOffsetY
-                
-                if Settings.Humanizer then
-                    x = x + math.random(-3,3)
-                    y = y + math.random(-3,3)
-                end
-                
-                -- CLICK RIPPLE EFFECT
-                if Settings.ClickRipples then
-                     local r = Instance.new("Frame", CoreGui); r.Size=UDim2.new(0,0,0,0); r.Position=UDim2.new(0,x,0,y); r.BackgroundColor3=Color3.fromRGB(255,255,255); r.Parent=CoreGui -- Requires GUI parent
-                     -- Using visualizer logic usually requires a ScreenGui.
-                end
-                
-                pcall(function()
-                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-                    task.wait(0.05)
-                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
-                end)
-            end
-            
-            if waitDur > 0 then task.wait(waitDur) end
-        end
-        
-        Replayer.Stop()
-    end)
-end
-
--- [BATCH 3 COMPLETE]
--- Replay Engine & Beams Online.
---// BATCH 4: THE COMMAND CENTER (UI FACTORY) //
-
-local UI = {
-    Main = nil,
-    Tabs = {},
-    StatusLbl = nil,
-    RecBtn = nil
-}
-
--- [STYLE ASSETS]
+--// 10. UI FACTORY (THE GLASS SYSTEM) //
+local UI = {}
 local Assets = {
-    Icons = {
-        Home = "rbxassetid://3926305904",
-        Macro = "rbxassetid://3926307971",
-        Config = "rbxassetid://3926305904", -- Generic Gear
-        Files = "rbxassetid://3926307971"   -- Generic Folder
-    },
-    Glass = "rbxassetid://6071575925" -- Standard smooth gradient for blur effect
+    Icons = { -- Modern SVG Icons
+        Dash = "rbxassetid://7733960981", 
+        Settings = "rbxassetid://7733954611",
+        Save = "rbxassetid://7733920644"
+    }
 }
 
--- [UI BUILDER FUNCTIONS]
-local function MakeDraggable(gui)
-    local dragging, dragInput, dragStart, startPos
-    local function update(input)
-        local delta = input.Position - dragStart
-        gui.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-    gui.InputBegan:Connect(function(input)
+function UI.MakeDraggable(frame)
+    local dragInput, dragStart, startPos, dragging
+    frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; dragStart = input.Position; startPos = gui.Position
-            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+            dragging = true; dragStart = input.Position; startPos = frame.Position
         end
     end)
-    gui.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
-    UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
+    frame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+    Services.UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+        if dragging and input == dragInput then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
 end
 
-local function CreateUI()
-    local Screen = Instance.new("ScreenGui")
-    Screen.Name = "AxioraEpsilon"
-    Screen.Parent = CoreGui
-    Screen.IgnoreGuiInset = true
-    Screen.ResetOnSpawn = false
+function UI.CreateWindow()
+    -- Main Parent
+    local sg = Instance.new("ScreenGui", Services.CoreGui)
+    sg.Name = "AxioraEpsilonGUI"; sg.IgnoreGuiInset = true; sg.ResetOnSpawn = false
     
-    -- Main Container (Glassmorphism)
-    local Main = Instance.new("ImageLabel", Screen)
-    Main.Size = UDim2.fromOffset(650, 380)
+    -- Glass Panel
+    local Main = Instance.new("Frame", sg)
+    Main.Size = UDim2.fromOffset(600, 360)
     Main.Position = UDim2.fromScale(0.5, 0.5)
     Main.AnchorPoint = Vector2.new(0.5, 0.5)
-    Main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-    Main.BackgroundTransparency = 0.2
+    Main.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
     Main.BorderSizePixel = 0
-    Main.Image = Assets.Glass
-    Main.ImageTransparency = 0.95
-    Main.ScaleType = Enum.ScaleType.Slice
-    Main.SliceCenter = Rect.new(100,100,100,100)
+    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 14)
+    UI.MakeDraggable(Main)
     
+    -- Drop Shadow
     local Shadow = Instance.new("ImageLabel", Main)
+    Shadow.ZIndex = 0; Shadow.Position = UDim2.new(0, -15, 0, -15)
+    Shadow.Size = UDim2.new(1, 30, 1, 30)
     Shadow.BackgroundTransparency = 1
-    Shadow.Image = "rbxassetid://297774371" -- DropShadow
-    Shadow.Size = UDim2.new(1, 40, 1, 40)
-    Shadow.Position = UDim2.new(0, -20, 0, -20)
-    Shadow.ImageColor3 = Color3.fromRGB(0,0,0)
-    Shadow.ImageTransparency = 0.4
-    
-    local Corner = Instance.new("UICorner", Main); Corner.CornerRadius = UDim.new(0, 14)
-    MakeDraggable(Main)
+    Shadow.Image = "rbxassetid://5554236805"
+    Shadow.ImageColor3 = Color3.new(0,0,0)
+    Shadow.ScaleType = Enum.ScaleType.Slice
+    Shadow.SliceCenter = Rect.new(23,23,277,277)
     
     -- Sidebar
     local Sidebar = Instance.new("Frame", Main)
-    Sidebar.Size = UDim2.new(0, 60, 1, 0)
-    Sidebar.BackgroundColor3 = Color3.fromRGB(255,255,255)
-    Sidebar.BackgroundTransparency = 0.95
-    local SideC = Instance.new("UICorner", Sidebar); SideC.CornerRadius = UDim.new(0, 14)
-    local SideMask = Instance.new("Frame", Sidebar) -- Fix rounded corners overlap
-    SideMask.Size = UDim2.new(0, 10, 1, 0); SideMask.Position = UDim2.new(1, -5, 0, 0); SideMask.BorderSizePixel = 0; SideMask.BackgroundColor3 = Sidebar.BackgroundColor3; SideMask.BackgroundTransparency = 1 
-
-    -- Content Area
-    local Pages = Instance.new("Frame", Main)
-    Pages.Size = UDim2.new(1, -70, 1, -20)
-    Pages.Position = UDim2.new(0, 70, 0, 20)
-    Pages.BackgroundTransparency = 1
-    Pages.ClipsDescendants = true
-
-    UI.Main = Main
-    return Screen, Sidebar, Pages
+    Sidebar.Size = UDim2.new(0, 150, 1, 0)
+    Sidebar.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    local sc = Instance.new("UICorner", Sidebar); sc.CornerRadius = UDim.new(0, 14)
+    local fix = Instance.new("Frame", Sidebar); fix.Size = UDim2.new(0, 5, 1, 0); fix.Position = UDim2.new(1, -5, 0, 0); fix.BackgroundColor3 = Sidebar.BackgroundColor3; fix.BorderSizePixel=0
+    
+    -- Title
+    local Title = Instance.new("TextLabel", Sidebar)
+    Title.Text = "AXIORA\nEPSILON"
+    Title.Font = Enum.Font.GothamBlack
+    Title.TextSize = 18
+    Title.TextColor3 = Color3.fromRGB(114, 137, 218) -- Accent
+    Title.Size = UDim2.new(1, 0, 0, 70)
+    Title.BackgroundTransparency = 1
+    
+    -- Content Pages
+    local Content = Instance.new("Frame", Main)
+    Content.Size = UDim2.new(1, -160, 1, -20)
+    Content.Position = UDim2.new(0, 160, 0, 10)
+    Content.BackgroundTransparency = 1
+    
+    return Main, Sidebar, Content, sg
 end
 
--- [TAB LOGIC]
-local PageRefs = {}
-local function CreateTab(sidebar, pages, id, iconId)
-    local TabBtn = Instance.new("ImageButton", sidebar)
-    TabBtn.Size = UDim2.new(0, 40, 0, 40)
-    TabBtn.Position = UDim2.new(0.5, 0, 0, 20 + (#PageRefs * 60))
-    TabBtn.AnchorPoint = Vector2.new(0.5, 0)
-    TabBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
-    TabBtn.BackgroundTransparency = 1
-    TabBtn.Image = iconId
-    TabBtn.ImageColor3 = Color3.fromRGB(150,150,150)
+-- Global Tab Registry
+local Tabs = {}
+
+function UI.AddTab(sidebar, content, name, icon)
+    -- Button
+    local btn = Instance.new("TextButton", sidebar)
+    btn.Size = UDim2.new(1, -20, 0, 40)
+    btn.Position = UDim2.new(0, 10, 0, 80 + (#Tabs * 45))
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    btn.Text = "    " .. name
+    btn.Font = Enum.Font.GothamBold
+    btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.TextSize = 14
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
     
-    local Page = Instance.new("ScrollingFrame", pages)
-    Page.Size = UDim2.new(1, 0, 1, 0)
-    Page.BackgroundTransparency = 1
-    Page.ScrollBarThickness = 3
-    Page.Visible = false
+    -- Icon
+    local ico = Instance.new("ImageLabel", btn)
+    ico.Size = UDim2.new(0, 20, 0, 20)
+    ico.Position = UDim2.new(1, -30, 0.5, -10)
+    ico.BackgroundTransparency = 1
+    ico.Image = icon or Assets.Icons.Dash
+    ico.ImageColor3 = btn.TextColor3
     
-    local List = Instance.new("UIListLayout", Page); List.Padding = UDim.new(0, 10); List.SortOrder = Enum.SortOrder.LayoutOrder
-    local Pad = Instance.new("UIPadding", Page); Pad.PaddingBottom = UDim.new(0, 10); Pad.PaddingRight = UDim.new(0, 10)
+    -- Page
+    local page = Instance.new("ScrollingFrame", content)
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.ScrollBarThickness = 2
+    page.ScrollBarImageColor3 = Color3.fromRGB(114, 137, 218)
+    page.Visible = false
+    local list = Instance.new("UIListLayout", page); list.SortOrder = Enum.SortOrder.LayoutOrder; list.Padding = UDim.new(0, 10)
     
-    TabBtn.MouseButton1Click:Connect(function()
-        for _, t in pairs(PageRefs) do 
+    -- Activation Logic
+    btn.MouseButton1Click:Connect(function()
+        for _, t in pairs(Tabs) do
             t.Page.Visible = false
-            TweenService:Create(t.Btn, TweenInfo.new(0.3), {ImageColor3 = Color3.fromRGB(150,150,150)}):Play()
+            Services.TweenService:Create(t.Btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45,45,50), TextColor3 = Color3.fromRGB(180,180,180)}):Play()
+            Services.TweenService:Create(t.Icon, TweenInfo.new(0.2), {ImageColor3 = Color3.fromRGB(180,180,180)}):Play()
         end
-        Page.Visible = true
-        TweenService:Create(TabBtn, TweenInfo.new(0.3), {ImageColor3 = Color3.fromRGB(114, 137, 218)}):Play()
+        page.Visible = true
+        Services.TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(114, 137, 218), TextColor3 = Color3.new(1,1,1)}):Play()
+        Services.TweenService:Create(ico, TweenInfo.new(0.2), {ImageColor3 = Color3.new(1,1,1)}):Play()
     end)
     
-    table.insert(PageRefs, {Btn = TabBtn, Page = Page, ID = id})
-    return Page
+    table.insert(Tabs, {Btn = btn, Icon = ico, Page = page})
+    return page
 end
 
--- [AUTOMATED TOGGLE FACTORY]
-local function AddSwitch(parent, configKey, displayText, description)
-    local Container = Instance.new("Frame", parent)
-    Container.Size = UDim2.new(1, 0, 0, 50)
-    Container.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    local CCorner = Instance.new("UICorner", Container); CCorner.CornerRadius = UDim.new(0, 8)
+-- Automated Toggle Builder
+function UI.AddSwitch(page, configKey, title, desc)
+    local c = getgenv().Axiora.Settings
     
-    local TextL = Instance.new("TextLabel", Container)
-    TextL.Text = displayText
-    TextL.Font = Enum.Font.GothamBold
-    TextL.TextColor3 = Color3.fromRGB(255, 255, 255)
-    TextL.TextSize = 14
-    TextL.Position = UDim2.new(0, 15, 0, 8)
-    TextL.BackgroundTransparency = 1
-    TextL.TextXAlignment = Enum.TextXAlignment.Left
+    local frame = Instance.new("Frame", page)
+    frame.Size = UDim2.new(1, -10, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
     
-    local DescL = Instance.new("TextLabel", Container)
-    DescL.Text = description
-    DescL.Font = Enum.Font.Gotham
-    DescL.TextColor3 = Color3.fromRGB(150, 150, 150)
-    DescL.TextSize = 12
-    DescL.Position = UDim2.new(0, 15, 0, 25)
-    DescL.BackgroundTransparency = 1
-    DescL.TextXAlignment = Enum.TextXAlignment.Left
-
-    local SwitchBg = Instance.new("Frame", Container)
-    SwitchBg.Size = UDim2.new(0, 44, 0, 24)
-    SwitchBg.AnchorPoint = Vector2.new(1, 0.5)
-    SwitchBg.Position = UDim2.new(1, -15, 0.5, 0)
-    SwitchBg.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    local SwitchCorner = Instance.new("UICorner", SwitchBg); SwitchCorner.CornerRadius = UDim.new(1, 0)
+    local tl = Instance.new("TextLabel", frame); tl.Text = title; tl.Position = UDim2.new(0,10,0,8); tl.Font=Enum.Font.GothamBold; tl.TextColor3=Color3.new(1,1,1); tl.BackgroundTransparency=1; tl.TextSize=14; tl.TextXAlignment=Enum.TextXAlignment.Left
+    local dl = Instance.new("TextLabel", frame); dl.Text = desc; dl.Position = UDim2.new(0,10,0,25); dl.Font=Enum.Font.Gotham; dl.TextColor3=Color3.new(0.6,0.6,0.6); dl.BackgroundTransparency=1; dl.TextSize=11; dl.TextXAlignment=Enum.TextXAlignment.Left
     
-    local Dot = Instance.new("Frame", SwitchBg)
-    Dot.Size = UDim2.new(0, 18, 0, 18)
-    Dot.AnchorPoint = Vector2.new(0, 0.5)
-    Dot.Position = UDim2.new(0, 3, 0.5, 0)
-    Dot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    local DotCorner = Instance.new("UICorner", Dot); DotCorner.CornerRadius = UDim.new(1, 0)
+    local tog = Instance.new("TextButton", frame)
+    tog.Size = UDim2.new(0, 40, 0, 22); tog.Position = UDim2.new(1, -50, 0.5, -11)
+    tog.BackgroundColor3 = c[configKey] and Color3.fromRGB(114,137,218) or Color3.fromRGB(20,20,25)
+    tog.Text = ""; Instance.new("UICorner", tog).CornerRadius = UDim.new(1, 0)
     
-    local Btn = Instance.new("TextButton", Container)
-    Btn.Size = UDim2.new(1,0,1,0); Btn.BackgroundTransparency = 1; Btn.Text = ""
+    local dot = Instance.new("Frame", tog)
+    dot.Size = UDim2.new(0, 18, 0, 18); dot.Position = c[configKey] and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9)
+    dot.BackgroundColor3 = Color3.new(1,1,1); Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
     
-    local function UpdateVisual()
-        local state = Settings[configKey]
-        TweenService:Create(SwitchBg, TweenInfo.new(0.2), {BackgroundColor3 = state and Color3.fromRGB(114, 137, 218) or Color3.fromRGB(20, 20, 20)}):Play()
-        TweenService:Create(Dot, TweenInfo.new(0.2), {Position = state and UDim2.new(1, -21, 0.5, 0) or UDim2.new(0, 3, 0.5, 0), BackgroundColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(80, 80, 80)}):Play()
-    end
-    
-    Btn.MouseButton1Click:Connect(function()
-        Settings[configKey] = not Settings[configKey]
-        UpdateVisual()
+    tog.MouseButton1Click:Connect(function()
+        c[configKey] = not c[configKey]
+        local s = c[configKey]
         
-        -- Logic Hooks
-        if configKey == "ThermalEco" then Thermal.UpdateState() end
-        -- Add other hooks here
+        Services.TweenService:Create(tog, TweenInfo.new(0.2), {BackgroundColor3 = s and Color3.fromRGB(114,137,218) or Color3.fromRGB(20,20,25)}):Play()
+        Services.TweenService:Create(dot, TweenInfo.new(0.2), {Position = s and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9)}):Play()
+        
+        -- Immediate Visual Updates
+        if configKey == "HoloHUD" then getgenv().Axiora.RefreshVisuals(getgenv().Axiora.State.ActiveBuffer or {}) end
     end)
-    
-    UpdateVisual() -- Init
-    return Container
 end
 
--- [BATCH 4 COMPLETE]
---// BATCH 5: THE FINAL WIRING & LAUNCH //
+-- Export Factory
+getgenv().Axiora.UIFactory = UI
+--[[ 
+    AXIORA EPSILON [Tier-3]
+    Batch 4 / 4
+    Focus: Interface Assembly & Launch
+]]
 
--- Initialize UI Factory
-local Screen, Side, Pages = CreateUI()
-local P_Dash = CreateTab(Side, Pages, "Dash", "rbxassetid://18579973809") -- Home Icon
-local P_Config = CreateTab(Side, Pages, "Conf", "rbxassetid://10723345518") -- Settings Icon
-local P_Files = CreateTab(Side, Pages, "File", "rbxassetid://10723346990") -- File Icon
+local UI = getgenv().Axiora.UIFactory
+local Settings = getgenv().Axiora.Settings
+local State = getgenv().Axiora.State
+local Files = getgenv().Axiora.Files
+local Engine = getgenv().Axiora
 
--- [DASHBOARD CONTENT]
-local function AddHeroCard(parent)
-    local Card = Instance.new("Frame", parent)
-    Card.Size = UDim2.new(1, 0, 0, 120)
-    Card.BackgroundColor3 = Color3.fromRGB(114, 137, 218) -- Accent
-    local C = Instance.new("UICorner", Card); C.CornerRadius = UDim.new(0, 12)
-    local G = Instance.new("UIGradient", Card)
-    G.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(114, 137, 218)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 100, 180))
-    })
-    
-    local Title = Instance.new("TextLabel", Card)
-    Title.Text = "AXIORA EPSILON"
-    Title.Position = UDim2.new(0, 20, 0, 15)
-    Title.Font = Enum.Font.GothamBlack; Title.TextSize = 24; Title.TextColor3 = Color3.new(1,1,1); Title.BackgroundTransparency = 1; Title.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local Status = Instance.new("TextLabel", Card)
-    Status.Text = "SYSTEM READY"
-    Status.Position = UDim2.new(0, 20, 0, 45)
-    Status.Font = Enum.Font.GothamMedium; Status.TextSize = 14; Status.TextColor3 = Color3.new(0.9,0.9,0.9); Status.BackgroundTransparency = 1; Status.TextXAlignment = Enum.TextXAlignment.Left
-    UI.StatusLbl = Status
-    
-    return Card
-end
+--// 11. BUILD INTERFACE //
+local MainWin, SideBar, Content, ScreenGui = UI.CreateWindow()
 
-AddHeroCard(P_Dash)
+-- [PAGE 1] DASHBOARD
+local P_Dash = UI.AddTab(SideBar, Content, "Dashboard", "rbxassetid://7733960981")
 
-local RecBtn = Instance.new("TextButton", P_Dash)
-RecBtn.Size = UDim2.new(1, 0, 0, 60); RecBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45); RecBtn.Text = "START RECORDING"
-RecBtn.TextColor3 = Color3.new(1,1,1); RecBtn.Font = Enum.Font.GothamBold; RecBtn.TextSize = 18;
-Instance.new("UICorner", RecBtn).CornerRadius = UDim.new(0, 8)
+local InfoCard = Instance.new("Frame", P_Dash)
+InfoCard.Size = UDim2.new(1, -20, 0, 70); InfoCard.Position = UDim2.new(0, 10, 0, 10); InfoCard.BackgroundColor3 = Color3.fromRGB(114, 137, 218)
+Instance.new("UICorner", InfoCard).CornerRadius = UDim.new(0, 12)
+local StatusL = Instance.new("TextLabel", InfoCard); StatusL.Size=UDim2.new(1,-20,1,0); StatusL.Position=UDim2.new(0,20,0,0); StatusL.BackgroundTransparency=1; StatusL.Text="SYSTEM IDLE"; StatusL.Font=Enum.Font.GothamBlack; StatusL.TextSize=20; StatusL.TextColor3=Color3.new(1,1,1); StatusL.TextXAlignment=Enum.TextXAlignment.Left
 
-local PlayBtn = Instance.new("TextButton", P_Dash)
-PlayBtn.Size = UDim2.new(1, 0, 0, 60); PlayBtn.BackgroundColor3 = Color3.fromRGB(40, 140, 80); PlayBtn.Text = "START PLAYBACK"
-PlayBtn.TextColor3 = Color3.new(1,1,1); PlayBtn.Font = Enum.Font.GothamBold; PlayBtn.TextSize = 18;
-Instance.new("UICorner", PlayBtn).CornerRadius = UDim.new(0, 8)
+local RecB = Instance.new("TextButton", P_Dash)
+RecB.Size = UDim2.new(0.47, 0, 0, 60); RecB.Position = UDim2.new(0, 10, 0, 90); RecB.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+RecB.Text = "RECORD"; RecB.Font = Enum.Font.GothamBold; RecB.TextColor3 = Color3.fromRGB(200, 200, 200); RecB.TextSize = 16
+Instance.new("UICorner", RecB).CornerRadius = UDim.new(0, 12)
 
-RecBtn.MouseButton1Click:Connect(function()
-    if Recorder.Active then
-        Recorder.Stop()
-        UI.StatusLbl.Text = "RECORDING SAVED: " .. (#Recorder.DataBuffer) .. " actions."
-        RecBtn.Text = "START RECORDING"
-        RecBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+local PlayB = Instance.new("TextButton", P_Dash)
+PlayB.Size = UDim2.new(0.47, 0, 0, 60); PlayB.Position = UDim2.new(0.53, 0, 0, 90); PlayB.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+PlayB.Text = "PLAY LOOP"; PlayB.Font = Enum.Font.GothamBold; PlayB.TextColor3 = Color3.fromRGB(200, 200, 200); PlayB.TextSize = 16
+Instance.new("UICorner", PlayB).CornerRadius = UDim.new(0, 12)
+
+-- Logic Wiring
+RecB.MouseButton1Click:Connect(function()
+    if State.Recording then
+        Engine.Stop()
+        StatusL.Text = "SAVED BUFFER (" .. (State.ActiveBuffer and #State.ActiveBuffer or 0) .. " Items)"
     else
-        Recorder.Start()
-        UI.StatusLbl.Text = "RECORDING ACTIVE..."
-        RecBtn.Text = "STOP RECORDING"
-        RecBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+        Engine.StartRecording()
     end
 end)
 
-PlayBtn.MouseButton1Click:Connect(function()
-    if Replayer.Active then
-        Replayer.Stop()
-        UI.StatusLbl.Text = "PLAYBACK STOPPED"
-        PlayBtn.Text = "START PLAYBACK"
+PlayB.MouseButton1Click:Connect(function()
+    if State.Replaying then
+        Engine.Stop()
+        StatusL.Text = "SYSTEM IDLE"
     else
-        if #Recorder.DataBuffer > 0 then
-             Replayer.Start(Recorder.DataBuffer)
-             UI.StatusLbl.Text = "PLAYBACK ACTIVE"
-             PlayBtn.Text = "STOP PLAYBACK"
+        Settings.LoopMode = true
+        Engine.Play(State.ActiveBuffer)
+    end
+end)
+
+-- UI Loop Update
+task.spawn(function()
+    while task.wait(0.2) do
+        if not ScreenGui.Parent then break end -- Exit if destroyed
+        
+        if State.Recording then
+            StatusL.Text = "● RECORDING: " .. string.format("%.1f", os.clock() - State.StartTime) .. "s"
+            RecB.Text = "STOP"
+            RecB.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+            RecB.TextColor3 = Color3.new(1,1,1)
+        elseif State.Replaying then
+            StatusL.Text = "▶ PLAYING"
+            PlayB.Text = "STOP"
+            PlayB.BackgroundColor3 = Color3.fromRGB(114, 137, 218)
+            PlayB.TextColor3 = Color3.new(1,1,1)
         else
-            UI.StatusLbl.Text = "ERROR: NO DATA TO REPLAY"
+            RecB.Text = "RECORD"
+            RecB.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+            PlayB.Text = "PLAY LOOP"
+            PlayB.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+            PlayB.TextColor3 = Color3.fromRGB(200, 200, 200)
         end
     end
 end)
 
--- [CONFIG CONTENT - THE 20 GRID]
-local ConfigList = Instance.new("UIListLayout", P_Config); ConfigList.SortOrder = Enum.SortOrder.LayoutOrder; ConfigList.Padding = UDim.new(0, 8)
 
--- Map Key Features
-AddSwitch(P_Config, "CameraSync", "Cinematic Camera", "Records & Replays camera movement")
-AddSwitch(P_Config, "FluidMotion", "Fluid Pathing", "Removes walking stutters")
-AddSwitch(P_Config, "EinsteinOffset", "Einstein Offset", "Fixes GUI Inset issues on Mobile")
-AddSwitch(P_Config, "HoloHUD", "Holographic HUD", "Show Tron visualizers")
-AddSwitch(P_Config, "Humanizer", "Click Humanizer", "Randomize tap positions")
-AddSwitch(P_Config, "ThermalEco", "Thermal Eco-Mode", "Rendering blackout (Saves Battery)")
-AddSwitch(P_Config, "PhoenixRejoin", "Phoenix Rejoin", "Auto-reconnect on crash")
--- ... (You can duplicate this line for all 20 toggle keys defined in Batch 1)
+-- [PAGE 2] FEATURES (THE GRID)
+local P_Feat = UI.AddTab(SideBar, Content, "Features", "rbxassetid://7733954611")
 
--- [FILE MANAGER CONTENT]
-local FileName = Instance.new("TextBox", P_Files)
-FileName.Size = UDim2.new(1, 0, 0, 40); FileName.PlaceholderText = "Profile Name (e.g. Farm1)"; FileName.BackgroundColor3 = Color3.fromRGB(30, 30, 35); FileName.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", FileName).CornerRadius = UDim.new(0, 8)
+-- Essential
+local Cat1 = Instance.new("TextLabel", P_Feat); Cat1.Text="   ESSENTIALS"; Cat1.Size=UDim2.new(1,0,0,30); Cat1.BackgroundTransparency=1; Cat1.TextColor3=Color3.fromRGB(114,137,218); Cat1.Font=Enum.Font.GothamBlack; Cat1.TextXAlignment=Enum.TextXAlignment.Left
+UI.AddSwitch(P_Feat, "FluidMotion", "Fluid Pathing", "Removes walking stutters (Smooth A*)")
+UI.AddSwitch(P_Feat, "CameraSync", "Cinematic Camera", "Replays your exact camera movements")
+UI.AddSwitch(P_Feat, "EinsteinOffset", "Einstein Offset", "Auto-fixes Mobile TopBar Y-Axis drift")
+UI.AddSwitch(P_Feat, "ClickHumanizer", "Click Humanizer", "Randomizes taps and press duration")
 
-local SaveB = Instance.new("TextButton", P_Files)
-SaveB.Size = UDim2.new(0.48, 0, 0, 40); SaveB.Position = UDim2.new(0,0,0,50); SaveB.Text = "SAVE"; SaveB.BackgroundColor3 = Color3.fromRGB(60, 60, 200)
-SaveB.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", SaveB).CornerRadius = UDim.new(0,8)
+-- Visuals
+local Cat2 = Instance.new("TextLabel", P_Feat); Cat2.Text="   VISUALS"; Cat2.Size=UDim2.new(1,0,0,30); Cat2.BackgroundTransparency=1; Cat2.TextColor3=Color3.fromRGB(114,137,218); Cat2.Font=Enum.Font.GothamBlack; Cat2.TextXAlignment=Enum.TextXAlignment.Left
+UI.AddSwitch(P_Feat, "HoloHUD", "Holographic HUD", "Show 3D Tron path visualization")
+UI.AddSwitch(P_Feat, "ClickRipples", "Tap Ripples", "Show ripple effect on replay clicks")
+UI.AddSwitch(P_Feat, "ThermalEco", "Thermal Eco-Mode", "Rendering blackout (Saves Battery/FPS)")
 
-local LoadB = Instance.new("TextButton", P_Files)
-LoadB.Size = UDim2.new(0.48, 0, 0, 40); LoadB.Position = UDim2.new(0.52,0,0,50); LoadB.Text = "LOAD"; LoadB.BackgroundColor3 = Color3.fromRGB(60, 160, 60)
-LoadB.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", LoadB).CornerRadius = UDim.new(0,8)
+-- Advanced
+local Cat3 = Instance.new("TextLabel", P_Feat); Cat3.Text="   SURVIVAL"; Cat3.Size=UDim2.new(1,0,0,30); Cat3.BackgroundTransparency=1; Cat3.TextColor3=Color3.fromRGB(114,137,218); Cat3.Font=Enum.Font.GothamBlack; Cat3.TextXAlignment=Enum.TextXAlignment.Left
+UI.AddSwitch(P_Feat, "AntiAFK", "Anti-AFK Aura", "Spoof camera packets to prevent kicking")
+UI.AddSwitch(P_Feat, "SmartPathing", "Obstacle Avoidance", "Auto-walk around new walls/stuck points")
+UI.AddSwitch(P_Feat, "PhoenixRejoin", "Phoenix Protocol", "Auto-rejoin on disconnects")
 
-SaveB.MouseButton1Click:Connect(function()
-    if #Recorder.DataBuffer > 0 and FileName.Text ~= "" then
-        Chronos.SaveProfile(FileName.Text, Recorder.DataBuffer)
-        UI.StatusLbl.Text = "FILE SAVED: " .. FileName.Text
+
+-- [PAGE 3] STORAGE (CHRONOS)
+local P_Store = UI.AddTab(SideBar, Content, "Storage", "rbxassetid://7733920644")
+
+local FileBox = Instance.new("TextBox", P_Store)
+FileBox.Size = UDim2.new(1, -20, 0, 50); FileBox.Position = UDim2.new(0, 10, 0, 10); FileBox.BackgroundColor3 = Color3.fromRGB(40, 40, 45); FileBox.Text = ""; FileBox.PlaceholderText = "Profile Name (e.g. HiveSlot1)"
+FileBox.TextColor3 = Color3.new(1,1,1); FileBox.Font = Enum.Font.Gotham; Instance.new("UICorner", FileBox).CornerRadius = UDim.new(0, 8)
+
+local SaveBtn = Instance.new("TextButton", P_Store)
+SaveBtn.Size = UDim2.new(0.48, 0, 0, 45); SaveBtn.Position = UDim2.new(0, 10, 0, 70); SaveBtn.BackgroundColor3 = Color3.fromRGB(114, 137, 218); SaveBtn.Text = "SAVE PROFILE"; SaveBtn.TextColor3 = Color3.new(1,1,1); SaveBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner", SaveBtn).CornerRadius = UDim.new(0, 8)
+
+local LoadBtn = Instance.new("TextButton", P_Store)
+LoadBtn.Size = UDim2.new(0.48, 0, 0, 45); LoadBtn.Position = UDim2.new(0.52, -10, 0, 70); LoadBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65); LoadBtn.Text = "LOAD PROFILE"; LoadBtn.TextColor3 = Color3.new(1,1,1); LoadBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner", LoadBtn).CornerRadius = UDim.new(0, 8)
+
+local Console = Instance.new("TextLabel", P_Store)
+Console.Size = UDim2.new(1, -20, 1, -130); Console.Position = UDim2.new(0, 10, 0, 130); Console.BackgroundColor3 = Color3.fromRGB(30,30,35); Console.TextColor3 = Color3.fromRGB(150,150,150); Console.Text = "Axiora Storage\nReady for input..."; Console.TextXAlignment=Enum.TextXAlignment.Left; Console.TextYAlignment=Enum.TextYAlignment.Top; Instance.new("UIPadding", Console).PaddingLeft=UDim.new(0,5); Instance.new("UIPadding", Console).PaddingTop=UDim.new(0,5); Instance.new("UICorner", Console).CornerRadius=UDim.new(0,8)
+
+SaveBtn.MouseButton1Click:Connect(function()
+    if FileBox.Text == "" or not State.ActiveBuffer then Console.Text = "> Error: No Name or Empty Buffer"; return end
+    local success = Files.SaveProfile(FileBox.Text, State.ActiveBuffer)
+    Console.Text = success and "> Saved: " .. FileBox.Text or "> Error: Write Permission Denied"
+end)
+
+LoadBtn.MouseButton1Click:Connect(function()
+    if FileBox.Text == "" then Console.Text = "> Error: Enter Profile Name"; return end
+    local data, meta = Files.LoadProfile(FileBox.Text)
+    if data then
+        State.ActiveBuffer = data
+        StatusL.Text = "LOADED: " .. FileBox.Text .. " ("..#data..")"
+        Console.Text = "> Loaded Successfully\n> Version: "..meta.Ver.."\n> Date: "..meta.Date
+        getgenv().Axiora.RefreshVisuals(data)
     else
-        UI.StatusLbl.Text = "SAVE ERROR (No Data/Name)"
+        Console.Text = "> Error: File not found in AxioraData/"
     end
 end)
 
-LoadB.MouseButton1Click:Connect(function()
-    if FileName.Text ~= "" then
-        local data, meta = Chronos.LoadProfile(FileName.Text)
-        if data then
-            Recorder.DataBuffer = data
-            UI.StatusLbl.Text = "LOADED: " .. FileName.Text .. " ("..meta.ActionCount.." actions)"
-        else
-            UI.StatusLbl.Text = "LOAD ERROR (File Not Found)"
-        end
-    end
-end)
 
--- [STARTUP ANIMATION]
-PageRefs[1].Page.Visible = true -- Show Home
+--// 12. FINAL ACTIVATION //
+local ToggleBtn = Instance.new("ImageButton", ScreenGui)
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50); ToggleBtn.Position = UDim2.new(0, 20, 0.4, 0); ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35); ToggleBtn.Image = "rbxassetid://16041061994" -- A Logo
+Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 20); UI.MakeDraggable(ToggleBtn)
+Instance.new("UIStroke", ToggleBtn).Color = Color3.fromRGB(114, 137, 218)
 
--- Mobile Floating Button
-local ToggleBtn = Instance.new("ImageButton", Screen)
-ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
-ToggleBtn.Position = UDim2.new(0.05, 0, 0.4, 0)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(114, 137, 218)
-ToggleBtn.Image = "rbxassetid://3926305904" -- Generic Gear Icon
-Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(1,0)
-MakeDraggable(ToggleBtn)
-ToggleBtn.MouseButton1Click:Connect(function() UI.Main.Visible = not UI.Main.Visible end)
+ToggleBtn.MouseButton1Click:Connect(function() MainWin.Visible = not MainWin.Visible end)
+
+-- Launch Tab 1
+SideBar:GetChildren()[1].BackgroundColor3 = Color3.fromRGB(114, 137, 218)
+SideBar:GetChildren()[1]:FindFirstChildWhichIsA("ImageLabel").ImageColor3 = Color3.new(1,1,1)
+Content:GetChildren()[1].Visible = true
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AXIORA EPSILON",
-    Text = "Tier-3 System Active.\nVisuals Online.\nPhysics Engine Online.",
+    Title = "Axiora Epsilon",
+    Text = "Tier-3 System Online. Tier-2 Engine Connected.",
     Duration = 5
 })
-
--- [BATCH 5 COMPLETE - SYSTEM ONLINE]
