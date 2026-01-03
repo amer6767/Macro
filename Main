@@ -1,18 +1,28 @@
 --[[ 
     AXIORA EPSILON [Tier-3]
     Batch 1 / 4
-    Focus: Services, State, IO System
-    Line Count: ~240
+    Focus: Services, State, IO System [Safe Mode Fix]
 ]]
 
 --// 1. SAFETY & SERVICES //
-getgenv().Axiora = getgenv().Axiora or {}
-if getgenv().Axiora.Stop then getgenv().Axiora.Stop() end -- Cleanup old threads
+-- Safely get environment, supporting fallback if getgenv is broken
+local get_env = (typeof(getgenv) == "function" and getgenv) or (function() return _G end)
+local cloneref = (typeof(cloneref) == "function" and cloneref) or (function(o) return o end)
 
+-- Initialize Global Table
+get_env().Axiora = get_env().Axiora or {}
+
+-- Safety Cleanup (Check if Stop is actually a function before calling)
+if typeof(get_env().Axiora.Stop) == "function" then 
+    pcall(get_env().Axiora.Stop) 
+end
+
+-- Define Service Wrapper
 local Services = setmetatable({}, {
     __index = function(_, k)
+        -- Uses local cloneref to prevent "nil value" errors inside the loop
         local s = game:GetService(k)
-        return cloneref and cloneref(s) or s
+        return cloneref(s)
     end
 })
 
