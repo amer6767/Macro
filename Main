@@ -24,7 +24,6 @@ for _ = 1, 10 do math.random() end
 -- Issue: task.wait(0.1) is arbitrary and unreliable
 -- ═══════════════════════════════════════════════════════════════════
 local function SynchronousCleanup(oldInstance)
-    local cleanupComplete = false
     local cleanupTimeout = 2 -- seconds
     local startTime = os.clock()
     
@@ -37,8 +36,10 @@ local function SynchronousCleanup(oldInstance)
         operations = operations + 1
         local success = pcall(function() 
             oldInstance.Stop() 
-            completedOps = completedOps + 1
         end)
+        if success then
+            completedOps = completedOps + 1
+        end
     end
     
     -- Diagnostics cleanup
@@ -46,8 +47,10 @@ local function SynchronousCleanup(oldInstance)
         operations = operations + 1
         local success = pcall(function() 
             oldInstance.Diagnostics.Cleanup() 
-            completedOps = completedOps + 1
         end)
+        if success then
+            completedOps = completedOps + 1
+        end
     end
     
     -- Force garbage collection
@@ -194,7 +197,7 @@ local function TestFileWriteCapability()
     local testPath = "Axiora/.write_test_" .. tostring(math.random(100000, 999999))
     local testData = "test_" .. tostring(os.clock())
     
-    local success, err = pcall(function()
+    local success = pcall(function()
         -- Ensure folder exists
         if typeof(makefolder) == "function" then
             pcall(makefolder, "Axiora")
@@ -329,8 +332,9 @@ end
 DetectExecutor()
 
 -- ═══════════════════════════════════════════════════════════════════
--- FIX #7: STABLE EVENT SYSTEM
+-- FIX #7 & #15: STABLE EVENT SYSTEM WITH PROPER VARARG HANDLING
 -- Issue: Disconnecting during iteration causes skips/errors
+-- Issue: Cannot use '...' outside of a vararg function
 -- ═══════════════════════════════════════════════════════════════════
 Axiora.Events = {}
 local EventHandlers = {}
@@ -341,6 +345,9 @@ function Axiora.Events:Fire(eventName, ...)
     
     -- Mark event as firing to prevent modification issues
     EventFiring[eventName] = true
+    
+    -- FIX #15: CAPTURE VARARGS INTO TABLE BEFORE INNER FUNCTION
+    local args = {...}
     
     -- FIX #7: Create a snapshot copy of handlers before iterating
     local handlersCopy = {}
@@ -353,7 +360,8 @@ function Axiora.Events:Fire(eventName, ...)
         -- Verify handler still exists in original table
         if table.find(EventHandlers[eventName], handler) then
             task.spawn(function()
-                local success, err = pcall(handler, ...)
+                -- FIX #15: USE unpack(args) INSTEAD OF ...
+                local success, err = pcall(handler, unpack(args))
                 if not success and Axiora.Settings.DebugMode then
                     warn("[Axiora Event Error] " .. eventName .. ": " .. tostring(err))
                 end
