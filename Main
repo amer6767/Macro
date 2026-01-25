@@ -8726,7 +8726,7 @@ print("  → Actions: " .. actCount .. " registered")
 -- ================================================================
 -- AXIORA ULTIMATE v5.0 - GOD MODE ENHANCEMENT MODULE
 -- Part 12: Markers & Analytics
--- Version: 12.1.0 - All Critical Bugs Fixed
+-- Version: 12.1.1 - All Critical Bugs Fixed + String Escape Fix
 -- ================================================================
 
 if not Axiora then return end
@@ -9064,8 +9064,12 @@ function Axiora.ListSavedPositionFiles()
             local allFiles = listfiles("Axiora/Positions")
             for _, filepath in ipairs(allFiles) do
                 if filepath:match("%.json$") then
-                    local filename = filepath:match("([^/\]+)$")
-                    table.insert(files, filename)
+                    -- FIX: Use forward slash only for cross-platform compatibility
+                    -- Extract filename from path (handles both / and  separators)
+                    local filename = filepath:match("[/]([^/]+)$") or filepath:match("([^/]+)$")
+                    if filename then
+                        table.insert(files, filename)
+                    end
                 end
             end
         end
@@ -9500,11 +9504,11 @@ for name, val in pairs(Axiora) do
     end
 end
 
-Axiora.Diagnostics.Log("INFO", "Markers & Analytics v12.1.0 loaded")
+Axiora.Diagnostics.Log("INFO", "Markers & Analytics v12.1.1 loaded")
 
-print("[Axiora] Markers & Analytics v12.1.0 STABLE Loaded")
-print("  → Marker Functions: Mark, Teleport, Walk, Delete, Save, Load, Export, Import")
-print("  → Analytics: Recording, Playback, System, Node Accuracy")
+print("[Axiora] Markers & Analytics v12.1.1 STABLE Loaded")
+print("  -> Marker Functions: Mark, Teleport, Walk, Delete, Save, Load, Export, Import")
+print("  -> Analytics: Recording, Playback, System, Node Accuracy")
 
 
 
