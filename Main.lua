@@ -4097,8 +4097,9 @@ function Axiora.UI.OpenHub()
     hub.Name = "NeuralHub"
     hub.BackgroundColor3 = theme.Deep
     hub.BackgroundTransparency = 0.05
-    hub.Size = UDim2.new(1, 0, 0.5, 0) -- 50% height, Full width (bottom half)
-    hub.Position = UDim2.new(0, 0, 1.5, 0) -- Start off screen (bottom)
+    hub.AnchorPoint = Vector2.new(0.5, 0.5) -- Center pivot
+    hub.Size = UDim2.new(0, 450, 0, 500) -- Fixed size per user request
+    hub.Position = UDim2.new(0.5, 0, 1.5, 0) -- Start off screen (bottom)
     hub.Parent = sg
     
     -- Background Particles
@@ -4127,7 +4128,7 @@ function Axiora.UI.OpenHub()
     end)
     
     -- Slide Up Animation
-    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0, 0, 0.5, 0)}):Play()
+    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
     
     Axiora.UI.Hub = hub
     
@@ -4198,7 +4199,7 @@ function Axiora.UI.CloseHub()
     
     -- Slide Down Animation
     local tween = TweenService:Create(Axiora.UI.Hub, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-        Position = UDim2.new(0, 0, 1.5, 0)
+        Position = UDim2.new(0.5, 0, 1.5, 0)
     })
     tween:Play()
     
