@@ -215,7 +215,13 @@ Axiora.Settings = {
     
     -- Breakpoints
     BreakpointsEnabled = true,
-    BreakpointNotify = true
+    BreakpointNotify = true,
+    
+    -- Buffer Library
+    UseNativeBuffers = false, -- Enable binary buffers for memory savings
+    
+    -- Debug
+    DebugPathfinding = false -- Visualize pathfinding waypoints
 }
 
 -- Simple event system
@@ -379,9 +385,6 @@ end
 -- Initialize screen metrics
 task.spawn(function()
     task.wait(0.5)
-    Axiora.Math.WaitForInit(3)
-end)
-
     Axiora.Math.WaitForInit(3)
 end)
 
@@ -762,6 +765,14 @@ function Axiora.SmartClick(relX, relY, validator)
     return Axiora.ClickRecovery.ClickWithRetry(abs.X, abs.Y, validator)
 end
 
+-- Create a validator function for UI elements
+function Axiora.ClickRecovery.CreateUIValidator(guiObject)
+    return function()
+        return guiObject and guiObject.Visible and guiObject.Parent 
+               and guiObject.AbsoluteSize.X > 0
+    end
+end
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SECTION 5: RECORDING ENGINE
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -1094,8 +1105,26 @@ local function pathfindToPosition(hum, root, targetPos, timeout)
     
     Axiora.Visuals.Notify("Pathfinding", "Following path (" .. #waypoints .. " waypoints)", 2, "info")
     
+    -- Debug visualization
+    if Axiora.Settings.DebugPathfinding then
+        for idx, wp in ipairs(waypoints) do
+            local marker = Axiora.Visuals.GetPooledPart()
+            marker.Shape = Enum.PartType.Ball
+            marker.Size = Vector3.new(1, 1, 1)
+            marker.Position = wp.Position
+            marker.Anchored = true
+            marker.CanCollide = false
+            marker.BrickColor = BrickColor.new("Lime green")
+            marker.Material = Enum.Material.Neon
+            marker.Parent = workspace
+            table.insert(Axiora.Visuals.Objects, marker)
+        end
+    end
+    
     local startTime = os.clock()
     local blockedCount = 0
+    local stuckTimer = 0
+    local lastPos = root.Position
     
     -- Follow waypoints
     for i, waypoint in ipairs(waypoints) do
@@ -1138,6 +1167,18 @@ local function pathfindToPosition(hum, root, targetPos, timeout)
             end
             
             task.wait(0.1)
+            
+            -- Stuck detection with automatic jump
+            if (root.Position - lastPos).Magnitude < 0.5 then
+                stuckTimer = stuckTimer + 0.1
+                if stuckTimer > 2 then
+                    hum.Jump = true
+                    stuckTimer = 0
+                end
+            else
+                stuckTimer = 0
+            end
+            lastPos = root.Position
         end
         
         if moveConn then moveConn:Disconnect() end
@@ -1462,8 +1503,22 @@ Axiora.Visuals = {
     Objects = {},
     Folder = nil,
     NotificationQueue = {},
-    NotificationCooldown = false
+    NotificationCooldown = false,
+    PartPool = {} -- Object pooling for performance
 }
+
+-- Object pooling functions
+function Axiora.Visuals.GetPooledPart()
+    if #Axiora.Visuals.PartPool > 0 then
+        return table.remove(Axiora.Visuals.PartPool)
+    end
+    return Instance.new("Part")
+end
+
+function Axiora.Visuals.ReturnToPool(part)
+    part.Parent = nil
+    table.insert(Axiora.Visuals.PartPool, part)
+end
 
 -- Theme colors
 Axiora.Visuals.Themes = {
@@ -3049,6 +3104,35 @@ Axiora.Conditions.Checks = {
     
     RandomChance = function(percent)
         return math.random(1, 100) <= (percent or 50)
+    end,
+    
+    HasTool = function(toolName)
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        return LP.Character:FindFirstChild(toolName) ~= nil
+    end,
+    
+    StaminaAbove = function(percent)
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        local stamina = LP.Character:FindFirstChild("Stamina")
+        if not stamina or not stamina:IsA("NumberValue") then return false end
+        return (stamina.Value / 100) * 100 >= (percent or 50)
+    end,
+    
+    IsInRegion = function(regionName)
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character or not LP.Character.PrimaryPart then return false end
+        local region = workspace:FindFirstChild(regionName)
+        if not region or not region:IsA("BasePart") then return false end
+        
+        local playerPos = LP.Character.PrimaryPart.Position
+        local regionPos = region.Position
+        local regionSize = region.Size / 2
+        
+        return math.abs(playerPos.X - regionPos.X) <= regionSize.X
+           and math.abs(playerPos.Y - regionPos.Y) <= regionSize.Y
+           and math.abs(playerPos.Z - regionPos.Z) <= regionSize.Z
     end,
     
     Always = function() return true end,
