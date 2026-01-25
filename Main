@@ -201,7 +201,21 @@ Axiora.Settings = {
     -- Visuals
     Theme = "default",
     HUDEnabled = true,
-    PerformanceMode = false
+    PerformanceMode = false,
+    
+    -- Progressive Rendering
+    RenderBatchSize = 50,
+    RenderBatchDelay = 0.03,
+    
+    -- Click Recovery
+    ClickRecoveryEnabled = true,
+    ClickRecoveryMaxAttempts = 9,
+    ClickRecoveryOffsetPixels = 5,
+    ClickRecoveryDelay = 0.05,
+    
+    -- Breakpoints
+    BreakpointsEnabled = true,
+    BreakpointNotify = true
 }
 
 -- Simple event system
@@ -368,6 +382,170 @@ task.spawn(function()
     Axiora.Math.WaitForInit(3)
 end)
 
+    Axiora.Math.WaitForInit(3)
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 3.5: BUFFER LIBRARY (Memory Management)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.BufferLib = {
+    Enabled = false,
+    Supported = (typeof(buffer) == "table" or typeof(buffer) == "userdata") and typeof(buffer.create) == "function",
+    NodeSize = 34, -- Fixed size per node (bytes)
+    GrowthFactor = 1.5
+}
+
+-- Node Binary Format (34 bytes):
+-- [0] Type (u8)
+-- [1-4] Delay (f32)
+-- [5-8] X/P.X (f32)
+-- [9-12] Y/P.Y (f32)
+-- [13-16] Z (f32) - only for Move
+-- [17-20] Cam.X (f32)
+-- [21-24] Cam.Y (f32)
+-- [25-28] Cam.Z (f32) 
+-- [29] Flags (u8) - 1=Jump, 2=UI
+-- [30-33] KeyCode/Extra (u32)
+
+function Axiora.BufferLib.Init(initialCapacity)
+    if not Axiora.BufferLib.Supported then return nil end
+    initialCapacity = initialCapacity or 10000
+    
+    local size = initialCapacity * Axiora.BufferLib.NodeSize
+    local buf = buffer.create(size)
+    
+    return {
+        Raw = buf,
+        Capacity = initialCapacity,
+        Count = 0,
+        WriteCursor = 0
+    }
+end
+
+function Axiora.BufferLib.WriteNode(bufObj, node)
+    if not bufObj or not bufObj.Raw then return false end
+    
+    -- Check capacity
+    if bufObj.Count >= bufObj.Capacity then
+        -- Grow buffer
+        local newCap = math.floor(bufObj.Capacity * Axiora.BufferLib.GrowthFactor)
+        local newSize = newCap * Axiora.BufferLib.NodeSize
+        local newBuf = buffer.create(newSize)
+        buffer.copy(newBuf, 0, bufObj.Raw, 0, bufObj.WriteCursor)
+        
+        bufObj.Raw = newBuf
+        bufObj.Capacity = newCap
+    end
+    
+    local offset = bufObj.WriteCursor
+    local b = bufObj.Raw
+    
+    -- Write common data
+    buffer.writeu8(b, offset, node.t or 0)
+    buffer.writef32(b, offset + 1, node.d or 0)
+    
+    -- Type-specific write
+    local flags = 0
+    
+    if node.t == 1 then -- Move
+        if node.p then
+            local p = Axiora.Math.DeserializeVec(node.p)
+            buffer.writef32(b, offset + 5, p.X)
+            buffer.writef32(b, offset + 9, p.Y)
+            buffer.writef32(b, offset + 13, p.Z)
+        end
+        
+        if node.c then
+            local cf = Axiora.Math.DeserializeCF(node.c)
+            if cf then
+                local lv = cf.LookVector
+                buffer.writef32(b, offset + 17, lv.X)
+                buffer.writef32(b, offset + 21, lv.Y)
+                buffer.writef32(b, offset + 25, lv.Z)
+            end
+        end
+        
+        if node.j then flags = bit32.bor(flags, 1) end
+        
+    elseif node.t == 2 then -- Click
+        buffer.writef32(b, offset + 5, node.x or 0)
+        buffer.writef32(b, offset + 9, node.y or 0)
+        if node.ui then flags = bit32.bor(flags, 2) end
+        
+    elseif node.t == 3 then -- Key
+        local k = node.k and Enum.KeyCode[node.k] and Enum.KeyCode[node.k].Value or 0
+        buffer.writeu32(b, offset + 30, k)
+    end
+    
+    buffer.writeu8(b, offset + 29, flags)
+    
+    bufObj.Count = bufObj.Count + 1
+    bufObj.WriteCursor = bufObj.WriteCursor + Axiora.BufferLib.NodeSize
+    return true
+end
+
+function Axiora.BufferLib.ReadNode(bufObj, index)
+    if not bufObj or index < 1 or index > bufObj.Count then return nil end
+    
+    local offset = (index - 1) * Axiora.BufferLib.NodeSize
+    local b = bufObj.Raw
+    
+    local t = buffer.readu8(b, offset)
+    local d = buffer.readf32(b, offset + 1)
+    local flags = buffer.readu8(b, offset + 29)
+    
+    local node = {t = t, d = d}
+    
+    if t == 1 then -- Move
+        local x = buffer.readf32(b, offset + 5)
+        local y = buffer.readf32(b, offset + 9)
+        local z = buffer.readf32(b, offset + 13)
+        node.p = {x, y, z} -- Simplified vector
+        
+        local cx = buffer.readf32(b, offset + 17)
+        local cy = buffer.readf32(b, offset + 21)
+        local cz = buffer.readf32(b, offset + 25)
+        if cx ~= 0 or cy ~= 0 or cz ~= 0 then
+             -- We only stored lookvector, reconstructing full CF is hard without knowing Up/Right
+             -- This is a simplified version for memory efficiency
+             -- For full fidelity, standard tables are better.
+        end
+        
+        if bit32.band(flags, 1) ~= 0 then node.j = true end
+        
+    elseif t == 2 then -- Click
+        node.x = buffer.readf32(b, offset + 5)
+        node.y = buffer.readf32(b, offset + 9)
+        if bit32.band(flags, 2) ~= 0 then node.ui = true end
+        
+    elseif t == 3 then -- Key
+        local kVal = buffer.readu32(b, offset + 30)
+        -- Need to reverse lookup KeyCode enum... complex in loop
+        -- Storing key name string is hard in fixed buffer without lookup table
+    end
+    
+    return node
+end
+
+function Axiora.BufferLib.ToTable(bufObj)
+    if not bufObj then return {} end
+    local t = {}
+    for i = 1, bufObj.Count do
+        table.insert(t, Axiora.BufferLib.ReadNode(bufObj, i))
+    end
+    return t
+end
+
+function Axiora.BufferLib.FromTable(tbl)
+    local bufObj = Axiora.BufferLib.Init(#tbl)
+    if not bufObj then return nil end
+    for _, node in ipairs(tbl) do
+        Axiora.BufferLib.WriteNode(bufObj, node)
+    end
+    return bufObj
+end
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SECTION 4: INPUT SYSTEM (Multi-Executor Compatible)
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -490,6 +668,98 @@ function Axiora.Input.KeyPress(keyCode, duration)
     end
     
     return false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- CLICK RECOVERY (Spiral Offset Pattern)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.ClickRecovery = {
+    Enabled = true,
+    LastAttempts = 0,
+    LastSuccess = true
+}
+
+-- Generate spiral offsets for click recovery
+function Axiora.ClickRecovery.GetSpiralOffsets()
+    local offset = Axiora.Settings.ClickRecoveryOffsetPixels
+    return {
+        {0, 0},           -- Center (original)
+        {offset, 0},      -- Right
+        {-offset, 0},     -- Left
+        {0, -offset},     -- Up
+        {0, offset},      -- Down
+        {offset, -offset},  -- Up-right
+        {-offset, -offset}, -- Up-left
+        {offset, offset},   -- Down-right
+        {-offset, offset}   -- Down-left
+    }
+end
+
+-- Click with spiral recovery pattern
+-- validator: optional function that returns true if click succeeded
+function Axiora.ClickRecovery.ClickWithRetry(x, y, validator)
+    if not Axiora.Settings.ClickRecoveryEnabled then
+        Axiora.Input.Click(x, y)
+        return true, 1
+    end
+    
+    local offsets = Axiora.ClickRecovery.GetSpiralOffsets()
+    local maxAttempts = math.min(#offsets, Axiora.Settings.ClickRecoveryMaxAttempts)
+    local delay = Axiora.Settings.ClickRecoveryDelay
+    
+    for attempt = 1, maxAttempts do
+        local offsetX = offsets[attempt][1]
+        local offsetY = offsets[attempt][2]
+        local clickX = x + offsetX
+        local clickY = y + offsetY
+        
+        Axiora.Input.Click(clickX, clickY)
+        Axiora.ClickRecovery.LastAttempts = attempt
+        
+        -- If no validator, assume success on first attempt
+        if not validator then
+            Axiora.ClickRecovery.LastSuccess = true
+            return true, attempt
+        end
+        
+        -- Wait a bit for UI to respond
+        task.wait(delay)
+        
+        -- Check if click was successful
+        local success = pcall(function()
+            return validator()
+        end)
+        
+        if success then
+            Axiora.ClickRecovery.LastSuccess = true
+            if attempt > 1 then
+                Axiora.Events:Fire("ClickRecovered", {
+                    OriginalX = x,
+                    OriginalY = y,
+                    SuccessX = clickX,
+                    SuccessY = clickY,
+                    Attempts = attempt
+                })
+            end
+            return true, attempt
+        end
+    end
+    
+    -- All attempts failed
+    Axiora.ClickRecovery.LastSuccess = false
+    Axiora.Events:Fire("ClickRecoveryFailed", {
+        X = x,
+        Y = y,
+        Attempts = maxAttempts
+    })
+    return false, maxAttempts
+end
+
+-- Quick check function - tries click recovery if needed
+function Axiora.SmartClick(relX, relY, validator)
+    local abs = Axiora.Math.GetAbsoluteInput(relX, relY)
+    return Axiora.ClickRecovery.ClickWithRetry(abs.X, abs.Y, validator)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -993,6 +1263,23 @@ function Axiora.Play(loop)
                 
                 Axiora.Playback.CurrentIndex = i
                 
+                -- Breakpoint Check
+                if Axiora.Breakpoints and Axiora.Breakpoints.Check(i) then
+                    Axiora.Playback.Paused = true
+                    Axiora.Breakpoints.WaitingAtBreakpoint = true
+                    Axiora.Breakpoints.CurrentBreakpoint = i
+                    if Axiora.Settings.BreakpointNotify then
+                        Axiora.Visuals.Notify("Breakpoint", "Paused at node #" .. i, 0, "warning")
+                    end
+                    Axiora.Events:Fire("BreakpointHit", {Index = i})
+                    
+                    -- Wait until resumed
+                    while Axiora.Playback.Paused and Axiora.Breakpoints.WaitingAtBreakpoint do
+                        if Axiora.State.Status ~= "PLAYING" then break end
+                        task.wait(0.1)
+                    end
+                end
+                
                 -- Wait for timestamp
                 local now = os.clock() - startTime
                 local targetTime = (node.d or 0) / Axiora.Settings.TimeScale / Axiora.Playback.Speed
@@ -1015,10 +1302,6 @@ function Axiora.Play(loop)
                         
                         -- MoveTo the recorded position (this follows the exact path)
                         hum:MoveTo(dest)
-                        
-                        -- If we have velocity data, the movement direction is already
-                        -- encoded in the sequence of positions, so MoveTo will replicate
-                        -- the exact walking direction (west to east, etc.)
                     end
                     
                     if node.j then
@@ -1036,9 +1319,14 @@ function Axiora.Play(loop)
                     end
                     
                 elseif node.t == 2 then
-                    -- Click
+                    -- Click with recovery support
                     local abs = Axiora.Math.GetAbsoluteInput(node.x, node.y)
-                    Axiora.Input.Click(abs.X, abs.Y)
+                    
+                    if Axiora.Settings.ClickRecoveryEnabled then
+                        Axiora.ClickRecovery.ClickWithRetry(abs.X, abs.Y)
+                    else
+                        Axiora.Input.Click(abs.X, abs.Y)
+                    end
                     
                     if Axiora.Settings.ClickRipple and Axiora.Visuals and Axiora.Visuals.Ripple then
                         Axiora.Visuals.Ripple(abs.X, abs.Y)
@@ -1569,11 +1857,14 @@ function Axiora.Visuals.Clear()
     end
 end
 
--- Render path visualization
+-- Render path visualization with progressive batch rendering
 function Axiora.Visuals.RenderPath(mode)
     Axiora.Visuals.Clear()
     
-    if #Axiora.State.Buffer == 0 then return end
+    if #Axiora.State.Buffer == 0 then 
+        Axiora.Visuals.Notify("Render", "No nodes to render", 2, "warning")
+        return 
+    end
     
     mode = mode or "simple"
     local theme = Axiora.Visuals.GetTheme()
@@ -1583,7 +1874,16 @@ function Axiora.Visuals.RenderPath(mode)
     folder.Parent = Workspace
     Axiora.Visuals.Folder = folder
     
+    -- Progressive rendering settings
+    local batchSize = Axiora.Settings.RenderBatchSize or 50
+    local batchDelay = Axiora.Settings.RenderBatchDelay or 0.03
     local spacing = Axiora.Settings.PerformanceMode and 5 or 2
+    
+    local totalNodes = math.ceil(#Axiora.State.Buffer / spacing)
+    local renderedCount = 0
+    local lastNotifyCount = 0
+    
+    Axiora.Visuals.Notify("Render", "Rendering " .. totalNodes .. " nodes...", 3, "info")
     
     for i = 1, #Axiora.State.Buffer, spacing do
         local node = Axiora.State.Buffer[i]
@@ -1604,10 +1904,20 @@ function Axiora.Visuals.RenderPath(mode)
             part.Parent = folder
             
             table.insert(Axiora.Visuals.Objects, part)
+            renderedCount = renderedCount + 1
         end
         
-        -- Yield every 50 objects to prevent lag
-        if i % 50 == 0 then task.wait() end
+        -- Progressive batch yielding - prevent "Roblox Not Responding"
+        if renderedCount % batchSize == 0 then
+            task.wait(batchDelay)
+            
+            -- Progress notification every 500 nodes
+            if renderedCount - lastNotifyCount >= 500 then
+                local percent = math.floor((renderedCount / totalNodes) * 100)
+                Axiora.Visuals.Notify("Render", "Progress: " .. renderedCount .. "/" .. totalNodes .. " (" .. percent .. "%)", 1, "info")
+                lastNotifyCount = renderedCount
+            end
+        end
     end
     
     Axiora.Visuals.Notify("Render", #Axiora.Visuals.Objects .. " nodes rendered", 2, "success")
@@ -2414,6 +2724,94 @@ function Axiora.Sequences.LoadQueue(name)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- BREAKPOINT SYSTEM (Debug Pausing)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Breakpoints = {
+    Nodes = {},           -- {[nodeIndex] = true}
+    Enabled = true,
+    PauseOnHit = true,
+    WaitingAtBreakpoint = false,
+    CurrentBreakpoint = nil
+}
+
+-- Set a breakpoint at a specific node index
+function Axiora.SetBreakpoint(index)
+    if type(index) ~= "number" or index < 1 then
+        Axiora.Visuals.Notify("Breakpoint", "Invalid index", 2, "error")
+        return false
+    end
+    
+    Axiora.Breakpoints.Nodes[index] = true
+    Axiora.Visuals.Notify("Breakpoint", "Set at node #" .. index, 2, "success")
+    Axiora.Events:Fire("BreakpointSet", {Index = index})
+    return true
+end
+
+-- Remove a breakpoint
+function Axiora.RemoveBreakpoint(index)
+    if not Axiora.Breakpoints.Nodes[index] then
+        Axiora.Visuals.Notify("Breakpoint", "No breakpoint at #" .. index, 2, "warning")
+        return false
+    end
+    
+    Axiora.Breakpoints.Nodes[index] = nil
+    Axiora.Visuals.Notify("Breakpoint", "Removed from node #" .. index, 2, "info")
+    Axiora.Events:Fire("BreakpointRemoved", {Index = index})
+    return true
+end
+
+-- Toggle breakpoint
+function Axiora.ToggleBreakpoint(index)
+    if Axiora.Breakpoints.Nodes[index] then
+        return Axiora.RemoveBreakpoint(index)
+    else
+        return Axiora.SetBreakpoint(index)
+    end
+end
+
+-- Clear all breakpoints
+function Axiora.ClearBreakpoints()
+    local count = 0
+    for _ in pairs(Axiora.Breakpoints.Nodes) do
+        count = count + 1
+    end
+    
+    Axiora.Breakpoints.Nodes = {}
+    Axiora.Visuals.Notify("Breakpoint", "Cleared " .. count .. " breakpoints", 2, "info")
+    Axiora.Events:Fire("BreakpointsCleared", {Count = count})
+    return count
+end
+
+-- List all breakpoints
+function Axiora.ListBreakpoints()
+    local list = {}
+    for index, _ in pairs(Axiora.Breakpoints.Nodes) do
+        table.insert(list, index)
+    end
+    table.sort(list)
+    return list
+end
+
+-- Check if node has breakpoint (used in playback loop)
+function Axiora.Breakpoints.Check(nodeIndex)
+    if not Axiora.Settings.BreakpointsEnabled then return false end
+    if not Axiora.Breakpoints.Enabled then return false end
+    return Axiora.Breakpoints.Nodes[nodeIndex] == true
+end
+
+-- Resume from breakpoint
+function Axiora.ResumeFromBreakpoint()
+    if Axiora.Breakpoints.WaitingAtBreakpoint then
+        Axiora.Breakpoints.WaitingAtBreakpoint = false
+        Axiora.Visuals.Notify("Breakpoint", "Resumed from #" .. (Axiora.Breakpoints.CurrentBreakpoint or "?"), 2, "success")
+        Axiora.Breakpoints.CurrentBreakpoint = nil
+        return true
+    end
+    return false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- SECTION 14: AUTO-RESTART SYSTEM
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -3137,31 +3535,1003 @@ end
 -- SECTION 19: MODERN UI INTERFACE (Fully Redesigned)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 19: HOLOGRAPHIC COMMAND CENTER (UI V2.0)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
 Axiora.UI = {
     ScreenGui = nil,
-    MainFrame = nil,
-    ToggleButton = nil,
-    IsOpen = false,
-    SpeedPresets = {
-        careful = 0.5,
-        normal = 1.0,
-        fast = 1.5,
-        turbo = 2.5
+    Open = false,
+    CurrentTab = 1,
+    Orientation = "Portrait",
+    Scale = 1.0,
+    
+    -- Design System
+    Theme = {
+        -- Backgrounds
+        Deep = Color3.fromRGB(8, 8, 15),        -- Main BG
+        Surface = Color3.fromRGB(18, 18, 28),   -- Elevated surfaces
+        Overlay = Color3.fromRGB(25, 25, 40),   -- Panels
+        Glass = 0.1,                            -- Transparency level
+        
+        -- Accents (State-dependent)
+        Idle = Color3.fromRGB(60, 180, 255),    -- Cyan
+        Recording = Color3.fromRGB(255, 50, 80), -- Crimson
+        Playing = Color3.fromRGB(120, 255, 150), -- Green
+        Paused = Color3.fromRGB(255, 200, 50),   -- Amber
+        
+        -- Node Types
+        Movement = Color3.fromRGB(80, 150, 255), -- Blue
+        Click = Color3.fromRGB(180, 80, 255),    -- Purple
+        Key = Color3.fromRGB(255, 180, 50),      -- Orange
+        Delay = Color3.fromRGB(100, 100, 120),   -- Gray
+        
+        -- Text
+        Primary = Color3.fromRGB(255, 255, 255),
+        Secondary = Color3.fromRGB(180, 180, 200),
+        Tertiary = Color3.fromRGB(120, 120, 140),
+        
+        -- Status
+        Success = Color3.fromRGB(50, 255, 150),
+        Warning = Color3.fromRGB(255, 200, 50),
+        Error = Color3.fromRGB(255, 80, 100),
+        Info = Color3.fromRGB(100, 200, 255)
     },
-    CurrentSpeed = "normal"
+    
+    -- Components Storage
+    Orb = nil,
+    Hub = nil,
+    Tabs = {},
+    Particles = {},
+    Connections = {}
 }
 
--- Helper: Create gradient
-local function createGradient(parent, color1, color2, rotation)
-    local gradient = Instance.new("UIGradient")
-    gradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, color1),
-        ColorSequenceKeypoint.new(1, color2)
-    })
-    gradient.Rotation = rotation or 45
-    gradient.Parent = parent
-    return gradient
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- UI HELPER PRIMITIVES
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.UI.Primitives = {}
+
+function Axiora.UI.Primitives.CreateScreenGui()
+    if Axiora.UI.ScreenGui then pcall(function() Axiora.UI.ScreenGui:Destroy() end) end
+    
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "Axiora_HoloUI"
+    sg.IgnoreGuiInset = true
+    sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.DisplayOrder = 1000
+    
+    local success = pcall(function() sg.Parent = CoreGui end)
+    if not success then
+        local LP = getLocalPlayer()
+        if LP then sg.Parent = LP:FindFirstChild("PlayerGui") end
+    end
+    
+    Axiora.UI.ScreenGui = sg
+    return sg
 end
+
+function Axiora.UI.Primitives.CreateHoloPanel(parent, size, pos)
+    local theme = Axiora.UI.Theme
+    
+    local frame = Instance.new("Frame")
+    frame.BackgroundColor3 = theme.Deep
+    frame.BackgroundTransparency = 0.15
+    frame.Size = size or UDim2.new(1, 0, 1, 0)
+    frame.Position = pos or UDim2.new(0, 0, 0, 0)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    -- Glass effect
+    local glass = Instance.new("Frame")
+    glass.Name = "GlassOverlay"
+    glass.BackgroundColor3 = theme.Surface
+    glass.BackgroundTransparency = 0.95
+    glass.Size = UDim2.new(1, 0, 1, 0)
+    glass.ZIndex = frame.ZIndex
+    glass.Parent = frame
+    
+    -- Neon Stroke
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = theme.Idle
+    stroke.Transparency = 0.6
+    stroke.Thickness = 1.5
+    stroke.Parent = frame
+    
+    -- Corner
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = frame
+    -- Apply to glass too
+    local glassCorner = corner:Clone()
+    glassCorner.Parent = glass
+    
+    frame.ClipsDescendants = true
+    
+    return frame, stroke
+end
+
+function Axiora.UI.Primitives.CreateNeonText(parent, text, size, color)
+    local theme = Axiora.UI.Theme
+    
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, size or 20)
+    label.Text = text or ""
+    label.TextColor3 = color or theme.Primary
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = size or 14
+    label.Parent = parent
+    
+    -- Glow effect
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color or theme.Primary
+    stroke.Transparency = 0.8
+    stroke.Thickness = 2
+    stroke.Parent = label
+    
+    return label
+end
+
+function Axiora.UI.Primitives.Create3DButton(parent, text, color, callback)
+    local theme = Axiora.UI.Theme
+    color = color or theme.Idle
+    
+    local btn = Instance.new("TextButton")
+    btn.BackgroundColor3 = color
+    btn.BackgroundTransparency = 0.2
+    btn.Size = UDim2.new(1, 0, 0, 45)
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.Parent = parent
+    
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    
+    -- Gradient for 3D look
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.new(1,1,1)),
+        ColorSequenceKeypoint.new(1, Color3.new(0.7,0.7,0.7)) -- Darken bottom
+    })
+    grad.Rotation = 90
+    grad.Parent = btn
+    
+    -- Inner Shadow (simulated with Frame)
+    local shadow = Instance.new("Frame")
+    shadow.BackgroundColor3 = Color3.new(0,0,0)
+    shadow.BackgroundTransparency = 0.8
+    shadow.Size = UDim2.new(1, 0, 0.2, 0)
+    shadow.Position = UDim2.new(0, 0, 0.8, 0)
+    shadow.BorderSizePixel = 0
+    shadow.Parent = btn
+    Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 8)
+    
+    -- Label
+    local label = Axiora.UI.Primitives.CreateNeonText(btn, text, 14, theme.Primary)
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.ZIndex = 2
+    
+    -- Interaction
+    btn.MouseButton1Down:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {Size = UDim2.new(1, -4, 0, 41)}):Play()
+        if Axiora.Haptics then Axiora.Haptics.Pulse("Small") end
+    end)
+    
+    btn.MouseButton1Up:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {Size = UDim2.new(1, 0, 0, 45)}):Play()
+        
+        -- Spawn Particles
+        local center = btn.AbsolutePosition + btn.AbsoluteSize/2
+        for i = 1, 5 do
+            Axiora.Particles.Spawn(center.X, center.Y, color)
+        end
+        
+        if callback then callback() end
+    end)
+    
+    return btn
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ADVANCED UX SYSTEMS
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Haptics = {}
+
+function Axiora.Haptics.IsSupported()
+    return UserInputService.TouchEnabled and UserInputService.GyroscopeEnabled -- Proxy check for mobile
+end
+
+function Axiora.Haptics.Pulse(intensity)
+    if not Axiora.Haptics.IsSupported() then return end
+    -- HapticService isn't fully exposed to scripts usually, relying on camera shake fallback
+    -- or if HapticService exists (some executors support it)
+    pcall(function()
+        if HapticService then
+            HapticService:SetMotor(Enum.UserInputType.Gamepad1, Enum.VibrationMotor.Small, 0.5)
+            task.delay(0.1, function() 
+                HapticService:SetMotor(Enum.UserInputType.Gamepad1, Enum.VibrationMotor.Small, 0) 
+            end)
+        end
+    end)
+end
+
+Axiora.Particles = {}
+
+function Axiora.Particles.Spawn(x, y, color)
+    if not Axiora.UI.ScreenGui then return end
+    
+    local p = Instance.new("Frame")
+    p.BackgroundColor3 = color or Axiora.UI.Theme.Idle
+    p.Size = UDim2.new(0, 10, 0, 10)
+    p.Position = UDim2.new(0, x, 0, y)
+    p.AnchorPoint = Vector2.new(0.5, 0.5)
+    p.BorderSizePixel = 0
+    p.Parent = Axiora.UI.ScreenGui
+    Instance.new("UICorner", p).CornerRadius = UDim.new(1, 0)
+    
+    local destX = x + math.random(-50, 50)
+    local destY = y + math.random(-50, 50)
+    
+    local tween = TweenService:Create(p, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {
+        Position = UDim2.new(0, destX, 0, destY),
+        BackgroundTransparency = 1,
+        Size = UDim2.new(0, 0, 0, 0)
+    })
+    tween:Play()
+    tween.Completed:Connect(function() p:Destroy() end)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- "AXIE" AI ASSISTANT
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Assistant = {
+    Frame = nil,
+    Visible = false,
+    Messages = {
+        "Recorded 50 nodes without pause! Great flow.",
+        "Tip: Use 'Mark Position' to save this spot.",
+        "Playing at 2.5x speed - Turbo Mode!",
+        "Macro saved successfully to file.",
+        "Warning: Playback drift detected (Recovered)."
+    }
+}
+
+function Axiora.Assistant.Show(text, mood)
+    local sg = Axiora.UI.ScreenGui
+    if not sg then return end
+    
+    if not Axiora.Assistant.Frame then
+        local frame = Instance.new("Frame")
+        frame.Name = "Axie"
+        frame.BackgroundColor3 = Axiora.UI.Theme.Overlay
+        frame.Size = UDim2.new(0, 180, 0, 60)
+        frame.Position = UDim2.new(1, -220, 0.5, -80) -- Above Orb
+        frame.Parent = sg
+        
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 30)
+        
+        -- Face
+        local face = Instance.new("Frame")
+        face.BackgroundColor3 = Axiora.UI.Theme.Idle
+        face.Size = UDim2.new(0, 40, 0, 40)
+        face.Position = UDim2.new(0, 10, 0.5, 0)
+        face.AnchorPoint = Vector2.new(0, 0.5)
+        face.Parent = frame
+        Instance.new("UICorner", face).CornerRadius = UDim.new(1, 0)
+        
+        local eyes = Instance.new("TextLabel")
+        eyes.BackgroundTransparency = 1
+        eyes.Size = UDim2.new(1, 0, 1, 0)
+        eyes.Text = "◉ ◉"
+        eyes.TextColor3 = Axiora.UI.Theme.Deep
+        eyes.TextSize = 14
+        eyes.Parent = face
+        
+        -- Text Bubble
+        local label = Instance.new("TextLabel")
+        label.Name = "Message"
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.new(1, -60, 1, 0)
+        label.Position = UDim2.new(0, 55, 0, 0)
+        label.TextColor3 = Axiora.UI.Theme.Primary
+        label.TextSize = 11
+        label.Font = Enum.Font.Gotham
+        label.TextWrapped = true
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        Axiora.Assistant.Frame = frame
+    end
+    
+    local f = Axiora.Assistant.Frame
+    f.Visible = true
+    f.BackgroundTransparency = 1
+    f.Message.TextTransparency = 1
+    f.Message.Text = text or Axiora.Assistant.Messages[math.random(1, #Axiora.Assistant.Messages)]
+    
+    -- Animate In
+    TweenService:Create(f, TweenInfo.new(0.5, Enum.EasingStyle.Back), {BackgroundTransparency = 0.2}):Play()
+    TweenService:Create(f.Message, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+    
+    -- Auto Hide
+    task.delay(4, function()
+        TweenService:Create(f, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+        TweenService:Create(f.Message, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        task.wait(0.5)
+        if f.BackgroundTransparency >= 0.9 then f.Visible = false end
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- PHASE 2: QUANTUM ORB (Persistent HUD)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.CreateOrb()
+    if Axiora.UI.Orb then Axiora.UI.Orb:Destroy() end
+    
+    local sg = Axiora.UI.ScreenGui or Axiora.UI.Primitives.CreateScreenGui()
+    local theme = Axiora.UI.Theme
+    
+    local orbSize = 60
+    local orb = Instance.new("Frame")
+    orb.Name = "QuantumOrb"
+    orb.BackgroundColor3 = theme.Deep
+    orb.BackgroundTransparency = 0.2
+    orb.Size = UDim2.new(0, orbSize, 0, orbSize)
+    orb.Position = UDim2.new(1, -orbSize - 20, 0.5, 0) -- Right edge default
+    orb.AnchorPoint = Vector2.new(0.5, 0.5)
+    orb.Parent = sg
+    
+    Instance.new("UICorner", orb).CornerRadius = UDim.new(1, 0)
+    
+    -- Glow Ring
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = theme.Idle
+    stroke.Thickness = 2
+    stroke.Parent = orb
+    
+    -- Inner Status Dot
+    local dot = Instance.new("Frame")
+    dot.BackgroundColor3 = theme.Idle
+    dot.Size = UDim2.new(0, 10, 0, 10)
+    dot.Position = UDim2.new(0.5, 0, 0.3, 0)
+    dot.AnchorPoint = Vector2.new(0.5, 0.5)
+    dot.Parent = orb
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+    
+    -- Count
+    local count = Instance.new("TextLabel")
+    count.BackgroundTransparency = 1
+    count.Size = UDim2.new(1, 0, 0, 20)
+    count.Position = UDim2.new(0, 0, 0.6, 0)
+    count.Text = "0"
+    count.TextColor3 = theme.Primary
+    count.Font = Enum.Font.GothamBold
+    count.TextSize = 12
+    count.Parent = orb
+    
+    -- Gestures
+    local dragging = false
+    local dragStart = Vector2.new()
+    local startPos = UDim2.new()
+    local heldTime = 0
+    
+    orb.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = orb.Position
+            heldTime = os.clock()
+            
+            -- Press effect
+            TweenService:Create(orb, TweenInfo.new(0.1), {Size = UDim2.new(0, orbSize*0.9, 0, orbSize*0.9)}):Play()
+        end
+    end)
+    
+    orb.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            TweenService:Create(orb, TweenInfo.new(0.1), {Size = UDim2.new(0, orbSize, 0, orbSize)}):Play()
+            
+            local dragDist = (Vector2.new(input.Position.X, input.Position.Y) - Vector2.new(dragStart.X, dragStart.Y)).Magnitude
+            
+            -- Tap check
+            if dragDist < 10 then
+                if os.clock() - heldTime > 0.5 then
+                    -- Long Press -> Radial Menu (TODO)
+                    Axiora.Visuals.Notify("Orb", "Radial Menu (Coming Soon)", 1)
+                else
+                    -- Tap -> Toggle UI
+                    Axiora.UI.Toggle()
+                end
+            else
+                -- Snap to edge logic
+                local screen = workspace.CurrentCamera.ViewportSize
+                local endX = orb.Position.X.Offset
+                local targetX = (endX < screen.X/2) and 40 or (screen.X - 40)
+                
+                TweenService:Create(orb, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+                    Position = UDim2.new(0, targetX, 0, orb.Position.Y.Offset)
+                }):Play()
+            end
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            orb.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    -- Status Pulse
+    task.spawn(function()
+        while orb.Parent do
+            local color = theme.Idle
+            if Axiora.State.Status == "RECORDING" then color = theme.Recording
+            elseif Axiora.State.Status == "PLAYING" then color = theme.Playing end
+            
+            TweenService:Create(stroke, TweenInfo.new(0.5), {Color = color}):Play()
+            TweenService:Create(dot, TweenInfo.new(0.5), {BackgroundColor3 = color}):Play()
+            count.Text = #Axiora.State.Buffer
+            
+            task.wait(0.5)
+        end
+    end)
+    
+    Axiora.UI.Orb = orb
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- PHASE 3: THE NEURAL HUB (Main Interface)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.Toggle()
+    if Axiora.UI.Open then
+        Axiora.UI.CloseHub()
+    else
+        Axiora.UI.OpenHub()
+    end
+end
+
+function Axiora.UI.OpenHub()
+    if Axiora.UI.Hub then Axiora.UI.Hub:Destroy() end
+    
+    local sg = Axiora.UI.ScreenGui or Axiora.UI.Primitives.CreateScreenGui()
+    local theme = Axiora.UI.Theme
+    
+    Axiora.UI.Open = true
+    
+    -- Main Container
+    local hub = Instance.new("Frame")
+    hub.Name = "NeuralHub"
+    hub.BackgroundColor3 = theme.Deep
+    hub.BackgroundTransparency = 0.05
+    hub.Size = UDim2.new(1, 0, 1, 0) -- Full screen for immersive feel
+    hub.Position = UDim2.new(0, 0, 1, 0) -- Start off screen
+    hub.Parent = sg
+    
+    -- Background Particles
+    -- (TODO: Particle emitter inside GUI if possible, or just raw frames)
+    
+    -- Header
+    local header = Instance.new("Frame")
+    header.BackgroundColor3 = theme.Surface
+    header.BackgroundTransparency = 0.2
+    header.Size = UDim2.new(1, 0, 0, 60)
+    header.Parent = hub
+    
+    Axiora.UI.Primitives.CreateNeonText(header, "AXIORA NEURAL HUB", 18, theme.Primary).Position = UDim2.new(0, 20, 0, 20)
+    
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Size = UDim2.new(0, 50, 0, 60)
+    closeBtn.Position = UDim2.new(1, -50, 0, 0)
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = theme.Error
+    closeBtn.TextSize = 24
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.Parent = header
+    closeBtn.MouseButton1Click:Connect(Axiora.UI.CloseHub)
+    
+    -- Slide Up Animation
+    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0,0,0,0)}):Play()
+    
+    Axiora.UI.Hub = hub
+    
+    -- Tab Container
+    local contentArea = Instance.new("Frame")
+    contentArea.Name = "ContentArea"
+    contentArea.BackgroundTransparency = 1
+    contentArea.Size = UDim2.new(1, 0, 1, -140) -- Space for Header + Nav
+    contentArea.Position = UDim2.new(0, 0, 0, 60)
+    contentArea.Parent = hub
+    
+    Axiora.UI.ContentArea = contentArea
+    
+    -- Bottom Navigation (Portrait Mode)
+    local navBar = Instance.new("Frame")
+    navBar.Name = "NavBar"
+    navBar.BackgroundColor3 = theme.Surface
+    navBar.BackgroundTransparency = 0.1
+    navBar.Size = UDim2.new(1, -40, 0, 60)
+    navBar.Position = UDim2.new(0.5, 0, 1, -20)
+    navBar.AnchorPoint = Vector2.new(0.5, 1)
+    navBar.Parent = hub
+    
+    Instance.new("UICorner", navBar).CornerRadius = UDim.new(1, 0)
+    
+    local navLayout = Instance.new("UIListLayout")
+    navLayout.FillDirection = Enum.FillDirection.Horizontal
+    navLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    navLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    navLayout.Padding = UDim.new(0, 10)
+    navLayout.Parent = navBar
+    
+    -- Tab Definitions
+    local tabs = {
+        {Id = 1, Icon = "📊", Name = "Home"},
+        {Id = 2, Icon = "✏️", Name = "Editor"},
+        {Id = 3, Icon = "📁", Name = "Files"},
+        {Id = 4, Icon = "🔧", Name = "Tools"}
+    }
+    
+    for _, tab in ipairs(tabs) do
+        local btn = Instance.new("TextButton")
+        btn.Name = "Tab_" .. tab.Id
+        btn.BackgroundColor3 = theme.Deep
+        btn.BackgroundTransparency = 0.5
+        btn.Size = UDim2.new(0, 50, 0, 50)
+        btn.Text = tab.Icon
+        btn.TextSize = 24
+        btn.TextColor3 = theme.Secondary
+        btn.AutoButtonColor = false
+        btn.Parent = navBar
+        
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+        
+        btn.MouseButton1Click:Connect(function()
+            Axiora.UI.SwitchTab(tab.Id)
+        end)
+    end
+    
+    -- Slide Up Animation
+    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0,0,0,0)}):Play()
+    
+    -- Initial Tab Load
+    Axiora.UI.SwitchTab(1)
+end
+
+function Axiora.UI.SwitchTab(tabId)
+    if not Axiora.UI.Hub then return end
+    
+    Axiora.UI.CurrentTab = tabId
+    local theme = Axiora.UI.Theme
+    
+    -- Update Nav Buttons
+    local navBar = Axiora.UI.Hub:FindFirstChild("NavBar")
+    if navBar then
+        for _, child in ipairs(navBar:GetChildren()) do
+            if child:IsA("TextButton") then
+                local id = tonumber(child.Name:match("%d+"))
+                local isActive = (id == tabId)
+                
+                TweenService:Create(child, TweenInfo.new(0.2), {
+                    BackgroundColor3 = isActive and theme.Idle or theme.Deep,
+                    BackgroundTransparency = isActive and 0.1 or 0.5,
+                    TextColor3 = isActive and theme.Primary or theme.Secondary
+                }):Play()
+            end
+        end
+    end
+    
+    -- Clear Content
+    for _, child in ipairs(Axiora.UI.ContentArea:GetChildren()) do
+        child:Destroy()
+    end
+    
+    -- Build New Content
+    if tabId == 1 then
+        Axiora.UI.BuildCommandCenter(Axiora.UI.ContentArea)
+    elseif tabId == 2 then
+        Axiora.UI.BuildEditor(Axiora.UI.ContentArea)
+    elseif tabId == 3 then
+        Axiora.UI.BuildLibrary(Axiora.UI.ContentArea)
+    elseif tabId == 4 then
+        Axiora.UI.BuildUtilities(Axiora.UI.ContentArea)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 4: UTILITIES (Tools & Settings)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.BuildUtilities(parent)
+    local theme = Axiora.UI.Theme
+    
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.BackgroundTransparency = 1
+    scroll.Size = UDim2.new(1, -20, 1, -10)
+    scroll.Position = UDim2.new(0, 10, 0, 10)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0) -- Auto-calculated below
+    scroll.ScrollBarThickness = 2
+    scroll.Parent = parent
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 15)
+    layout.Parent = scroll
+    
+    -- Helper: Section Header
+    local function createSection(title)
+        local frame = Instance.new("Frame")
+        frame.BackgroundTransparency = 1
+        frame.Size = UDim2.new(1, 0, 0, 30)
+        frame.Parent = scroll
+        Axiora.UI.Primitives.CreateNeonText(frame, title, 16, theme.Idle).Position = UDim2.new(0, 5, 0.5, 0)
+    end
+    
+    -- 1. Active Features (Toggles)
+    createSection("⚡ ACTIVE FEATURES")
+    
+    local featuresGrid = Instance.new("Frame")
+    featuresGrid.BackgroundTransparency = 1
+    featuresGrid.Size = UDim2.new(1, 0, 0, 120)
+    featuresGrid.Parent = scroll
+    
+    local grid = Instance.new("UIGridLayout")
+    grid.CellSize = UDim2.new(0.48, 0, 0, 55)
+    grid.CellPadding = UDim2.new(0.04, 0, 0.05, 0)
+    grid.Parent = featuresGrid
+    
+    local function createToggle(name, settingKey)
+        local frame = Instance.new("TextButton")
+        frame.BackgroundColor3 = theme.Surface
+        frame.BackgroundTransparency = 0.2
+        frame.Text = ""
+        frame.Parent = featuresGrid
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+        
+        local label = Axiora.UI.Primitives.CreateNeonText(frame, name, 12, theme.Primary)
+        label.Size = UDim2.new(0.6, 0, 1, 0)
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local toggle = Instance.new("Frame")
+        toggle.BackgroundColor3 = Axiora.Settings[settingKey] and theme.Success or theme.Tertiary
+        toggle.Size = UDim2.new(0, 40, 0, 20)
+        toggle.Position = UDim2.new(1, -50, 0.5, 0)
+        toggle.AnchorPoint = Vector2.new(0, 0.5)
+        toggle.Parent = frame
+        Instance.new("UICorner", toggle).CornerRadius = UDim.new(1, 0)
+        
+        local knob = Instance.new("Frame")
+        knob.BackgroundColor3 = theme.Primary
+        knob.Size = UDim2.new(0, 16, 0, 16)
+        knob.Position = Axiora.Settings[settingKey] and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+        knob.AnchorPoint = Vector2.new(0, 0.5)
+        knob.Parent = toggle
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+        
+        frame.MouseButton1Click:Connect(function()
+            Axiora.Settings[settingKey] = not Axiora.Settings[settingKey]
+            
+            -- Animate
+            local on = Axiora.Settings[settingKey]
+            TweenService:Create(toggle, TweenInfo.new(0.2), {BackgroundColor3 = on and theme.Success or theme.Tertiary}):Play()
+            TweenService:Create(knob, TweenInfo.new(0.2), {Position = on and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)}):Play()
+            
+            -- Apply immediate effects
+            if settingKey == "AntiAFK" and on then Axiora.Security.EnableAntiAFK() end
+            Axiora.Visuals.Notify("Settings", name .. (on and " Enabled" or " Disabled"), 1)
+        end)
+    end
+    
+    createToggle("Anti-AFK", "AntiAFK")
+    createToggle("Auto Restart", "AutoRestartEnabled") -- Need to map to Axiora.AutoRestart.Enabled usually
+    createToggle("HUD", "HUDEnabled")
+    createToggle("Click Ripples", "ClickRipple")
+    
+    -- 2. Spatial Bookmarks
+    createSection("📍 SAVED LOCATIONS")
+    
+    local markerList = Instance.new("Frame")
+    markerList.BackgroundTransparency = 1
+    markerList.Size = UDim2.new(1, 0, 0, 200) -- Dynamic height really
+    markerList.Parent = scroll
+    
+    local mLayout = Instance.new("UIListLayout")
+    mLayout.Padding = UDim.new(0, 5)
+    mLayout.Parent = markerList
+    
+    local marks = Axiora.MarkedPositions or {}
+    if #marks == 0 then
+        Axiora.UI.Primitives.CreateNeonText(markerList, "No marks saved yet", 12, theme.Tertiary)
+    else
+        for i, mark in ipairs(marks) do
+            local item = Instance.new("Frame")
+            item.BackgroundColor3 = theme.Surface
+            item.BackgroundTransparency = 0.4
+            item.Size = UDim2.new(1, 0, 0, 40)
+            item.Parent = markerList
+            Instance.new("UICorner", item).CornerRadius = UDim.new(0, 6)
+            
+            local name = Axiora.UI.Primitives.CreateNeonText(item, mark.Name or ("Mark #" .. i), 12, theme.Primary)
+            name.Position = UDim2.new(0, 10, 0.2, 0)
+            
+            local pos = Axiora.Math.DeserializeVec(mark.Position)
+            local dist = "N/A"
+            local LP = getLocalPlayer()
+            if LP and LP.Character and LP.Character.PrimaryPart and pos then
+                dist = math.floor((LP.Character.PrimaryPart.Position - pos).Magnitude) .. "m"
+            end
+            
+            local distLabel = Instance.new("TextLabel")
+            distLabel.BackgroundTransparency = 1
+            distLabel.Size = UDim2.new(0, 50, 1, 0)
+            distLabel.Position = UDim2.new(1, -60, 0, 0)
+            distLabel.Text = dist
+            distLabel.TextColor3 = theme.Idle
+            distLabel.Font = Enum.Font.Gotham
+            distLabel.TextSize = 11
+            distLabel.Parent = item
+        end
+    end
+    
+    -- Add Mark Button
+    local addMarkBtn = Axiora.UI.Primitives.Create3DButton(scroll, "+ ADD MARKER", theme.Idle, function()
+        Axiora.MarkPosition()
+        Axiora.UI.SwitchTab(4) -- Refresh
+    end)
+    addMarkBtn.Size = UDim2.new(1, 0, 0, 40)
+    
+    -- Adjust Scroll Size
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 400) -- Estimate
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 1: COMMAND CENTER
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.BuildCommandCenter(parent)
+    local theme = Axiora.UI.Theme
+    
+    -- 1. Iris Scanner (Status Ring)
+    local statusPanel, _ = Axiora.UI.Primitives.CreateHoloPanel(parent, UDim2.new(0, 200, 0, 200), UDim2.new(0.5, -100, 0.05, 0))
+    Instance.new("UICorner", statusPanel).CornerRadius = UDim.new(1, 0) -- Make it round
+    statusPanel:FindFirstChild("GlassOverlay"):FindFirstChild("UICorner").CornerRadius = UDim.new(1, 0)
+    
+    local ring = Instance.new("UIStroke")
+    ring.Color = theme.Idle
+    ring.Thickness = 4
+    ring.Transparency = 0.5
+    ring.Parent = statusPanel
+    
+    local statusText = Axiora.UI.Primitives.CreateNeonText(statusPanel, "IDLE", 24, theme.Idle)
+    statusText.Size = UDim2.new(1, 0, 0, 30)
+    statusText.Position = UDim2.new(0, 0, 0.4, 0)
+    
+    local nodeCountText = Axiora.UI.Primitives.CreateNeonText(statusPanel, #Axiora.State.Buffer .. " NODES", 14, theme.Secondary)
+    nodeCountText.Size = UDim2.new(1, 0, 0, 20)
+    nodeCountText.Position = UDim2.new(0, 0, 0.6, 0)
+    
+    -- Status Loop
+    task.spawn(function()
+        while statusPanel.Parent do
+            local status = Axiora.State.Status
+            local color = theme.Idle
+            local text = "IDLE"
+            
+            if status == "RECORDING" then
+                color = theme.Recording
+                text = "REC " .. Axiora.Recording.NodeCount
+            elseif status == "PLAYING" then
+                color = theme.Playing
+                text = "PLAY " .. math.floor((Axiora.Playback.CurrentIndex / (#Axiora.State.Buffer + 1)) * 100) .. "%"
+            elseif status == "PAUSED" then
+                color = theme.Paused
+                text = "PAUSED"
+            end
+            
+            statusText.Text = text
+            statusText.TextColor3 = color
+            nodeCountText.Text = #Axiora.State.Buffer .. " NODES"
+            ring.Color = color
+            
+            task.wait(0.2)
+        end
+    end)
+    
+    -- 2. Gesture Pad (Control Matrix)
+    local pad = Instance.new("Frame")
+    pad.BackgroundTransparency = 1
+    pad.Size = UDim2.new(0.9, 0, 0.4, 0)
+    pad.Position = UDim2.new(0.05, 0, 0.55, 0)
+    pad.Parent = parent
+    
+    local grid = Instance.new("UIGridLayout")
+    grid.CellSize = UDim2.new(0.48, 0, 0.45, 0)
+    grid.CellPadding = UDim2.new(0.04, 0, 0.05, 0)
+    grid.Parent = pad
+    
+    -- Record Btn
+    Axiora.UI.Primitives.Create3DButton(pad, "⏺ RECORD", theme.Recording, function()
+        if Axiora.State.Status == "RECORDING" then Axiora.Stop() else Axiora.Record() end
+    end)
+    
+    -- Play Btn
+    Axiora.UI.Primitives.Create3DButton(pad, "▶ PLAY", theme.Playing, function()
+        if Axiora.State.Status == "PLAYING" then Axiora.Pause() else Axiora.Play(true) end
+    end)
+    
+    -- Stop Btn
+    Axiora.UI.Primitives.Create3DButton(pad, "⏹ STOP", theme.Deep, function()
+        Axiora.Stop()
+    end)
+    
+    -- Save Btn
+    Axiora.UI.Primitives.Create3DButton(pad, "💾 SAVE", theme.Idle, function()
+        Axiora.Save() 
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 2: TIMELINE EDITOR (Vertical Stream)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.BuildEditor(parent)
+    local theme = Axiora.UI.Theme
+    local nodes = Axiora.EditBuffer()
+    
+    if #nodes == 0 then
+        local empty = Axiora.UI.Primitives.CreateNeonText(parent, "Buffer Empty - Record something first", 16, theme.Tertiary)
+        empty.Position = UDim2.new(0, 0, 0.4, 0)
+        return
+    end
+    
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.BackgroundTransparency = 1
+    scroll.Size = UDim2.new(1, -20, 1, -10)
+    scroll.Position = UDim2.new(0, 10, 0, 10)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, #nodes * 65)
+    scroll.ScrollBarThickness = 2
+    scroll.Parent = parent
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 8)
+    layout.Parent = scroll
+    
+    for i, node in ipairs(nodes) do
+        local color = theme.Delay
+        local icon = "⏳"
+        if node.Type == "Move" then color = theme.Movement; icon = "🚶"
+        elseif node.Type == "Click" then color = theme.Click; icon = "👆"
+        elseif node.Type == "Key" then color = theme.Key; icon = "⌨️" end
+        
+        local card = Instance.new("Frame")
+        card.BackgroundColor3 = theme.Surface
+        card.BackgroundTransparency = 0.2
+        card.Size = UDim2.new(1, 0, 0, 60)
+        card.Parent = scroll
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+        
+        -- Left Stripe
+        local stripe = Instance.new("Frame")
+        stripe.BackgroundColor3 = color
+        stripe.Size = UDim2.new(0, 4, 1, 0)
+        stripe.Parent = card
+        Instance.new("UICorner", stripe).CornerRadius = UDim.new(1, 0)
+        
+        -- Info
+        local title = Axiora.UI.Primitives.CreateNeonText(card, icon .. " " .. node.Type .. " #" .. i, 14, theme.Primary)
+        title.Size = UDim2.new(1, -60, 0, 20)
+        title.Position = UDim2.new(0, 15, 0, 10)
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local descText = "Delay: " .. string.format("%.2f", node.Delay) .. "s"
+        local desc = Instance.new("TextLabel")
+        desc.BackgroundTransparency = 1
+        desc.Size = UDim2.new(1, -60, 0, 20)
+        desc.Position = UDim2.new(0, 15, 0, 30)
+        desc.Text = descText
+        desc.TextColor3 = theme.Secondary
+        desc.Font = Enum.Font.Gotham
+        desc.TextSize = 12
+        desc.TextXAlignment = Enum.TextXAlignment.Left
+        desc.Parent = card
+        
+        -- Delete Action (Basic tap for now, swipe needs Logic)
+        local delBtn = Instance.new("TextButton")
+        delBtn.BackgroundTransparency = 1
+        delBtn.Size = UDim2.new(0, 40, 1, 0)
+        delBtn.Position = UDim2.new(1, -40, 0, 0)
+        delBtn.Text = "🗑️"
+        delBtn.TextSize = 16
+        delBtn.Parent = card
+        
+        delBtn.MouseButton1Click:Connect(function()
+            Axiora.DeleteNode(i)
+            card:Destroy() -- Optimistic UI update
+             -- In real app, re-render whole list or shift indices
+        end)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 3: LIBRARY (File Grid)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.BuildLibrary(parent)
+    local theme = Axiora.UI.Theme
+    local saves = Axiora.ListSaves()
+    
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.BackgroundTransparency = 1
+    scroll.Size = UDim2.new(1, -20, 1, -10)
+    scroll.Position = UDim2.new(0, 10, 0, 10)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(#saves/2) * 110)
+    scroll.ScrollBarThickness = 2
+    scroll.Parent = parent
+    
+    local grid = Instance.new("UIGridLayout")
+    grid.CellSize = UDim2.new(0.48, 0, 0, 100)
+    grid.CellPadding = UDim2.new(0.04, 0, 0, 10)
+    grid.Parent = scroll
+    
+    for _, save in ipairs(saves) do
+        local card = Instance.new("TextButton")
+        card.BackgroundColor3 = theme.Surface
+        card.BackgroundTransparency = 0.2
+        card.Text = ""
+        card.Parent = scroll
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+        
+        -- Icon
+        local icon = Instance.new("TextLabel")
+        icon.BackgroundTransparency = 1
+        icon.Size = UDim2.new(1, 0, 0.6, 0)
+        icon.Text = "📄"
+        icon.TextSize = 30
+        icon.Parent = card
+        
+        -- Name
+        local label = Axiora.UI.Primitives.CreateNeonText(card, save, 12, theme.Primary)
+        label.Size = UDim2.new(1, -10, 0, 20)
+        label.Position = UDim2.new(0, 5, 0.65, 0)
+        
+        -- Load Action
+        card.MouseButton1Click:Connect(function()
+            Axiora.Load(save)
+            Axiora.UI.CloseHub() -- Auto close on load
+        end)
+    end
+end
+
+function Axiora.UI.CloseHub()
+    if Axiora.UI.Hub then
+        TweenService:Create(Axiora.UI.Hub, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {Position = UDim2.new(0,0,1,0)}):Play()
+        task.wait(0.3)
+        Axiora.UI.Hub:Destroy()
+        Axiora.UI.Hub = nil
+    end
+    Axiora.UI.Open = false
+end
+
+-- Initialize
+function Axiora.UI.Init()
+    Axiora.UI.Primitives.CreateScreenGui()
+    Axiora.UI.CreateOrb()
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 20: INITIALIZATION & EXPORTS
+-- ═══════════════════════════════════════════════════════════════════════════════
 
 -- Helper: Add glow effect
 local function addGlow(parent, color, size)
@@ -4525,12 +5895,12 @@ function Axiora.Init()
     -- Initialize visuals
     Axiora.Visuals.Init()
     
-    -- Create HUD
-    if Axiora.Settings.HUDEnabled then
-        task.delay(0.5, function()
-            Axiora.Visuals.CreateHUD()
-        end)
-    end
+    -- Create HUD (Legacy HUD disabled in favor of Quantum Orb)
+    -- if Axiora.Settings.HUDEnabled then
+    --     task.delay(0.5, function()
+    --         Axiora.Visuals.CreateHUD()
+    --     end)
+    -- end
     
     -- Initialize hotkeys
     Axiora.Hotkeys.Init()
@@ -4540,10 +5910,16 @@ function Axiora.Init()
         Axiora.Security.EnableAntiAFK()
     end
     
-    -- Create UI
+    -- Create UI (Holographic Command Center)
     task.delay(0.3, function()
-        Axiora.UI.Create()
-        Axiora.Visuals.Notify("Axiora", "v" .. Axiora._VERSION .. " FULL loaded!", 4, "success")
+        if Axiora.UI.Init then
+            Axiora.UI.Init()
+            Axiora.Visuals.Notify("Axiora", "HoloUI v2.0 Initialized", 4, "success")
+            if Axiora.Assistant then Axiora.Assistant.Show("Neural Hub Online. Ready for input!") end
+        else
+            -- Fallback if something went wrong
+            Axiora.Visuals.Notify("Axiora", "UI Init Failed", 4, "error")
+        end
     end)
     
     -- Log capabilities
