@@ -345,24 +345,30 @@ function Axiora.Math.WaitForInit(timeout)
 end
 
 -- Convert relative coords (0-1) to absolute screen position (for input simulation)
--- FIX: Removed GUI inset addition - VirtualInputManager uses raw screen coordinates
+-- FIX: Added GUI inset back since GetRelativeInput subtracts it
 function Axiora.Math.GetAbsoluteInput(relX, relY)
     local viewport = Axiora.Math.Screen.Viewport
+    local inset = Axiora.Math.Screen.GuiInset
     
     if viewport.X < 10 then viewport = Vector2.new(1920, 1080) end
     
-    -- Convert relative to absolute viewport coordinates directly
-    -- No inset needed - VIM and visuals both use raw screen coords
+    -- Convert relative to viewport coordinates
     local x = relX * viewport.X
     local y = relY * viewport.Y
     
-    -- Apply user calibration offset only
+    -- Add GUI inset back (GetRelativeInput subtracted it during recording)
+    x = x + inset.X
+    y = y + inset.Y
+    
+    -- Apply user calibration offset
     x = x + (Axiora.Settings.XOffset or 0)
     y = y + (Axiora.Settings.YOffset or 0)
     
     -- Clamp to valid screen range
-    x = math.clamp(x, 0, viewport.X)
-    y = math.clamp(y, 0, viewport.Y)
+    local totalWidth = viewport.X + inset.X
+    local totalHeight = viewport.Y + inset.Y
+    x = math.clamp(x, 0, totalWidth)
+    y = math.clamp(y, 0, totalHeight)
     
     return Vector2.new(x, y)
 end
@@ -3897,7 +3903,7 @@ function Axiora.Calibration.StartPhase2()
     panel.Name = "CalibrationPhase2"
     panel.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
     panel.BackgroundTransparency = 0.02
-    panel.Size = UDim2.new(0, 400, 0, 520)
+    panel.Size = UDim2.new(0, 360, 0, 380)
     panel.Position = UDim2.fromScale(0.5, 0.5)
     panel.AnchorPoint = Vector2.new(0.5, 0.5)
     panel.BorderSizePixel = 0
@@ -3930,8 +3936,8 @@ function Axiora.Calibration.StartPhase2()
     local vizArea = Instance.new("Frame")
     vizArea.Name = "VizArea"
     vizArea.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
-    vizArea.Size = UDim2.new(1, -40, 0, 200)
-    vizArea.Position = UDim2.new(0, 20, 0, 60)
+    vizArea.Size = UDim2.new(1, -40, 0, 120)
+    vizArea.Position = UDim2.new(0, 20, 0, 50)
     vizArea.BorderSizePixel = 0
     vizArea.ZIndex = 1001
     vizArea.Parent = panel
@@ -3968,7 +3974,7 @@ function Axiora.Calibration.StartPhase2()
     local legend = Instance.new("TextLabel")
     legend.BackgroundTransparency = 1
     legend.Size = UDim2.new(1, -40, 0, 20)
-    legend.Position = UDim2.new(0, 20, 0, 265)
+    legend.Position = UDim2.new(0, 20, 0, 175)
     legend.Text = "🟢 Target   🔴 Current Click Position"
     legend.TextColor3 = Color3.fromRGB(140, 140, 160)
     legend.Font = Enum.Font.Gotham
@@ -3982,7 +3988,7 @@ function Axiora.Calibration.StartPhase2()
     offsetLabel.Name = "OffsetLabel"
     offsetLabel.BackgroundTransparency = 1
     offsetLabel.Size = UDim2.new(1, -40, 0, 25)
-    offsetLabel.Position = UDim2.new(0, 20, 0, 290)
+    offsetLabel.Position = UDim2.new(0, 20, 0, 195)
     offsetLabel.Text = "Offset: X=[+0] Y=[+0]"
     offsetLabel.TextColor3 = Color3.new(1, 1, 1)
     offsetLabel.Font = Enum.Font.GothamBold
@@ -3996,7 +4002,7 @@ function Axiora.Calibration.StartPhase2()
     distanceLabel.Name = "DistanceLabel"
     distanceLabel.BackgroundTransparency = 1
     distanceLabel.Size = UDim2.new(1, -40, 0, 20)
-    distanceLabel.Position = UDim2.new(0, 20, 0, 315)
+    distanceLabel.Position = UDim2.new(0, 20, 0, 215)
     distanceLabel.Text = "Distance: [0.0 px]"
     distanceLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
     distanceLabel.Font = Enum.Font.Gotham
@@ -4012,7 +4018,7 @@ function Axiora.Calibration.StartPhase2()
     local arrowFrame = Instance.new("Frame")
     arrowFrame.BackgroundTransparency = 1
     arrowFrame.Size = UDim2.new(0, arrowSpacing * 2 + arrowBtnSize, 0, arrowSpacing * 2 + arrowBtnSize)
-    arrowFrame.Position = UDim2.new(0, 25, 0, 345)
+    arrowFrame.Position = UDim2.new(0, 20, 0, 240)
     arrowFrame.ZIndex = 1001
     arrowFrame.Parent = panel
     
@@ -4047,7 +4053,7 @@ function Axiora.Calibration.StartPhase2()
     local instrLabel = Instance.new("TextLabel")
     instrLabel.BackgroundTransparency = 1
     instrLabel.Size = UDim2.new(0, 200, 0, 60)
-    instrLabel.Position = UDim2.new(0, 165, 0, 355)
+    instrLabel.Position = UDim2.new(0, 140, 0, 245)
     instrLabel.Text = "Use arrow keys or buttons\nto align the red dot\nwith the green target"
     instrLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
     instrLabel.Font = Enum.Font.Gotham
@@ -4062,7 +4068,7 @@ function Axiora.Calibration.StartPhase2()
     testBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
     testBtn.BackgroundTransparency = 0.15
     testBtn.Size = UDim2.new(0, 200, 0, 36)
-    testBtn.Position = UDim2.new(0, 165, 0, 420)
+    testBtn.Position = UDim2.new(0, 140, 0, 295)
     testBtn.Text = "🎯 TEST CLICK"
     testBtn.TextColor3 = Color3.new(1, 1, 1)
     testBtn.Font = Enum.Font.GothamBold
@@ -4081,7 +4087,7 @@ function Axiora.Calibration.StartPhase2()
     saveBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
     saveBtn.BackgroundTransparency = 0.1
     saveBtn.Size = UDim2.new(1, -40, 0, 48)
-    saveBtn.Position = UDim2.new(0, 20, 0, 462)
+    saveBtn.Position = UDim2.new(0, 20, 0, 335)
     saveBtn.Text = "✓ SAVE & CONTINUE"
     saveBtn.TextColor3 = Color3.new(1, 1, 1)
     saveBtn.Font = Enum.Font.GothamBlack
