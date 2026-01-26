@@ -304,46 +304,39 @@ function Axiora.Math.WaitForInit(timeout)
 end
 
 -- Convert relative coords (0-1) to absolute screen position (for input simulation)
--- Returns coordinates that include GUI inset (what VirtualInputManager expects)
+-- FIX: Removed GUI inset addition - VirtualInputManager uses raw screen coordinates
 function Axiora.Math.GetAbsoluteInput(relX, relY)
     local viewport = Axiora.Math.Screen.Viewport
-    local inset = Axiora.Math.Screen.GuiInset
     
     if viewport.X < 10 then viewport = Vector2.new(1920, 1080) end
     
-    -- Convert relative to viewport coordinates
+    -- Convert relative to absolute viewport coordinates directly
+    -- No inset needed - VIM and visuals both use raw screen coords
     local x = relX * viewport.X
     local y = relY * viewport.Y
     
-    -- Add GUI inset to get screen coordinates (VirtualInputManager needs this)
-    x = x + inset.X + (Axiora.Settings.XOffset or 0)
-    y = y + inset.Y + (Axiora.Settings.YOffset or 0)
+    -- Apply user calibration offset only
+    x = x + (Axiora.Settings.XOffset or 0)
+    y = y + (Axiora.Settings.YOffset or 0)
     
     -- Clamp to valid screen range
-    local totalWidth = viewport.X
-    local totalHeight = viewport.Y + inset.Y
-    x = math.clamp(x, 0, totalWidth)
-    y = math.clamp(y, inset.Y, totalHeight)
+    x = math.clamp(x, 0, viewport.X)
+    y = math.clamp(y, 0, viewport.Y)
     
     return Vector2.new(x, y)
 end
 
 -- Convert absolute screen position to relative coords (0-1)
--- Input is screen coordinates (from GetMouseLocation which includes inset)
+-- FIX: No inset subtraction - use raw screen coordinates to match GetAbsoluteInput
 function Axiora.Math.GetRelativeInput(absX, absY)
     local viewport = Axiora.Math.Screen.Viewport
-    local inset = Axiora.Math.Screen.GuiInset
     
     if viewport.X < 10 then viewport = Vector2.new(1920, 1080) end
     
-    -- Subtract GUI inset to get viewport-relative coordinates
-    local viewX = absX - inset.X
-    local viewY = absY - inset.Y
-    
-    -- Convert to 0-1 range relative to viewport
+    -- Convert directly to 0-1 range relative to viewport
     return {
-        x = math.clamp(viewX / viewport.X, 0, 1),
-        y = math.clamp(viewY / viewport.Y, 0, 1)
+        x = math.clamp(absX / viewport.X, 0, 1),
+        y = math.clamp(absY / viewport.Y, 0, 1)
     }
 end
 
