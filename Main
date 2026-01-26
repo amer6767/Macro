@@ -3629,6 +3629,17 @@ Axiora.UI = {
     CurrentTab = 1,
     Orientation = "Portrait",
     Scale = 1.0,
+    IsOpen = false,
+    MainFrame = nil,
+    
+    -- Speed Presets (FIX: was missing causing nil error)
+    SpeedPresets = {
+        careful = 0.5,
+        normal = 1.0,
+        fast = 1.5,
+        turbo = 2.0
+    },
+    CurrentSpeed = "normal",
     
     -- Design System
     Theme = {
@@ -3637,12 +3648,17 @@ Axiora.UI = {
         Surface = Color3.fromRGB(18, 18, 28),   -- Elevated surfaces
         Overlay = Color3.fromRGB(25, 25, 40),   -- Panels
         Glass = 0.1,                            -- Transparency level
+        Background = Color3.fromRGB(15, 15, 25),
         
         -- Accents (State-dependent)
         Idle = Color3.fromRGB(60, 180, 255),    -- Cyan
         Recording = Color3.fromRGB(255, 50, 80), -- Crimson
         Playing = Color3.fromRGB(120, 255, 150), -- Green
         Paused = Color3.fromRGB(255, 200, 50),   -- Amber
+        
+        -- Primary colors
+        Primary = Color3.fromRGB(60, 180, 255),
+        Secondary = Color3.fromRGB(100, 100, 140),
         
         -- Node Types
         Movement = Color3.fromRGB(80, 150, 255), -- Blue
@@ -3651,9 +3667,8 @@ Axiora.UI = {
         Delay = Color3.fromRGB(100, 100, 120),   -- Gray
         
         -- Text
-        Primary = Color3.fromRGB(255, 255, 255),
-        Secondary = Color3.fromRGB(180, 180, 200),
-        Tertiary = Color3.fromRGB(120, 120, 140),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextDim = Color3.fromRGB(140, 140, 160),
         
         -- Status
         Success = Color3.fromRGB(50, 255, 150),
@@ -3667,7 +3682,8 @@ Axiora.UI = {
     Hub = nil,
     Tabs = {},
     Particles = {},
-    Connections = {}
+    Connections = {},
+    ToggleButton = nil
 }
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -3931,21 +3947,29 @@ function Axiora.Assistant.Show(text, mood)
     end
     
     local f = Axiora.Assistant.Frame
+    if not f then return end
+    
+    local msg = f:FindFirstChild("Message")
+    if not msg then return end
+    
     f.Visible = true
     f.BackgroundTransparency = 1
-    f.Message.TextTransparency = 1
-    f.Message.Text = text or Axiora.Assistant.Messages[math.random(1, #Axiora.Assistant.Messages)]
+    msg.TextTransparency = 1
+    msg.Text = text or Axiora.Assistant.Messages[math.random(1, #Axiora.Assistant.Messages)]
     
     -- Animate In
     TweenService:Create(f, TweenInfo.new(0.5, Enum.EasingStyle.Back), {BackgroundTransparency = 0.2}):Play()
-    TweenService:Create(f.Message, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+    TweenService:Create(msg, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
     
     -- Auto Hide
     task.delay(4, function()
+        if not f or not f.Parent then return end
         TweenService:Create(f, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(f.Message, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        if msg and msg.Parent then
+            TweenService:Create(msg, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        end
         task.wait(0.5)
-        if f.BackgroundTransparency >= 0.9 then f.Visible = false end
+        if f and f.BackgroundTransparency >= 0.9 then f.Visible = false end
     end)
 end
 
@@ -4731,9 +4755,38 @@ function Axiora.UI.Create()
     
     Axiora.UI.ToggleButton = toggleBtn
     
-    -- Toggle button click to open panel
-    toggleBtn.MouseButton1Click:Connect(function()
-        Axiora.UI.TogglePanel()
+    -- Toggle button drag functionality
+    local toggleDragging = false
+    local toggleDragStart, toggleStartPos
+    
+    toggleBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            toggleDragging = true
+            toggleDragStart = UserInputService:GetMouseLocation()
+            toggleStartPos = toggleBtn.Position
+        end
+    end)
+    
+    toggleBtn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local movedDist = (UserInputService:GetMouseLocation() - toggleDragStart).Magnitude
+            if movedDist < 8 then
+                -- It was a click, not a drag - open panel
+                Axiora.UI.TogglePanel()
+            end
+            toggleDragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if toggleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local current = UserInputService:GetMouseLocation()
+            local delta = current - toggleDragStart
+            toggleBtn.Position = UDim2.new(
+                toggleStartPos.X.Scale, toggleStartPos.X.Offset + delta.X,
+                toggleStartPos.Y.Scale, toggleStartPos.Y.Offset + delta.Y
+            )
+        end
     end)
 
     -- ═══════════════════════════════════════════════════════════════════════
@@ -5248,10 +5301,14 @@ end
 
 -- Speed preset function
 function Axiora.UI.SetSpeed(preset)
-    if Axiora.UI.SpeedPresets[preset] then
-        Axiora.Playback.Speed = Axiora.UI.SpeedPresets[preset]
+    if Axiora.UI.SpeedPresets and Axiora.UI.SpeedPresets[preset] then
+        Axiora.Settings.TimeScale = Axiora.UI.SpeedPresets[preset]
         Axiora.UI.CurrentSpeed = preset
-        Axiora.Visuals.Notify("Speed", "Playback speed: " .. preset .. " (" .. Axiora.UI.SpeedPresets[preset] .. "x)", 2, "info")
+        if Axiora.Visuals and Axiora.Visuals.Notify then
+            pcall(function()
+                Axiora.Visuals.Notify("Speed", "Playback: " .. preset .. " (" .. Axiora.UI.SpeedPresets[preset] .. "x)", 2, "info")
+            end)
+        end
     end
 end
 
