@@ -4097,8 +4097,9 @@ function Axiora.UI.OpenHub()
     hub.Name = "NeuralHub"
     hub.BackgroundColor3 = theme.Deep
     hub.BackgroundTransparency = 0.05
-    hub.Size = UDim2.new(1, 0, 1, 0) -- Full screen for immersive feel
-    hub.Position = UDim2.new(0, 0, 1, 0) -- Start off screen
+    hub.AnchorPoint = Vector2.new(0.5, 0.5) -- Center pivot
+    hub.Size = UDim2.new(0.5, 0, 0.6, 0) -- Responsive: 50% Width, 60% Height
+    hub.Position = UDim2.new(0.5, 0, 1.5, 0) -- Start off screen (bottom)
     hub.Parent = sg
     
     -- Background Particles
@@ -4122,10 +4123,12 @@ function Axiora.UI.OpenHub()
     closeBtn.TextSize = 24
     closeBtn.Font = Enum.Font.GothamBold
     closeBtn.Parent = header
-    closeBtn.MouseButton1Click:Connect(Axiora.UI.CloseHub)
+    closeBtn.MouseButton1Click:Connect(function()
+        Axiora.UI.CloseHub()
+    end)
     
     -- Slide Up Animation
-    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0,0,0,0)}):Play()
+    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
     
     Axiora.UI.Hub = hub
     
@@ -4185,11 +4188,27 @@ function Axiora.UI.OpenHub()
         end)
     end
     
-    -- Slide Up Animation
-    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0,0,0,0)}):Play()
-    
     -- Initial Tab Load
     Axiora.UI.SwitchTab(1)
+end
+
+function Axiora.UI.CloseHub()
+    if not Axiora.UI.Hub then return end
+    
+    Axiora.UI.Open = false
+    
+    -- Slide Down Animation
+    local tween = TweenService:Create(Axiora.UI.Hub, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        Position = UDim2.new(0.5, 0, 1.5, 0)
+    })
+    tween:Play()
+    
+    tween.Completed:Connect(function()
+        if Axiora.UI.Hub then
+            Axiora.UI.Hub:Destroy()
+            Axiora.UI.Hub = nil
+        end
+    end)
 end
 
 function Axiora.UI.SwitchTab(tabId)
@@ -4631,6 +4650,18 @@ local function addGlow(parent, color, size)
     glow.ZIndex = parent.ZIndex - 1
     glow.Parent = parent
     return glow
+end
+
+-- Helper: Create gradient effect on UI element
+local function createGradient(parent, startColor, endColor, rotation)
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, startColor),
+        ColorSequenceKeypoint.new(1, endColor)
+    })
+    gradient.Rotation = rotation or 0
+    gradient.Parent = parent
+    return gradient
 end
 
 function Axiora.UI.Create()
