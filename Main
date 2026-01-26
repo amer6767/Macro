@@ -221,8 +221,49 @@ Axiora.Settings = {
     UseNativeBuffers = false, -- Enable binary buffers for memory savings
     
     -- Debug
-    DebugPathfinding = false -- Visualize pathfinding waypoints
+    DebugPathfinding = false, -- Visualize pathfinding waypoints
+    
+    -- MOBILE SETTINGS
+    IsMobile = false, -- Auto-detected
+    UIScale = 1.0, -- Auto-calculated based on screen
+    MinButtonSize = 44, -- Minimum touch target size (Apple HIG)
+    MobileButtonScale = 1.3, -- Scale factor for buttons on mobile
+    MobileFontScale = 1.2 -- Scale factor for fonts on mobile
 }
+
+-- Mobile detection
+local function detectMobile()
+    local isMobile = false
+    
+    -- Check if touch is primary input
+    pcall(function()
+        isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+    end)
+    
+    -- Also check screen size (mobile typically < 1024 width)
+    pcall(function()
+        local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize
+        if viewport and viewport.X < 1024 then
+            isMobile = true
+        end
+    end)
+    
+    Axiora.Settings.IsMobile = isMobile
+    
+    -- Set UI scale based on screen
+    if isMobile then
+        Axiora.Settings.UIScale = 1.0 -- Mobile already uses full screen
+        Axiora.Settings.MinButtonSize = 50 -- Larger touch targets
+    else
+        Axiora.Settings.UIScale = 1.0
+        Axiora.Settings.MinButtonSize = 36
+    end
+    
+    return isMobile
+end
+
+-- Call detection
+detectMobile()
 
 -- Simple event system
 Axiora.Events = {
@@ -3615,6 +3656,587 @@ function Axiora.Calibration.LoadCalibration()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- INTERACTIVE CALIBRATION SYSTEM (New)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Calibration.Phase1UI = nil
+Axiora.Calibration.Phase2UI = nil
+Axiora.Calibration.TempOffset = Vector2.new(0, 0)
+Axiora.Calibration.CurrentOffset = Vector2.new(0, 0)
+Axiora.Calibration.GreenTarget = nil
+Axiora.Calibration.RedPredictor = nil
+Axiora.Calibration.IsCalibrating = false
+
+-- Get environment fingerprint for detecting changes
+function Axiora.Calibration.GetEnvironmentFingerprint()
+    local viewport = Axiora.Math.Screen.Viewport
+    local inset = Axiora.Math.Screen.GuiInset
+    
+    local screenScale = 1.0
+    pcall(function()
+        if GuiService and GuiService.GetResolutionScale then
+            screenScale = GuiService:GetResolutionScale()
+        end
+    end)
+    
+    return {
+        Executor = Axiora.Capabilities.Executor,
+        ViewportX = math.floor(viewport.X),
+        ViewportY = math.floor(viewport.Y),
+        GuiInsetX = math.floor(inset.X),
+        GuiInsetY = math.floor(inset.Y),
+        ScreenScale = screenScale,
+        PlaceId = game.PlaceId
+    }
+end
+
+-- Check if environment changed since last calibration
+function Axiora.Calibration.HasEnvironmentChanged(savedEnv)
+    if not savedEnv then return true end
+    
+    local current = Axiora.Calibration.GetEnvironmentFingerprint()
+    
+    if current.Executor ~= savedEnv.Executor then return true end
+    if current.ViewportX ~= savedEnv.ViewportX then return true end
+    if current.ViewportY ~= savedEnv.ViewportY then return true end
+    if math.abs((current.GuiInsetY or 0) - (savedEnv.GuiInsetY or 0)) > 2 then return true end
+    
+    return false
+end
+
+-- Check if calibration is needed
+function Axiora.Calibration.CheckNeeded()
+    if not Axiora.Capabilities.ReadFile then return true end
+    
+    local success, exists = pcall(function()
+        return isfile("Axiora/calibration.json")
+    end)
+    
+    if not success or not exists then return true end
+    
+    local loadSuccess, data = pcall(function()
+        return HttpService:JSONDecode(readfile("Axiora/calibration.json"))
+    end)
+    
+    if not loadSuccess or not data then return true end
+    
+    if Axiora.Calibration.HasEnvironmentChanged(data.Environment) then
+        return true
+    end
+    
+    -- Load existing calibration
+    Axiora.Settings.XOffset = data.OffsetX or 0
+    Axiora.Settings.YOffset = data.OffsetY or 0
+    return false
+end
+
+-- Main entry point for calibration
+function Axiora.Calibration.StartInteractiveCalibration()
+    if Axiora.Calibration.IsCalibrating then return end
+    Axiora.Calibration.IsCalibrating = true
+    
+    Axiora.Math.WaitForInit(2)
+    
+    -- FIX: Use existing ScreenGui or wait for it
+    local sg = Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui
+    if not sg then
+        -- Wait for main UI to initialize
+        local maxWait = 3
+        local waited = 0
+        while not Axiora.UI.ScreenGui and not Axiora.Visuals.ScreenGui and waited < maxWait do
+            task.wait(0.2)
+            waited = waited + 0.2
+        end
+        sg = Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui
+    end
+    
+    if not sg then
+        -- Last resort: create minimal ScreenGui
+        sg = Instance.new("ScreenGui")
+        sg.Name = "AxioraCalibration"
+        sg.IgnoreGuiInset = true
+        sg.ResetOnSpawn = false
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.DisplayOrder = 9999
+        pcall(function() sg.Parent = CoreGui end)
+        if not sg.Parent then
+            local LP = getLocalPlayer()
+            if LP then sg.Parent = LP:FindFirstChild("PlayerGui") end
+        end
+        Axiora.UI.ScreenGui = sg
+    end
+    
+    task.wait(0.3)
+    Axiora.Calibration.StartPhase1(sg)
+end
+
+-- PHASE 1: Coarse Auto-Detection
+function Axiora.Calibration.StartPhase1(passedSG)
+    local sg = passedSG or Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui
+    if not sg then return end
+    
+    -- Create fullscreen overlay
+    local overlay = Instance.new("Frame")
+    overlay.Name = "CalibrationPhase1"
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.15
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.ZIndex = 1000
+    overlay.Parent = sg
+    
+    Axiora.Calibration.Phase1UI = overlay
+    
+    -- Crosshair container
+    local crosshair = Instance.new("Frame")
+    crosshair.Name = "Crosshair"
+    crosshair.BackgroundColor3 = Color3.fromRGB(255, 80, 100)
+    crosshair.BackgroundTransparency = 0
+    crosshair.Size = UDim2.new(0, 50, 0, 50)
+    crosshair.Position = UDim2.fromScale(0.5, 0.5)
+    crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshair.BorderSizePixel = 0
+    crosshair.ZIndex = 1001
+    crosshair.Parent = overlay
+    Instance.new("UICorner", crosshair).CornerRadius = UDim.new(1, 0)
+    
+    -- Horizontal line
+    local hLine = Instance.new("Frame")
+    hLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    hLine.Size = UDim2.new(3, 0, 0, 2)
+    hLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+    hLine.AnchorPoint = Vector2.new(0.5, 0.5)
+    hLine.BorderSizePixel = 0
+    hLine.ZIndex = 1002
+    hLine.Parent = crosshair
+    
+    -- Vertical line
+    local vLine = Instance.new("Frame")
+    vLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    vLine.Size = UDim2.new(0, 2, 3, 0)
+    vLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+    vLine.AnchorPoint = Vector2.new(0.5, 0.5)
+    vLine.BorderSizePixel = 0
+    vLine.ZIndex = 1002
+    vLine.Parent = crosshair
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(0, 500, 0, 40)
+    title.Position = UDim2.new(0.5, 0, 0.25, 0)
+    title.AnchorPoint = Vector2.new(0.5, 0.5)
+    title.Text = "🎯 INPUT CALIBRATION"
+    title.TextColor3 = Color3.fromRGB(60, 180, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 24
+    title.ZIndex = 1001
+    title.Parent = overlay
+    
+    -- Instruction
+    local instruction = Instance.new("TextLabel")
+    instruction.BackgroundTransparency = 1
+    instruction.Size = UDim2.new(0, 400, 0, 50)
+    instruction.Position = UDim2.new(0.5, 0, 0.68, 0)
+    instruction.AnchorPoint = Vector2.new(0.5, 0.5)
+    instruction.Text = "Click the CENTER of the red circle"
+    instruction.TextColor3 = Color3.new(1, 1, 1)
+    instruction.Font = Enum.Font.GothamBold
+    instruction.TextSize = 18
+    instruction.ZIndex = 1001
+    instruction.Parent = overlay
+    
+    -- Subtitle
+    local subtitle = Instance.new("TextLabel")
+    subtitle.BackgroundTransparency = 1
+    subtitle.Size = UDim2.new(0, 400, 0, 30)
+    subtitle.Position = UDim2.new(0.5, 0, 0.73, 0)
+    subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+    subtitle.Text = "This helps detect your input offset"
+    subtitle.TextColor3 = Color3.fromRGB(150, 150, 170)
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextSize = 13
+    subtitle.ZIndex = 1001
+    subtitle.Parent = overlay
+    
+    -- Wait for click
+    local clickConnection
+    clickConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            
+            local mousePos = UserInputService:GetMouseLocation()
+            local crosshairCenter = crosshair.AbsolutePosition + (crosshair.AbsoluteSize / 2)
+            
+            -- Calculate rough offset (where we should click - where we did click)
+            local roughOffset = Vector2.new(
+                crosshairCenter.X - mousePos.X,
+                crosshairCenter.Y - mousePos.Y
+            )
+            
+            Axiora.Calibration.TempOffset = roughOffset
+            
+            clickConnection:Disconnect()
+            overlay:Destroy()
+            Axiora.Calibration.Phase1UI = nil
+            
+            task.wait(0.2)
+            Axiora.Calibration.StartPhase2()
+        end
+    end)
+end
+
+-- PHASE 2: Interactive Fine-Tuning
+function Axiora.Calibration.StartPhase2()
+    local sg = Axiora.UI.ScreenGui
+    if not sg then return end
+    
+    Axiora.Calibration.CurrentOffset = Axiora.Calibration.TempOffset
+    
+    -- Main panel
+    local panel = Instance.new("Frame")
+    panel.Name = "CalibrationPhase2"
+    panel.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+    panel.BackgroundTransparency = 0.02
+    panel.Size = UDim2.new(0, 400, 0, 520)
+    panel.Position = UDim2.fromScale(0.5, 0.5)
+    panel.AnchorPoint = Vector2.new(0.5, 0.5)
+    panel.BorderSizePixel = 0
+    panel.ZIndex = 1000
+    panel.Parent = sg
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 14)
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 180, 255)
+    stroke.Transparency = 0.5
+    stroke.Thickness = 2
+    stroke.Parent = panel
+    
+    Axiora.Calibration.Phase2UI = panel
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, -20, 0, 35)
+    title.Position = UDim2.new(0, 10, 0, 15)
+    title.Text = "🎯 FINE-TUNE CALIBRATION"
+    title.TextColor3 = Color3.fromRGB(60, 180, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 16
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 1001
+    title.Parent = panel
+    
+    -- Visualization area
+    local vizArea = Instance.new("Frame")
+    vizArea.Name = "VizArea"
+    vizArea.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+    vizArea.Size = UDim2.new(1, -40, 0, 200)
+    vizArea.Position = UDim2.new(0, 20, 0, 60)
+    vizArea.BorderSizePixel = 0
+    vizArea.ZIndex = 1001
+    vizArea.Parent = panel
+    Instance.new("UICorner", vizArea).CornerRadius = UDim.new(0, 8)
+    
+    -- Green Target (FIXED - where we WANT clicks)
+    local greenTarget = Instance.new("Frame")
+    greenTarget.Name = "GreenTarget"
+    greenTarget.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+    greenTarget.Size = UDim2.new(0, 24, 0, 24)
+    greenTarget.Position = UDim2.fromScale(0.5, 0.5)
+    greenTarget.AnchorPoint = Vector2.new(0.5, 0.5)
+    greenTarget.BorderSizePixel = 0
+    greenTarget.ZIndex = 1002
+    greenTarget.Parent = vizArea
+    Instance.new("UICorner", greenTarget).CornerRadius = UDim.new(1, 0)
+    
+    Axiora.Calibration.GreenTarget = greenTarget
+    
+    -- Red Predictor (MOVES - where clicks ACTUALLY go)
+    local redPredictor = Instance.new("Frame")
+    redPredictor.Name = "RedPredictor"
+    redPredictor.BackgroundColor3 = Color3.fromRGB(255, 50, 80)
+    redPredictor.Size = UDim2.new(0, 18, 0, 18)
+    redPredictor.AnchorPoint = Vector2.new(0.5, 0.5)
+    redPredictor.BorderSizePixel = 0
+    redPredictor.ZIndex = 1003
+    redPredictor.Parent = vizArea
+    Instance.new("UICorner", redPredictor).CornerRadius = UDim.new(1, 0)
+    
+    Axiora.Calibration.RedPredictor = redPredictor
+    
+    -- Legend
+    local legend = Instance.new("TextLabel")
+    legend.BackgroundTransparency = 1
+    legend.Size = UDim2.new(1, -40, 0, 20)
+    legend.Position = UDim2.new(0, 20, 0, 265)
+    legend.Text = "🟢 Target   🔴 Current Click Position"
+    legend.TextColor3 = Color3.fromRGB(140, 140, 160)
+    legend.Font = Enum.Font.Gotham
+    legend.TextSize = 11
+    legend.TextXAlignment = Enum.TextXAlignment.Left
+    legend.ZIndex = 1001
+    legend.Parent = panel
+    
+    -- Offset label
+    local offsetLabel = Instance.new("TextLabel")
+    offsetLabel.Name = "OffsetLabel"
+    offsetLabel.BackgroundTransparency = 1
+    offsetLabel.Size = UDim2.new(1, -40, 0, 25)
+    offsetLabel.Position = UDim2.new(0, 20, 0, 290)
+    offsetLabel.Text = "Offset: X=[+0] Y=[+0]"
+    offsetLabel.TextColor3 = Color3.new(1, 1, 1)
+    offsetLabel.Font = Enum.Font.GothamBold
+    offsetLabel.TextSize = 14
+    offsetLabel.TextXAlignment = Enum.TextXAlignment.Left
+    offsetLabel.ZIndex = 1001
+    offsetLabel.Parent = panel
+    
+    -- Distance label
+    local distanceLabel = Instance.new("TextLabel")
+    distanceLabel.Name = "DistanceLabel"
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.Size = UDim2.new(1, -40, 0, 20)
+    distanceLabel.Position = UDim2.new(0, 20, 0, 315)
+    distanceLabel.Text = "Distance: [0.0 px]"
+    distanceLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+    distanceLabel.Font = Enum.Font.Gotham
+    distanceLabel.TextSize = 12
+    distanceLabel.TextXAlignment = Enum.TextXAlignment.Left
+    distanceLabel.ZIndex = 1001
+    distanceLabel.Parent = panel
+    
+    -- Arrow controls (larger for mobile touch)
+    local arrowBtnSize = Axiora.Settings.IsMobile and 50 or 40
+    local arrowSpacing = arrowBtnSize + 10
+    
+    local arrowFrame = Instance.new("Frame")
+    arrowFrame.BackgroundTransparency = 1
+    arrowFrame.Size = UDim2.new(0, arrowSpacing * 2 + arrowBtnSize, 0, arrowSpacing * 2 + arrowBtnSize)
+    arrowFrame.Position = UDim2.new(0, 25, 0, 345)
+    arrowFrame.ZIndex = 1001
+    arrowFrame.Parent = panel
+    
+    local arrows = {
+        {name = "Up", pos = UDim2.new(0, arrowSpacing, 0, 0), text = "↑", delta = Vector2.new(0, 1)},
+        {name = "Down", pos = UDim2.new(0, arrowSpacing, 0, arrowSpacing * 2), text = "↓", delta = Vector2.new(0, -1)},
+        {name = "Left", pos = UDim2.new(0, 0, 0, arrowSpacing), text = "←", delta = Vector2.new(1, 0)},
+        {name = "Right", pos = UDim2.new(0, arrowSpacing * 2, 0, arrowSpacing), text = "→", delta = Vector2.new(-1, 0)}
+    }
+    
+    for _, arrow in ipairs(arrows) do
+        local btn = Instance.new("TextButton")
+        btn.Name = arrow.name
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+        btn.Size = UDim2.new(0, arrowBtnSize, 0, arrowBtnSize)
+        btn.Position = arrow.pos
+        btn.Text = arrow.text
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Font = Enum.Font.GothamBlack
+        btn.TextSize = 20
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 1002
+        btn.Parent = arrowFrame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        
+        btn.MouseButton1Click:Connect(function()
+            Axiora.Calibration.AdjustOffset(arrow.delta)
+        end)
+    end
+    
+    -- Instructions
+    local instrLabel = Instance.new("TextLabel")
+    instrLabel.BackgroundTransparency = 1
+    instrLabel.Size = UDim2.new(0, 200, 0, 60)
+    instrLabel.Position = UDim2.new(0, 165, 0, 355)
+    instrLabel.Text = "Use arrow keys or buttons\nto align the red dot\nwith the green target"
+    instrLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+    instrLabel.Font = Enum.Font.Gotham
+    instrLabel.TextSize = 11
+    instrLabel.TextXAlignment = Enum.TextXAlignment.Left
+    instrLabel.TextWrapped = true
+    instrLabel.ZIndex = 1001
+    instrLabel.Parent = panel
+    
+    -- Test Click button
+    local testBtn = Instance.new("TextButton")
+    testBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+    testBtn.BackgroundTransparency = 0.15
+    testBtn.Size = UDim2.new(0, 200, 0, 36)
+    testBtn.Position = UDim2.new(0, 165, 0, 420)
+    testBtn.Text = "🎯 TEST CLICK"
+    testBtn.TextColor3 = Color3.new(1, 1, 1)
+    testBtn.Font = Enum.Font.GothamBold
+    testBtn.TextSize = 13
+    testBtn.BorderSizePixel = 0
+    testBtn.ZIndex = 1002
+    testBtn.Parent = panel
+    Instance.new("UICorner", testBtn).CornerRadius = UDim.new(0, 8)
+    
+    testBtn.MouseButton1Click:Connect(function()
+        Axiora.Calibration.TestClick()
+    end)
+    
+    -- Save button
+    local saveBtn = Instance.new("TextButton")
+    saveBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+    saveBtn.BackgroundTransparency = 0.1
+    saveBtn.Size = UDim2.new(1, -40, 0, 48)
+    saveBtn.Position = UDim2.new(0, 20, 0, 462)
+    saveBtn.Text = "✓ SAVE & CONTINUE"
+    saveBtn.TextColor3 = Color3.new(1, 1, 1)
+    saveBtn.Font = Enum.Font.GothamBlack
+    saveBtn.TextSize = 16
+    saveBtn.BorderSizePixel = 0
+    saveBtn.ZIndex = 1002
+    saveBtn.Parent = panel
+    Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 10)
+    
+    -- Keyboard support (accept input even if game processed - we're in calibration mode)
+    local keyConn
+    keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        -- FIX: Removed "if gameProcessed then return end" to work in all games
+        if input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.W then
+            Axiora.Calibration.AdjustOffset(Vector2.new(0, 1))
+        elseif input.KeyCode == Enum.KeyCode.Down or input.KeyCode == Enum.KeyCode.S then
+            Axiora.Calibration.AdjustOffset(Vector2.new(0, -1))
+        elseif input.KeyCode == Enum.KeyCode.Left or input.KeyCode == Enum.KeyCode.A then
+            Axiora.Calibration.AdjustOffset(Vector2.new(1, 0))
+        elseif input.KeyCode == Enum.KeyCode.Right or input.KeyCode == Enum.KeyCode.D then
+            Axiora.Calibration.AdjustOffset(Vector2.new(-1, 0))
+        end
+    end)
+    
+    saveBtn.MouseButton1Click:Connect(function()
+        keyConn:Disconnect()
+        Axiora.Calibration.SaveCalibrationData()
+    end)
+    
+    -- Initial update
+    Axiora.Calibration.UpdateVisualization()
+end
+
+-- Adjust offset
+function Axiora.Calibration.AdjustOffset(delta)
+    Axiora.Calibration.CurrentOffset = Axiora.Calibration.CurrentOffset + delta
+    Axiora.Calibration.UpdateVisualization()
+end
+
+-- Update visualization
+function Axiora.Calibration.UpdateVisualization()
+    local panel = Axiora.Calibration.Phase2UI
+    local redPredictor = Axiora.Calibration.RedPredictor
+    if not panel or not redPredictor then return end
+    
+    local offsetLabel = panel:FindFirstChild("OffsetLabel")
+    local distanceLabel = panel:FindFirstChild("DistanceLabel")
+    
+    if offsetLabel then
+        offsetLabel.Text = string.format("Offset: X=[%+d] Y=[%+d]", 
+            math.floor(Axiora.Calibration.CurrentOffset.X), 
+            math.floor(Axiora.Calibration.CurrentOffset.Y))
+    end
+    
+    -- Position red dot (opposite to show correction)
+    local offsetX = -Axiora.Calibration.CurrentOffset.X
+    local offsetY = -Axiora.Calibration.CurrentOffset.Y
+    
+    redPredictor.Position = UDim2.new(0.5, offsetX, 0.5, offsetY)
+    
+    local distance = math.sqrt(offsetX * offsetX + offsetY * offsetY)
+    if distanceLabel then
+        distanceLabel.Text = string.format("Distance: [%.1f px]", distance)
+        
+        if distance < 3 then
+            distanceLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+        elseif distance < 8 then
+            distanceLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+        else
+            distanceLabel.TextColor3 = Color3.fromRGB(255, 80, 100)
+        end
+    end
+end
+
+-- Test click with current offset
+function Axiora.Calibration.TestClick()
+    local greenTarget = Axiora.Calibration.GreenTarget
+    if not greenTarget then return end
+    
+    local targetPos = greenTarget.AbsolutePosition + (greenTarget.AbsoluteSize / 2)
+    local clickX = targetPos.X + Axiora.Calibration.CurrentOffset.X
+    local clickY = targetPos.Y + Axiora.Calibration.CurrentOffset.Y
+    
+    Axiora.Input.Click(clickX, clickY)
+    
+    -- Visual flash
+    local flash = Instance.new("Frame")
+    flash.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+    flash.BackgroundTransparency = 0.3
+    flash.Size = UDim2.new(0, 30, 0, 30)
+    flash.Position = UDim2.fromOffset(clickX - 15, clickY - 15)
+    flash.BorderSizePixel = 0
+    flash.ZIndex = 2000
+    flash.Parent = Axiora.UI.ScreenGui
+    Instance.new("UICorner", flash).CornerRadius = UDim.new(1, 0)
+    
+    TweenService:Create(flash, TweenInfo.new(0.4), {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(0, 60, 0, 60),
+        Position = UDim2.fromOffset(clickX - 30, clickY - 30)
+    }):Play()
+    
+    task.delay(0.4, function() 
+        if flash then flash:Destroy() end 
+    end)
+end
+
+-- Save calibration data
+function Axiora.Calibration.SaveCalibrationData()
+    local offset = Axiora.Calibration.CurrentOffset
+    
+    Axiora.Settings.XOffset = offset.X
+    Axiora.Settings.YOffset = offset.Y
+    
+    local saveData = {
+        OffsetX = offset.X,
+        OffsetY = offset.Y,
+        Timestamp = os.time(),
+        Environment = Axiora.Calibration.GetEnvironmentFingerprint(),
+        Version = Axiora._VERSION or "6.0.0",
+        CalibrationMethod = "interactive"
+    }
+    
+    if Axiora.Capabilities.WriteFile then
+        pcall(function()
+            if not isfolder("Axiora") then makefolder("Axiora") end
+            writefile("Axiora/calibration.json", HttpService:JSONEncode(saveData))
+        end)
+    end
+    
+    -- Clean up UI
+    if Axiora.Calibration.Phase2UI then
+        Axiora.Calibration.Phase2UI:Destroy()
+        Axiora.Calibration.Phase2UI = nil
+    end
+    
+    Axiora.Calibration.IsCalibrating = false
+    Axiora.Calibration.GreenTarget = nil
+    Axiora.Calibration.RedPredictor = nil
+    
+    -- Notify success
+    task.wait(0.3)
+    if Axiora.Visuals and Axiora.Visuals.Notify then
+        pcall(function()
+            Axiora.Visuals.Notify("Calibration", "Saved! X=" .. offset.X .. " Y=" .. offset.Y, 3, "success")
+        end)
+    end
+end
+
+-- Manual recalibration command
+function Axiora.Recalibrate()
+    Axiora.Calibration.StartInteractiveCalibration()
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- SECTION 19: MODERN UI INTERFACE (Fully Redesigned)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -4694,6 +5316,16 @@ function Axiora.UI.Create()
     
     local theme = Axiora.Visuals.GetTheme()
     
+    -- Mobile scaling
+    local isMobile = Axiora.Settings.IsMobile
+    local btnScale = isMobile and Axiora.Settings.MobileButtonScale or 1.0
+    local fontScale = isMobile and Axiora.Settings.MobileFontScale or 1.0
+    local minBtn = Axiora.Settings.MinButtonSize
+    
+    -- Panel size (larger on mobile for easier touch)
+    local panelWidth = isMobile and 360 or 340
+    local panelHeight = isMobile and 340 or 280
+    
     local sg = Instance.new("ScreenGui")
     sg.Name = "AxioraUI_Compact"
     sg.IgnoreGuiInset = true
@@ -4714,14 +5346,15 @@ function Axiora.UI.Create()
     Axiora.UI.ScreenGui = sg
     
     -- ═══════════════════════════════════════════════════════════════════════
-    -- FLOATING TOGGLE BUTTON (Always visible)
+    -- FLOATING TOGGLE BUTTON (Always visible, larger on mobile)
     -- ═══════════════════════════════════════════════════════════════════════
     
+    local toggleSize = isMobile and 56 or 44
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Name = "ToggleButton"
     toggleBtn.BackgroundColor3 = theme.Primary
     toggleBtn.BackgroundTransparency = 0.1
-    toggleBtn.Size = UDim2.new(0, 44, 0, 44)
+    toggleBtn.Size = UDim2.new(0, toggleSize, 0, toggleSize)
     toggleBtn.Position = UDim2.new(0, 12, 0.5, 0)
     toggleBtn.AnchorPoint = Vector2.new(0, 0.5)
     toggleBtn.Text = "▶"
@@ -4789,14 +5422,14 @@ function Axiora.UI.Create()
     end)
 
     -- ═══════════════════════════════════════════════════════════════════════
-    -- MAIN PANEL (Compact Tabbed Design - 280px height)
+    -- MAIN PANEL (Responsive - larger on mobile for touch)
     -- ═══════════════════════════════════════════════════════════════════════
     
     local main = Instance.new("Frame")
     main.Name = "MainPanel"
     main.BackgroundColor3 = theme.Background
     main.BackgroundTransparency = 0.05
-    main.Size = UDim2.new(0, 340, 0, 280)
+    main.Size = UDim2.new(0, panelWidth, 0, panelHeight)
     main.Position = UDim2.new(0.5, 0, 0.5, 0)
     main.AnchorPoint = Vector2.new(0.5, 0.5)
     main.BorderSizePixel = 0
@@ -5221,6 +5854,10 @@ function Axiora.UI.Create()
     createSettingBtn("🔄 Auto-Restart", function() Axiora.AutoRestart.Toggle() end)
     createSettingBtn("📊 Analytics", function() Axiora.Analytics.Print() end)
     createSettingBtn("📍 Mark Position", function() Axiora.MarkPosition() end)
+    createSettingBtn("🎯 Recalibrate", function() Axiora.Recalibrate() end)
+    
+    -- Update canvas size for all buttons
+    settingsScroll.CanvasSize =  UDim2.new(0, 0, 0, 230)
     
     Axiora.UI.MainFrame = main
     Axiora.UI.IsOpen = true
@@ -5984,8 +6621,15 @@ function Axiora.Init()
     -- Initialize file system
     Axiora.Files.Init()
     
-    -- Try to load saved calibration
-    Axiora.Calibration.LoadCalibration()
+    -- Check if calibration is needed (first run or environment changed)
+    local needsCalibration = Axiora.Calibration.CheckNeeded()
+    
+    if needsCalibration then
+        -- Defer calibration until after UI is ready
+        task.delay(1.5, function()
+            Axiora.Calibration.StartInteractiveCalibration()
+        end)
+    end
     
     -- Try to load saved markers
     Axiora.LoadMarkedPositions()
