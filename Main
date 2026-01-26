@@ -327,16 +327,22 @@ function Axiora.Math.GetAbsoluteInput(relX, relY)
 end
 
 -- Convert absolute screen position to relative coords (0-1)
--- FIX: No inset subtraction - use raw screen coordinates to match GetAbsoluteInput
+-- GetMouseLocation() returns coords WITH inset, so we subtract it to get viewport-relative
 function Axiora.Math.GetRelativeInput(absX, absY)
     local viewport = Axiora.Math.Screen.Viewport
+    local inset = Axiora.Math.Screen.GuiInset
     
     if viewport.X < 10 then viewport = Vector2.new(1920, 1080) end
     
-    -- Convert directly to 0-1 range relative to viewport
+    -- Subtract inset because GetMouseLocation includes it
+    -- but we want viewport-relative coordinates
+    local viewX = absX - inset.X
+    local viewY = absY - inset.Y
+    
+    -- Convert to 0-1 range relative to viewport
     return {
-        x = math.clamp(absX / viewport.X, 0, 1),
-        y = math.clamp(absY / viewport.Y, 0, 1)
+        x = math.clamp(viewX / viewport.X, 0, 1),
+        y = math.clamp(viewY / viewport.Y, 0, 1)
     }
 end
 
