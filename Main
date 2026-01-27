@@ -4243,6 +4243,460 @@ function Axiora.Recalibrate()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 18.5: AUTOMATION ENGINE (Visual Scripting)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation = {
+    Rules = {},
+    MaxRules = 50,
+    Running = false,
+    SessionStartTime = os.time(),
+    LastChat = {message = "", sender = "", time = 0},
+    EvaluatorThread = nil,
+    
+    -- Rule modes
+    MODE_PLAYBACK = "playback",
+    MODE_ALWAYS = "always",
+    MODE_DISABLED = "disabled"
+}
+
+-- Generate unique rule ID
+function Axiora.Automation.GenerateId()
+    return "rule_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
+end
+
+-- Create a new rule
+function Axiora.Automation.CreateRule(trigger, condition, action, mode)
+    if #Axiora.Automation.Rules >= Axiora.Automation.MaxRules then
+        Axiora.Visuals.Notify("Automation", "Max rules reached (50)", 3, "error")
+        return nil
+    end
+    
+    local rule = {
+        id = Axiora.Automation.GenerateId(),
+        enabled = true,
+        mode = mode or Axiora.Automation.MODE_PLAYBACK,
+        trigger = trigger,
+        condition = condition,
+        action = action,
+        lastTriggered = 0,
+        triggerCount = 0
+    }
+    
+    table.insert(Axiora.Automation.Rules, rule)
+    Axiora.Automation.SaveRules()
+    
+    if #Axiora.Automation.Rules >= 40 then
+        Axiora.Visuals.Notify("Automation", "Approaching limit (" .. #Axiora.Automation.Rules .. "/50)", 2, "warning")
+    end
+    
+    return rule
+end
+
+-- Delete a rule by ID
+function Axiora.Automation.DeleteRule(ruleId)
+    for i, rule in ipairs(Axiora.Automation.Rules) do
+        if rule.id == ruleId then
+            table.remove(Axiora.Automation.Rules, i)
+            Axiora.Automation.SaveRules()
+            return true
+        end
+    end
+    return false
+end
+
+-- Toggle rule enabled/disabled
+function Axiora.Automation.ToggleRule(ruleId)
+    for _, rule in ipairs(Axiora.Automation.Rules) do
+        if rule.id == ruleId then
+            rule.enabled = not rule.enabled
+            Axiora.Automation.SaveRules()
+            return rule.enabled
+        end
+    end
+    return nil
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TRIGGERS (5)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation.Triggers = {
+    -- Every X seconds
+    interval = function(rule, params)
+        local interval = params.seconds or 60
+        local now = os.clock()
+        if now - (rule.lastTriggered or 0) >= interval then
+            rule.lastTriggered = now
+            return true
+        end
+        return false
+    end,
+    
+    -- When player joins (checked via _lastPlayerCount)
+    playerJoin = function(rule, params)
+        local currentCount = #Players:GetPlayers()
+        local lastCount = Axiora.Automation._lastPlayerCount or currentCount
+        if currentCount > lastCount then
+            return true
+        end
+        return false
+    end,
+    
+    -- When player leaves
+    playerLeave = function(rule, params)
+        local currentCount = #Players:GetPlayers()
+        local lastCount = Axiora.Automation._lastPlayerCount or currentCount
+        if currentCount < lastCount then
+            return true
+        end
+        return false
+    end,
+    
+    -- When chat message received
+    chatReceived = function(rule, params)
+        local lastChat = Axiora.Automation.LastChat
+        if lastChat.time > (rule.lastChatTime or 0) then
+            rule.lastChatTime = lastChat.time
+            return true
+        end
+        return false
+    end,
+    
+    -- When macro completes
+    macroComplete = function(rule, params)
+        if Axiora.State._macroJustCompleted then
+            return true
+        end
+        return false
+    end,
+    
+    -- Always trigger (for pure condition-based)
+    always = function(rule, params)
+        return true
+    end
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- CONDITIONS (8)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation.Conditions = {
+    -- Player count comparison
+    playerCount = function(params)
+        local count = #Players:GetPlayers()
+        local op = params.operator or ">"
+        local value = params.value or 5
+        
+        if op == ">" then return count > value
+        elseif op == "<" then return count < value
+        elseif op == "=" or op == "==" then return count == value
+        elseif op == ">=" then return count >= value
+        elseif op == "<=" then return count <= value
+        end
+        return false
+    end,
+    
+    -- Nearest player distance
+    playerDistance = function(params)
+        local maxDist = params.distance or 50
+        local op = params.operator or "<"
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local myPos = LP.Character:GetPivot().Position
+        local nearestDist = math.huge
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LP and player.Character then
+                local dist = (player.Character:GetPivot().Position - myPos).Magnitude
+                if dist < nearestDist then nearestDist = dist end
+            end
+        end
+        
+        if op == "<" then return nearestDist < maxDist
+        elseif op == ">" then return nearestDist > maxDist
+        end
+        return false
+    end,
+    
+    -- Position Y (void detection)
+    positionY = function(params)
+        local threshold = params.value or -50
+        local op = params.operator or "<"
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local y = LP.Character:GetPivot().Position.Y
+        
+        if op == "<" then return y < threshold
+        elseif op == ">" then return y > threshold
+        end
+        return false
+    end,
+    
+    -- Session time (minutes)
+    sessionTime = function(params)
+        local minutes = params.value or 30
+        local op = params.operator or ">"
+        local elapsed = (os.time() - Axiora.Automation.SessionStartTime) / 60
+        
+        if op == ">" then return elapsed > minutes
+        elseif op == "<" then return elapsed < minutes
+        end
+        return false
+    end,
+    
+    -- Specific player name exists
+    playerName = function(params)
+        local targetName = params.name or ""
+        local checkType = params.type or "exists" -- exists, joined, left
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if string.lower(player.Name) == string.lower(targetName) or
+               string.lower(player.DisplayName) == string.lower(targetName) then
+                return true
+            end
+        end
+        return false
+    end,
+    
+    -- Chat contains text
+    chatContains = function(params)
+        local text = params.text or ""
+        local lastChat = Axiora.Automation.LastChat
+        if lastChat.message and string.find(string.lower(lastChat.message), string.lower(text)) then
+            return true
+        end
+        return false
+    end,
+    
+    -- Always true (skip condition)
+    always = function(params)
+        return true
+    end,
+    
+    -- Random chance (percentage)
+    randomChance = function(params)
+        local percent = params.percent or 50
+        return math.random(100) <= percent
+    end
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ACTIONS (7)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation.Actions = {
+    -- Play macro by name
+    playMacro = function(params)
+        local name = params.name or ""
+        if name ~= "" and Axiora.Load then
+            task.spawn(function()
+                Axiora.Load(name)
+                task.wait(0.5)
+                if Axiora.Play then Axiora.Play() end
+            end)
+        end
+    end,
+    
+    -- Stop/Pause current macro
+    stopMacro = function(params)
+        if Axiora.Stop then Axiora.Stop() end
+    end,
+    
+    -- Wait N seconds (for chaining)
+    wait = function(params)
+        local seconds = params.seconds or 1
+        task.wait(seconds)
+    end,
+    
+    -- Send chat message
+    sendChat = function(params)
+        local message = params.message or "Hello"
+        pcall(function()
+            local LP = getLocalPlayer()
+            if LP then
+                local chatService = game:GetService("TextChatService")
+                local channels = chatService:FindFirstChild("TextChannels")
+                if channels then
+                    local general = channels:FindFirstChild("RBXGeneral")
+                    if general then
+                        general:SendAsync(message)
+                    end
+                end
+            end
+        end)
+    end,
+    
+    -- Leave server
+    leaveServer = function(params)
+        task.spawn(function()
+            Axiora.Visuals.Notify("Automation", "Leaving server...", 2, "info")
+            task.wait(1)
+            pcall(function()
+                game:GetService("TeleportService"):Teleport(game.PlaceId)
+            end)
+        end)
+    end,
+    
+    -- Rejoin server
+    rejoinServer = function(params)
+        task.spawn(function()
+            Axiora.Visuals.Notify("Automation", "Rejoining...", 2, "info")
+            task.wait(1)
+            pcall(function()
+                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
+            end)
+        end)
+    end,
+    
+    -- Show notification
+    notify = function(params)
+        local title = params.title or "Automation"
+        local message = params.message or "Rule triggered"
+        Axiora.Visuals.Notify(title, message, 3, "info")
+    end
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- RULE EVALUATOR
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.Automation.EvaluateRule(rule)
+    if not rule.enabled then return false end
+    
+    -- Check mode
+    local isPlaying = Axiora.State.Status == "PLAYING"
+    if rule.mode == Axiora.Automation.MODE_PLAYBACK and not isPlaying then
+        return false
+    elseif rule.mode == Axiora.Automation.MODE_DISABLED then
+        return false
+    end
+    
+    -- Check trigger
+    local triggerFunc = Axiora.Automation.Triggers[rule.trigger.type]
+    if not triggerFunc then return false end
+    if not triggerFunc(rule, rule.trigger) then return false end
+    
+    -- Check condition
+    local conditionFunc = Axiora.Automation.Conditions[rule.condition.type]
+    if conditionFunc and not conditionFunc(rule.condition) then return false end
+    
+    -- Execute action
+    local actionFunc = Axiora.Automation.Actions[rule.action.type]
+    if actionFunc then
+        rule.triggerCount = (rule.triggerCount or 0) + 1
+        task.spawn(function()
+            actionFunc(rule.action)
+        end)
+        return true
+    end
+    
+    return false
+end
+
+function Axiora.Automation.StartEvaluator()
+    if Axiora.Automation.Running then return end
+    Axiora.Automation.Running = true
+    Axiora.Automation._lastPlayerCount = #Players:GetPlayers()
+    
+    -- Chat listener
+    pcall(function()
+        local chatService = game:GetService("TextChatService")
+        chatService.MessageReceived:Connect(function(msg)
+            Axiora.Automation.LastChat = {
+                message = msg.Text or "",
+                sender = msg.TextSource and msg.TextSource.Name or "Unknown",
+                time = os.clock()
+            }
+        end)
+    end)
+    
+    -- Main evaluator loop
+    Axiora.Automation.EvaluatorThread = task.spawn(function()
+        while Axiora.Automation.Running do
+            for _, rule in ipairs(Axiora.Automation.Rules) do
+                pcall(function()
+                    Axiora.Automation.EvaluateRule(rule)
+                end)
+            end
+            
+            -- Update player count tracker
+            Axiora.Automation._lastPlayerCount = #Players:GetPlayers()
+            
+            -- Reset macro complete flag
+            Axiora.State._macroJustCompleted = false
+            
+            task.wait(0.5) -- Check every 0.5 seconds
+        end
+    end)
+end
+
+function Axiora.Automation.StopEvaluator()
+    Axiora.Automation.Running = false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- PERSISTENCE
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.Automation.SaveRules()
+    if not Axiora.Capabilities.WriteFile then return false end
+    
+    local saveData = {
+        rules = {},
+        version = "1.0"
+    }
+    
+    for _, rule in ipairs(Axiora.Automation.Rules) do
+        table.insert(saveData.rules, {
+            id = rule.id,
+            enabled = rule.enabled,
+            mode = rule.mode,
+            trigger = rule.trigger,
+            condition = rule.condition,
+            action = rule.action
+        })
+    end
+    
+    return pcall(function()
+        if not isfolder("Axiora") then makefolder("Axiora") end
+        writefile("Axiora/automation_rules.json", HttpService:JSONEncode(saveData))
+    end)
+end
+
+function Axiora.Automation.LoadRules()
+    if not Axiora.Capabilities.ReadFile then return false end
+    
+    local success, data = pcall(function()
+        if isfile("Axiora/automation_rules.json") then
+            return HttpService:JSONDecode(readfile("Axiora/automation_rules.json"))
+        end
+        return nil
+    end)
+    
+    if success and data and data.rules then
+        Axiora.Automation.Rules = {}
+        for _, ruleData in ipairs(data.rules) do
+            local rule = {
+                id = ruleData.id,
+                enabled = ruleData.enabled,
+                mode = ruleData.mode or Axiora.Automation.MODE_PLAYBACK,
+                trigger = ruleData.trigger,
+                condition = ruleData.condition,
+                action = ruleData.action,
+                lastTriggered = 0,
+                triggerCount = 0
+            }
+            table.insert(Axiora.Automation.Rules, rule)
+        end
+        return true
+    end
+    return false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- SECTION 19: MODERN UI INTERFACE (Fully Redesigned)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -5558,7 +6012,7 @@ function Axiora.UI.Create()
     tabBar.Position = UDim2.new(0, 10, 0, 76)
     tabBar.Parent = main
     
-    local tabNames = {"Controls", "Library", "Settings"}
+    local tabNames = {"Controls", "Library", "Scripts"}
     local tabButtons = {}
     local tabContents = {}
     local activeTab = "Controls"
@@ -5815,55 +6269,144 @@ function Axiora.UI.Create()
     libList.Parent = libScroll
     
     -- ═══════════════════════════════════════════════════════════════════════
-    -- TAB 3: SETTINGS
+    -- TAB 3: SCRIPTS (Automation Rules)
     -- ═══════════════════════════════════════════════════════════════════════
     
-    local settingsTab = Instance.new("Frame")
-    settingsTab.Name = "Settings"
-    settingsTab.BackgroundTransparency = 1
-    settingsTab.Size = UDim2.new(1, 0, 1, 0)
-    settingsTab.Visible = false
-    settingsTab.Parent = contentContainer
-    tabContents["Settings"] = settingsTab
+    local scriptsTab = Instance.new("Frame")
+    scriptsTab.Name = "Scripts"
+    scriptsTab.BackgroundTransparency = 1
+    scriptsTab.Size = UDim2.new(1, 0, 1, 0)
+    scriptsTab.Visible = false
+    scriptsTab.Parent = contentContainer
+    tabContents["Scripts"] = scriptsTab
     
-    local settingsScroll = Instance.new("ScrollingFrame")
-    settingsScroll.BackgroundTransparency = 1
-    settingsScroll.Size = UDim2.new(1, 0, 1, 0)
-    settingsScroll.CanvasSize = UDim2.new(0, 0, 0, 180)
-    settingsScroll.ScrollBarThickness = 3
-    settingsScroll.Parent = settingsTab
+    -- Header row with count and +NEW button
+    local scriptsHeader = Instance.new("Frame")
+    scriptsHeader.BackgroundTransparency = 1
+    scriptsHeader.Size = UDim2.new(1, 0, 0, 26)
+    scriptsHeader.Parent = scriptsTab
     
-    local settingsList = Instance.new("UIListLayout")
-    settingsList.Padding = UDim.new(0, 5)
-    settingsList.Parent = settingsScroll
+    local rulesCount = Instance.new("TextLabel")
+    rulesCount.BackgroundTransparency = 1
+    rulesCount.Size = UDim2.new(0.5, 0, 1, 0)
+    rulesCount.Text = #Axiora.Automation.Rules .. " Rules"
+    rulesCount.TextColor3 = theme.TextDim
+    rulesCount.Font = Enum.Font.GothamBold
+    rulesCount.TextSize = 10
+    rulesCount.TextXAlignment = Enum.TextXAlignment.Left
+    rulesCount.Parent = scriptsHeader
     
-    local function createSettingBtn(text, callback)
-        local btn = Instance.new("TextButton")
-        btn.BackgroundColor3 = theme.Surface
-        btn.BackgroundTransparency = 0.5
-        btn.Size = UDim2.new(1, 0, 0, 28)
-        btn.Text = text
-        btn.TextColor3 = theme.Text
-        btn.Font = Enum.Font.Gotham
-        btn.TextSize = 10
-        btn.AutoButtonColor = false
-        btn.BorderSizePixel = 0
-        btn.Parent = settingsScroll
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
-        btn.MouseButton1Click:Connect(callback)
-        return btn
+    local newRuleBtn = Instance.new("TextButton")
+    newRuleBtn.BackgroundColor3 = theme.Success
+    newRuleBtn.BackgroundTransparency = 0.3
+    newRuleBtn.Size = UDim2.new(0, 80, 0, 22)
+    newRuleBtn.Position = UDim2.new(1, -80, 0, 2)
+    newRuleBtn.Text = "+ NEW RULE"
+    newRuleBtn.TextColor3 = Color3.new(1, 1, 1)
+    newRuleBtn.Font = Enum.Font.GothamBold
+    newRuleBtn.TextSize = 9
+    newRuleBtn.AutoButtonColor = false
+    newRuleBtn.BorderSizePixel = 0
+    newRuleBtn.Parent = scriptsHeader
+    Instance.new("UICorner", newRuleBtn).CornerRadius = UDim.new(0, 5)
+    
+    -- Rules list scroll
+    local rulesScroll = Instance.new("ScrollingFrame")
+    rulesScroll.BackgroundTransparency = 1
+    rulesScroll.Size = UDim2.new(1, 0, 1, -32)
+    rulesScroll.Position = UDim2.new(0, 0, 0, 30)
+    rulesScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    rulesScroll.ScrollBarThickness = 3
+    rulesScroll.Parent = scriptsTab
+    
+    local rulesList = Instance.new("UIListLayout")
+    rulesList.Padding = UDim.new(0, 4)
+    rulesList.Parent = rulesScroll
+
+    -- Function to refresh rules list
+    local function refreshRulesList()
+        for _, child in ipairs(rulesScroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        
+        rulesCount.Text = #Axiora.Automation.Rules .. " Rules"
+        
+        for _, rule in ipairs(Axiora.Automation.Rules) do
+            local ruleFrame = Instance.new("Frame")
+            ruleFrame.BackgroundColor3 = theme.Surface
+            ruleFrame.BackgroundTransparency = 0.6
+            ruleFrame.Size = UDim2.new(1, 0, 0, 32)
+            ruleFrame.BorderSizePixel = 0
+            ruleFrame.Parent = rulesScroll
+            Instance.new("UICorner", ruleFrame).CornerRadius = UDim.new(0, 5)
+            
+            -- Enable/Disable toggle
+            local toggle = Instance.new("TextButton")
+            toggle.BackgroundColor3 = rule.enabled and theme.Success or theme.Error
+            toggle.BackgroundTransparency = 0.5
+            toggle.Size = UDim2.new(0, 20, 0, 20)
+            toggle.Position = UDim2.new(0, 6, 0.5, 0)
+            toggle.AnchorPoint = Vector2.new(0, 0.5)
+            toggle.Text = rule.enabled and "✓" or "✕"
+            toggle.TextColor3 = Color3.new(1, 1, 1)
+            toggle.Font = Enum.Font.GothamBold
+            toggle.TextSize = 10
+            toggle.AutoButtonColor = false
+            toggle.BorderSizePixel = 0
+            toggle.Parent = ruleFrame
+            Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 4)
+            
+            toggle.MouseButton1Click:Connect(function()
+                local newState = Axiora.Automation.ToggleRule(rule.id)
+                toggle.BackgroundColor3 = newState and theme.Success or theme.Error
+                toggle.Text = newState and "✓" or "✕"
+            end)
+            
+            -- Rule name/description
+            local ruleLabel = Instance.new("TextLabel")
+            ruleLabel.BackgroundTransparency = 1
+            ruleLabel.Size = UDim2.new(1, -70, 1, 0)
+            ruleLabel.Position = UDim2.new(0, 32, 0, 0)
+            ruleLabel.Text = rule.trigger.type .. " → " .. rule.action.type
+            ruleLabel.TextColor3 = theme.Text
+            ruleLabel.Font = Enum.Font.Gotham
+            ruleLabel.TextSize = 10
+            ruleLabel.TextXAlignment = Enum.TextXAlignment.Left
+            ruleLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            ruleLabel.Parent = ruleFrame
+            
+            -- Delete button
+            local deleteBtn = Instance.new("TextButton")
+            deleteBtn.BackgroundColor3 = theme.Error
+            deleteBtn.BackgroundTransparency = 0.6
+            deleteBtn.Size = UDim2.new(0, 24, 0, 20)
+            deleteBtn.Position = UDim2.new(1, -30, 0.5, 0)
+            deleteBtn.AnchorPoint = Vector2.new(0, 0.5)
+            deleteBtn.Text = "🗑"
+            deleteBtn.TextColor3 = Color3.new(1, 1, 1)
+            deleteBtn.Font = Enum.Font.GothamBold
+            deleteBtn.TextSize = 10
+            deleteBtn.AutoButtonColor = false
+            deleteBtn.BorderSizePixel = 0
+            deleteBtn.Parent = ruleFrame
+            Instance.new("UICorner", deleteBtn).CornerRadius = UDim.new(0, 4)
+            
+            deleteBtn.MouseButton1Click:Connect(function()
+                Axiora.Automation.DeleteRule(rule.id)
+                refreshRulesList()
+            end)
+        end
+        
+        rulesScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(#Axiora.Automation.Rules * 36, 10))
     end
     
-    createSettingBtn("🎯 Render Path", function() Axiora.Visuals.RenderPath() end)
-    createSettingBtn("➕ Add to Queue", function() Axiora.Sequences.AddCurrentBuffer() end)
-    createSettingBtn("⚡ Run Queue", function() Axiora.Sequences.ExecuteQueue() end)
-    createSettingBtn("🔄 Auto-Restart", function() Axiora.AutoRestart.Toggle() end)
-    createSettingBtn("📊 Analytics", function() Axiora.Analytics.Print() end)
-    createSettingBtn("📍 Mark Position", function() Axiora.MarkPosition() end)
-    createSettingBtn("🎯 Recalibrate", function() Axiora.Recalibrate() end)
+    -- Open rule creation modal
+    newRuleBtn.MouseButton1Click:Connect(function()
+        Axiora.UI.CreateRuleModal(sg, refreshRulesList)
+    end)
     
-    -- Update canvas size for all buttons
-    settingsScroll.CanvasSize =  UDim2.new(0, 0, 0, 230)
+    -- Initial refresh
+    refreshRulesList()
     
     Axiora.UI.MainFrame = main
     Axiora.UI.IsOpen = true
@@ -6603,6 +7146,245 @@ function Axiora.UI.ShowCombinePanel()
     end)
 end
 
+-- Rule creation modal for automation
+function Axiora.UI.CreateRuleModal(parentGui, onComplete)
+    local theme = Axiora.UI.Theme or {
+        Background = Color3.fromRGB(18, 18, 25),
+        Surface = Color3.fromRGB(28, 28, 38),
+        Primary = Color3.fromRGB(120, 90, 255),
+        Success = Color3.fromRGB(40, 200, 100),
+        Error = Color3.fromRGB(255, 80, 80),
+        Text = Color3.fromRGB(240, 240, 255),
+        TextDim = Color3.fromRGB(140, 140, 160)
+    }
+    
+    local triggers = {"interval", "playerJoin", "playerLeave", "chatReceived", "macroComplete", "always"}
+    local conditions = {"always", "playerCount", "playerDistance", "positionY", "sessionTime", "playerName", "chatContains", "randomChance"}
+    local actions = {"playMacro", "stopMacro", "wait", "sendChat", "leaveServer", "rejoinServer", "notify"}
+    
+    local selectedTrigger = triggers[1]
+    local selectedCondition = conditions[1]
+    local selectedAction = actions[1]
+    local selectedMode = Axiora.Automation.MODE_PLAYBACK
+    
+    -- Overlay
+    local overlay = Instance.new("Frame")
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.5
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.BorderSizePixel = 0
+    overlay.ZIndex = 200
+    overlay.Parent = parentGui
+    
+    -- Modal panel
+    local panel = Instance.new("Frame")
+    panel.BackgroundColor3 = theme.Background
+    panel.Size = UDim2.new(0, 280, 0, 340)
+    panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    panel.AnchorPoint = Vector2.new(0.5, 0.5)
+    panel.BorderSizePixel = 0
+    panel.ZIndex = 201
+    panel.Parent = overlay
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Text = "✨ CREATE RULE"
+    title.TextColor3 = theme.Primary
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 14
+    title.ZIndex = 202
+    title.Parent = panel
+    
+    local yPos = 35
+    
+    -- Helper to create dropdown
+    local function createDropdown(labelText, options, defaultValue, onSelect)
+        local container = Instance.new("Frame")
+        container.BackgroundTransparency = 1
+        container.Size = UDim2.new(1, -20, 0, 40)
+        container.Position = UDim2.new(0, 10, 0, yPos)
+        container.ZIndex = 202
+        container.Parent = panel
+        
+        local label = Instance.new("TextLabel")
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.new(1, 0, 0, 14)
+        label.Text = labelText
+        label.TextColor3 = theme.TextDim
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 9
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.ZIndex = 202
+        label.Parent = container
+        
+        local btn = Instance.new("TextButton")
+        btn.BackgroundColor3 = theme.Surface
+        btn.Size = UDim2.new(1, 0, 0, 24)
+        btn.Position = UDim2.new(0, 0, 0, 14)
+        btn.Text = defaultValue .. " ▼"
+        btn.TextColor3 = theme.Text
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 10
+        btn.AutoButtonColor = false
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 202
+        btn.Parent = container
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+        
+        local currentIndex = 1
+        for i, v in ipairs(options) do
+            if v == defaultValue then currentIndex = i break end
+        end
+        
+        btn.MouseButton1Click:Connect(function()
+            currentIndex = (currentIndex % #options) + 1
+            local newVal = options[currentIndex]
+            btn.Text = newVal .. " ▼"
+            onSelect(newVal)
+        end)
+        
+        yPos = yPos + 44
+        return btn
+    end
+    
+    -- Trigger dropdown
+    createDropdown("TRIGGER (When)", triggers, selectedTrigger, function(v) selectedTrigger = v end)
+    
+    -- Condition dropdown
+    createDropdown("CONDITION (If)", conditions, selectedCondition, function(v) selectedCondition = v end)
+    
+    -- Action dropdown
+    createDropdown("ACTION (Do)", actions, selectedAction, function(v) selectedAction = v end)
+    
+    -- Mode dropdown
+    local modes = {"playback", "always", "disabled"}
+    createDropdown("MODE", modes, selectedMode, function(v) selectedMode = v end)
+    
+    -- Param input (for macro name, seconds, etc)
+    local paramLabel = Instance.new("TextLabel")
+    paramLabel.BackgroundTransparency = 1
+    paramLabel.Size = UDim2.new(1, -20, 0, 14)
+    paramLabel.Position = UDim2.new(0, 10, 0, yPos)
+    paramLabel.Text = "PARAMETER (name, seconds, etc)"
+    paramLabel.TextColor3 = theme.TextDim
+    paramLabel.Font = Enum.Font.GothamBold
+    paramLabel.TextSize = 9
+    paramLabel.TextXAlignment = Enum.TextXAlignment.Left
+    paramLabel.ZIndex = 202
+    paramLabel.Parent = panel
+    
+    local paramInput = Instance.new("TextBox")
+    paramInput.BackgroundColor3 = theme.Surface
+    paramInput.Size = UDim2.new(1, -20, 0, 26)
+    paramInput.Position = UDim2.new(0, 10, 0, yPos + 14)
+    paramInput.Text = ""
+    paramInput.PlaceholderText = "e.g., MyMacro, 60, Hello"
+    paramInput.TextColor3 = theme.Text
+    paramInput.PlaceholderColor3 = theme.TextDim
+    paramInput.Font = Enum.Font.Gotham
+    paramInput.TextSize = 10
+    paramInput.ClearTextOnFocus = false
+    paramInput.BorderSizePixel = 0
+    paramInput.ZIndex = 202
+    paramInput.Parent = panel
+    Instance.new("UICorner", paramInput).CornerRadius = UDim.new(0, 5)
+    
+    yPos = yPos + 48
+    
+    -- Create button
+    local createBtn = Instance.new("TextButton")
+    createBtn.BackgroundColor3 = theme.Success
+    createBtn.BackgroundTransparency = 0.2
+    createBtn.Size = UDim2.new(0.48, 0, 0, 36)
+    createBtn.Position = UDim2.new(0, 10, 0, yPos)
+    createBtn.Text = "✓ CREATE"
+    createBtn.TextColor3 = Color3.new(1, 1, 1)
+    createBtn.Font = Enum.Font.GothamBold
+    createBtn.TextSize = 11
+    createBtn.AutoButtonColor = false
+    createBtn.BorderSizePixel = 0
+    createBtn.ZIndex = 202
+    createBtn.Parent = panel
+    Instance.new("UICorner", createBtn).CornerRadius = UDim.new(0, 6)
+    
+    -- Cancel button
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.BackgroundColor3 = theme.Error
+    cancelBtn.BackgroundTransparency = 0.5
+    cancelBtn.Size = UDim2.new(0.48, 0, 0, 36)
+    cancelBtn.Position = UDim2.new(0.52, 0, 0, yPos)
+    cancelBtn.Text = "✕ CANCEL"
+    cancelBtn.TextColor3 = Color3.new(1, 1, 1)
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.TextSize = 11
+    cancelBtn.AutoButtonColor = false
+    cancelBtn.BorderSizePixel = 0
+    cancelBtn.ZIndex = 202
+    cancelBtn.Parent = panel
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+    
+    createBtn.MouseButton1Click:Connect(function()
+        local param = paramInput.Text
+        
+        -- Build trigger object
+        local trigger = {type = selectedTrigger}
+        if selectedTrigger == "interval" then
+            trigger.seconds = tonumber(param) or 60
+        end
+        
+        -- Build condition object
+        local condition = {type = selectedCondition}
+        if selectedCondition == "playerCount" then
+            condition.operator = ">"
+            condition.value = tonumber(param) or 5
+        elseif selectedCondition == "playerDistance" then
+            condition.operator = "<"
+            condition.distance = tonumber(param) or 50
+        elseif selectedCondition == "positionY" then
+            condition.operator = "<"
+            condition.value = tonumber(param) or -50
+        elseif selectedCondition == "sessionTime" then
+            condition.operator = ">"
+            condition.value = tonumber(param) or 30
+        elseif selectedCondition == "playerName" then
+            condition.name = param or ""
+        elseif selectedCondition == "chatContains" then
+            condition.text = param or ""
+        elseif selectedCondition == "randomChance" then
+            condition.percent = tonumber(param) or 50
+        end
+        
+        -- Build action object
+        local action = {type = selectedAction}
+        if selectedAction == "playMacro" then
+            action.name = param or ""
+        elseif selectedAction == "wait" then
+            action.seconds = tonumber(param) or 1
+        elseif selectedAction == "sendChat" then
+            action.message = param or "Hello"
+        elseif selectedAction == "notify" then
+            action.title = "Automation"
+            action.message = param or "Rule triggered!"
+        end
+        
+        -- Create the rule
+        local rule = Axiora.Automation.CreateRule(trigger, condition, action, selectedMode)
+        if rule then
+            Axiora.Visuals.Notify("Scripts", "Rule created!", 2, "success")
+        end
+        
+        overlay:Destroy()
+        if onComplete then onComplete() end
+    end)
+    
+    cancelBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+    end)
+end
+
 function Axiora.UI.Destroy()
     if Axiora.UI.ScreenGui then
         pcall(function() Axiora.UI.ScreenGui:Destroy() end)
@@ -6652,6 +7434,10 @@ function Axiora.Init()
     
     -- Initialize hotkeys
     Axiora.Hotkeys.Init()
+    
+    -- Load automation rules and start evaluator
+    Axiora.Automation.LoadRules()
+    Axiora.Automation.StartEvaluator()
     
     -- Enable Anti-AFK if configured
     if Axiora.Settings.AntiAFK then
