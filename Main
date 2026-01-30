@@ -1648,27 +1648,57 @@ Axiora.Visuals.Themes = {
         Name = "Crimson Pulse",
         Primary = Color3.fromRGB(220, 50, 80),
         Secondary = Color3.fromRGB(180, 30, 60),
+        Tertiary = Color3.fromRGB(45, 25, 30),
+        Deep = Color3.fromRGB(15, 10, 12),
         Background = Color3.fromRGB(20, 15, 18),
         Surface = Color3.fromRGB(30, 22, 26),
+        Overlay = Color3.new(0, 0, 0),
         Text = Color3.fromRGB(255, 245, 248),
         TextDim = Color3.fromRGB(180, 150, 160),
         Success = Color3.fromRGB(50, 200, 120),
         Warning = Color3.fromRGB(255, 200, 0),
         Error = Color3.fromRGB(255, 80, 100),
-        Info = Color3.fromRGB(220, 100, 150)
+        Info = Color3.fromRGB(220, 100, 150),
+        
+        -- State Colors
+        Idle = Color3.fromRGB(180, 150, 160),
+        Playing = Color3.fromRGB(50, 200, 120),
+        Recording = Color3.fromRGB(255, 50, 80),
+        Paused = Color3.fromRGB(255, 200, 50),
+        
+        -- Editor Colors
+        Movement = Color3.fromRGB(220, 50, 80),
+        Click = Color3.fromRGB(255, 100, 150),
+        Key = Color3.fromRGB(255, 180, 50),
+        Delay = Color3.fromRGB(160, 120, 140)
     },
     emerald = {
         Name = "Emerald Matrix",
         Primary = Color3.fromRGB(0, 200, 100),
         Secondary = Color3.fromRGB(0, 150, 75),
+        Tertiary = Color3.fromRGB(22, 35, 28),
+        Deep = Color3.fromRGB(8, 14, 10),
         Background = Color3.fromRGB(12, 20, 16),
         Surface = Color3.fromRGB(18, 28, 22),
+        Overlay = Color3.new(0, 0, 0),
         Text = Color3.fromRGB(240, 255, 245),
         TextDim = Color3.fromRGB(140, 170, 150),
         Success = Color3.fromRGB(0, 255, 130),
         Warning = Color3.fromRGB(255, 200, 50),
         Error = Color3.fromRGB(255, 80, 80),
-        Info = Color3.fromRGB(100, 220, 180)
+        Info = Color3.fromRGB(100, 220, 180),
+        
+        -- State Colors
+        Idle = Color3.fromRGB(140, 170, 150),
+        Playing = Color3.fromRGB(0, 255, 130),
+        Recording = Color3.fromRGB(255, 80, 80),
+        Paused = Color3.fromRGB(255, 200, 50),
+        
+        -- Editor Colors
+        Movement = Color3.fromRGB(0, 200, 100),
+        Click = Color3.fromRGB(100, 255, 180),
+        Key = Color3.fromRGB(220, 255, 100),
+        Delay = Color3.fromRGB(100, 140, 120)
     }
 }
 
@@ -2090,6 +2120,34 @@ function Axiora.Visuals.RenderPath(mode)
     end
     
     Axiora.Visuals.Notify("Render", #Axiora.Visuals.Objects .. " nodes rendered", 2, "success")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 10: SECURITY (Anti-AFK)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Security = {}
+Axiora.Security.AntiAFKConnection = nil
+
+function Axiora.Security.EnableAntiAFK()
+    if Axiora.Security.AntiAFKConnection then return end
+    
+    local VirtualUser = game:GetService("VirtualUser")
+    local LP = game:GetService("Players").LocalPlayer
+    
+    if LP then
+        Axiora.Security.AntiAFKConnection = LP.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    end
+end
+
+function Axiora.Security.DisableAntiAFK()
+    if Axiora.Security.AntiAFKConnection then
+        Axiora.Security.AntiAFKConnection:Disconnect()
+        Axiora.Security.AntiAFKConnection = nil
+    end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -5493,7 +5551,13 @@ function Axiora.UI.BuildUtilities(parent)
             TweenService:Create(knob, TweenInfo.new(0.2), {Position = on and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)}):Play()
             
             -- Apply immediate effects
-            if settingKey == "AntiAFK" and on then Axiora.Security.EnableAntiAFK() end
+            if settingKey == "AntiAFK" then
+                if on then
+                    Axiora.Security.EnableAntiAFK()
+                else
+                    Axiora.Security.DisableAntiAFK()
+                end
+            end
             Axiora.Visuals.Notify("Settings", name .. (on and " Enabled" or " Disabled"), 1)
         end)
     end
