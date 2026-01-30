@@ -221,8 +221,57 @@ Axiora.Settings = {
     UseNativeBuffers = false, -- Enable binary buffers for memory savings
     
     -- Debug
-    DebugPathfinding = false -- Visualize pathfinding waypoints
+    DebugPathfinding = false, -- Visualize pathfinding waypoints
+    
+    -- MOBILE SETTINGS
+    IsMobile = false, -- Auto-detected
+    UIScale = 1.0, -- Auto-calculated based on screen
+    MinButtonSize = 44, -- Minimum touch target size (Apple HIG)
+    MobileButtonScale = 1.3, -- Scale factor for buttons on mobile
+    MobileFontScale = 1.2, -- Scale factor for fonts on mobile
+    
+    -- Speed Presets (used by UI speed buttons)
+    SpeedPresets = {
+        careful = 0.5,
+        normal = 1.0,
+        fast = 1.5,
+        turbo = 2.0
+    }
 }
+
+-- Mobile detection
+local function detectMobile()
+    local isMobile = false
+    
+    -- Check if touch is primary input
+    pcall(function()
+        isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+    end)
+    
+    -- Also check screen size (mobile typically < 1024 width)
+    pcall(function()
+        local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize
+        if viewport and viewport.X < 1024 then
+            isMobile = true
+        end
+    end)
+    
+    Axiora.Settings.IsMobile = isMobile
+    
+    -- Set UI scale based on screen
+    if isMobile then
+        Axiora.Settings.UIScale = 1.0 -- Mobile already uses full screen
+        Axiora.Settings.MinButtonSize = 50 -- Larger touch targets
+    else
+        Axiora.Settings.UIScale = 1.0
+        Axiora.Settings.MinButtonSize = 36
+    end
+    
+    return isMobile
+end
+
+-- Call detection
+detectMobile()
 
 -- Simple event system
 Axiora.Events = {
@@ -304,7 +353,7 @@ function Axiora.Math.WaitForInit(timeout)
 end
 
 -- Convert relative coords (0-1) to absolute screen position (for input simulation)
--- Returns coordinates that include GUI inset (what VirtualInputManager expects)
+-- FIX: Added GUI inset back since GetRelativeInput subtracts it
 function Axiora.Math.GetAbsoluteInput(relX, relY)
     local viewport = Axiora.Math.Screen.Viewport
     local inset = Axiora.Math.Screen.GuiInset
@@ -315,28 +364,40 @@ function Axiora.Math.GetAbsoluteInput(relX, relY)
     local x = relX * viewport.X
     local y = relY * viewport.Y
     
-    -- Add GUI inset to get screen coordinates (VirtualInputManager needs this)
-    x = x + inset.X + (Axiora.Settings.XOffset or 0)
-    y = y + inset.Y + (Axiora.Settings.YOffset or 0)
+    -- Add GUI inset back (GetRelativeInput subtracted it during recording)
+    x = x + inset.X
+    y = y + inset.Y
+    
+    -- Apply user calibration offset
+    x = x + (Axiora.Settings.XOffset or 0)
+    y = y + (Axiora.Settings.YOffset or 0)
+    
+    -- Apply DPI scale if detected (for high-DPI displays)
+    local dpiScale = Axiora.Settings.DPIScale or 1.0
+    if dpiScale ~= 1.0 then
+        x = x * dpiScale
+        y = y * dpiScale
+    end
     
     -- Clamp to valid screen range
-    local totalWidth = viewport.X
-    local totalHeight = viewport.Y + inset.Y
+    local totalWidth = (viewport.X + inset.X) * dpiScale
+    local totalHeight = (viewport.Y + inset.Y) * dpiScale
     x = math.clamp(x, 0, totalWidth)
-    y = math.clamp(y, inset.Y, totalHeight)
+    y = math.clamp(y, 0, totalHeight)
     
     return Vector2.new(x, y)
 end
 
 -- Convert absolute screen position to relative coords (0-1)
--- Input is screen coordinates (from GetMouseLocation which includes inset)
+-- GetMouseLocation() returns coords WITH inset, so we subtract it to get viewport-relative
 function Axiora.Math.GetRelativeInput(absX, absY)
     local viewport = Axiora.Math.Screen.Viewport
     local inset = Axiora.Math.Screen.GuiInset
     
     if viewport.X < 10 then viewport = Vector2.new(1920, 1080) end
     
-    -- Subtract GUI inset to get viewport-relative coordinates
+    -- Subtract inset because GetMouseLocation includes it
+    -- but we want viewport-relative coordinates
     local viewX = absX - inset.X
     local viewY = absY - inset.Y
     
@@ -788,6 +849,12 @@ Axiora.Recording = {
     LastClickTime = 0
 }
 
+-- Get elapsed time since recording started (CRITICAL: was missing, breaks Controller/Gyro)
+function Axiora.Recording.GetElapsedTime()
+    if not Axiora.Recording.Active then return 0 end
+    return os.clock() - Axiora.Recording.StartTime
+end
+
 -- Clean disconnect all recording connections
 local function cleanupRecordingConnections()
     for key, conn in pairs(Axiora.State.Connections) do
@@ -841,16 +908,27 @@ function Axiora.Record()
     
     -- Initialize state
     Axiora.State.Status = "RECORDING"
-    Axiora.State.Buffer = {}
-    Axiora.State.StartTime = os.clock()
+    local buffer = {} -- Local buffer for speed
+    Axiora.State.Buffer = buffer
+    
+    local startTime = os.clock()
+    Axiora.State.StartTime = startTime
     Axiora.Recording.Active = true
-    Axiora.Recording.StartTime = os.clock()
-    Axiora.Recording.LastNodeTime = os.clock()
+    Axiora.Recording.StartTime = startTime
+    Axiora.Recording.LastNodeTime = startTime
     Axiora.Recording.NodeCount = 0
     Axiora.Recording.LastPos = Vector3.zero
     Axiora.Recording.LastCamCF = CFrame.new()
     Axiora.Recording.LastClickPos = Vector2.zero
     Axiora.Recording.LastClickTime = 0
+    
+    -- Optimization: Localize functions for loop speed
+    local clock = os.clock
+    local floor = math.floor
+    local abs = math.abs
+    local serializeVec = Axiora.Math.SerializeVec
+    local serializeCF = Axiora.Math.SerializeCF
+    local maxBuffer = Axiora.Settings.MaxBufferSize or 10000
     
     -- Movement recording
     Axiora.State.Connections.Move = RunService.Heartbeat:Connect(function()
@@ -862,23 +940,34 @@ function Axiora.Record()
         if not root or not hum then return end
         
         local pos = root.Position
-        local now = os.clock()
+        local now = clock()
         local timeSinceLastNode = now - Axiora.Recording.LastNodeTime
         
         local camChanged = false
         local cam = Workspace.CurrentCamera
+        local currentCamCF
+        
         if Axiora.Settings.RecordCamera and cam then
-            local camRotDiff = math.abs((cam.CFrame.LookVector - Axiora.Recording.LastCamCF.LookVector).Magnitude)
+            currentCamCF = cam.CFrame
+            local camRotDiff = (currentCamCF.LookVector - Axiora.Recording.LastCamCF.LookVector).Magnitude
             if camRotDiff > 0.05 then
                 camChanged = true
             end
         end
         
+        -- Inline validation check for speed
         if shouldRecordPosition(pos, timeSinceLastNode) or hum.Jump or (camChanged and timeSinceLastNode > 0.1) then
+            -- Safe check for buffer size
+            if #buffer >= maxBuffer then
+                Axiora.Stop()
+                Axiora.Events:Fire("BufferFull")
+                return
+            end
+            
             local node = {
                 t = 1, -- Movement type
-                d = now - Axiora.State.StartTime, -- Delay from start
-                p = Axiora.Math.SerializeVec(pos),
+                d = now - startTime, -- Delay from start
+                p = serializeVec(pos),
             }
             
             -- Record velocity/movement direction for accurate path replay
@@ -887,26 +976,29 @@ function Axiora.Record()
                 if moveDir.Magnitude > 0.1 then
                     -- Store normalized movement direction
                     node.v = {
-                        math.floor(moveDir.X * 100) / 100,
-                        math.floor(moveDir.Y * 100) / 100,
-                        math.floor(moveDir.Z * 100) / 100
+                        floor(moveDir.X * 100) / 100,
+                        floor(moveDir.Y * 100) / 100,
+                        floor(moveDir.Z * 100) / 100
                     }
                 end
                 
                 -- Store walk speed for replay accuracy
-                node.ws = math.floor(hum.WalkSpeed * 10) / 10
+                node.ws = floor(hum.WalkSpeed * 10) / 10
             end
             
             if hum.Jump then
                 node.j = true
             end
             
-            if Axiora.Settings.RecordCamera and cam and camChanged then
-                node.c = Axiora.Math.SerializeCF(cam.CFrame)
-                Axiora.Recording.LastCamCF = cam.CFrame
+            if Axiora.Settings.RecordCamera and camChanged then
+                node.c = serializeCF(currentCamCF)
+                Axiora.Recording.LastCamCF = currentCamCF
             end
             
-            addNode(node)
+            -- FAST INSERT
+            buffer[#buffer+1] = node
+            
+            Axiora.Recording.NodeCount = Axiora.Recording.NodeCount + 1
             Axiora.Recording.LastPos = pos
             Axiora.Recording.LastNodeTime = now
         end
@@ -1049,7 +1141,175 @@ local function navigateToPosition(hum, root, targetPos, timeout, retries)
 end
 
 -- Smart Pathfinding Navigation (uses PathfindingService)
+-- Smart Pathfinding Navigation (uses PathfindingService)
 local function pathfindToPosition(hum, root, targetPos, timeout)
+    timeout = timeout or Axiora.Settings.PathfindingTimeout
+    
+    -- Localize common functions
+    local clock = os.clock
+    local vec3 = Vector3.new
+    local PFS = PathfindingService
+    
+    -- Check if already close enough
+    local distance = (root.Position - targetPos).Magnitude
+    if distance <= 5 then
+        return true
+    end
+    
+    Axiora.Visuals.Notify("Pathfinding", "Navigating to start position... (" .. math.floor(distance) .. " studs)", 3, "info")
+    
+    -- Try to use PathfindingService
+    if not PFS then
+        Axiora.Visuals.Notify("Pathfinding", "PathfindingService not available, using direct navigation", 2, "warning")
+        return navigateToPosition(hum, root, targetPos, timeout)
+    end
+    
+    local success, path = pcall(function()
+        local pathParams = {
+            AgentRadius = 2,
+            AgentHeight = 5,
+            AgentCanJump = true,
+            AgentCanClimb = true,
+            WaypointSpacing = 4,
+            Costs = {
+                Water = 20,
+                Neon = math.huge -- Avoid neon if possible? Just an example
+            }
+        }
+        return PFS:CreatePath(pathParams)
+    end)
+    
+    if not success or not path then
+        Axiora.Visuals.Notify("Pathfinding", "Failed to create path, using direct navigation", 2, "warning")
+        return navigateToPosition(hum, root, targetPos, timeout)
+    end
+    
+    -- Compute path
+    local computeSuccess, computeError = pcall(function()
+        path:ComputeAsync(root.Position, targetPos)
+    end)
+    
+    if not computeSuccess then
+        Axiora.Visuals.Notify("Pathfinding", "Path computation failed, using direct navigation", 2, "warning")
+        return navigateToPosition(hum, root, targetPos, timeout)
+    end
+    
+    if path.Status ~= Enum.PathStatus.Success then
+        Axiora.Visuals.Notify("Pathfinding", "No path found, using direct navigation", 2, "warning")
+        return navigateToPosition(hum, root, targetPos, timeout)
+    end
+    
+    -- Get waypoints
+    local waypoints = path:GetWaypoints()
+    if #waypoints == 0 then
+        return navigateToPosition(hum, root, targetPos, timeout)
+    end
+    
+    Axiora.Visuals.Notify("Pathfinding", "Following path (" .. #waypoints .. " waypoints)", 2, "info")
+    
+    -- Debug visualization
+    if Axiora.Settings.DebugPathfinding then
+        -- Fast visual creation
+        for idx, wp in ipairs(waypoints) do
+            local marker = Axiora.Visuals.GetPooledPart()
+            marker.Shape = Enum.PartType.Ball
+            marker.Size = vec3(1, 1, 1)
+            marker.Position = wp.Position
+            marker.Anchored = true
+            marker.CanCollide = false
+            marker.BrickColor = BrickColor.new("Lime green")
+            marker.Material = Enum.Material.Neon
+            marker.Parent = workspace
+            table.insert(Axiora.Visuals.Objects, marker)
+        end
+    end
+    
+    local startTime = clock()
+    local blockedCount = 0
+    local stuckTimer = 0
+    local lastPos = root.Position
+    local lastCheckTime = clock()
+    
+    -- Follow waypoints
+    for i, waypoint in ipairs(waypoints) do
+        if Axiora.State.Status ~= "PLAYING" then return false end
+        if (clock() - startTime) > timeout then
+            Axiora.Visuals.Notify("Pathfinding", "Timeout reached", 2, "warning")
+            break
+        end
+        
+        -- Handle jump action
+        if waypoint.Action == Enum.PathWaypointAction.Jump then
+            hum.Jump = true
+            task.wait(0.1)
+        end
+        
+        -- Move to waypoint
+        hum:MoveTo(waypoint.Position)
+        
+        -- Wait for movement to complete
+        local reachedWaypoint = false
+        local waypointStart = clock()
+        
+        local moveConn
+        moveConn = hum.MoveToFinished:Connect(function()
+            reachedWaypoint = true
+            if moveConn then moveConn:Disconnect() end
+        end)
+        
+        -- Wait for waypoint or timeout
+        while not reachedWaypoint and (clock() - waypointStart) < 3 do
+            if Axiora.State.Status ~= "PLAYING" then
+                if moveConn then moveConn:Disconnect() end
+                return false
+            end
+            
+            -- Check if close enough to waypoint
+            if (root.Position - waypoint.Position).Magnitude <= 2 then
+                reachedWaypoint = true
+                break
+            end
+            
+            task.wait(0.1)
+            
+            -- Stuck detection with automatic jump
+            if (root.Position - lastPos).Magnitude < 0.5 then
+                stuckTimer = stuckTimer + 0.1
+                if stuckTimer > 2 then
+                    hum.Jump = true
+                    stuckTimer = 0
+                end
+            else
+                stuckTimer = 0
+            end
+            lastPos = root.Position
+        end
+        
+        if moveConn then moveConn:Disconnect() end
+        
+        -- Check for blocked path
+        if not reachedWaypoint then
+            blockedCount = blockedCount + 1
+            if blockedCount >= 3 then
+                Axiora.Visuals.Notify("Pathfinding", "Path blocked, trying direct approach", 2, "warning")
+                hum.Jump = true
+                task.wait(0.3)
+            end
+        else
+            blockedCount = 0
+        end
+    end
+    
+    -- Final check - are we close enough?
+    local finalDistance = (root.Position - targetPos).Magnitude
+    if finalDistance <= 8 then
+        Axiora.Visuals.Notify("Pathfinding", "Arrived at start position!", 2, "success")
+        return true
+    else
+        -- Try direct navigation for the last bit
+        return navigateToPosition(hum, root, targetPos, 5, 2)
+    end
+end
     timeout = timeout or Axiora.Settings.PathfindingTimeout
     
     -- Check if already close enough
@@ -1631,7 +1891,12 @@ function Axiora.Visuals.Notify(title, message, duration, notifType)
     end
     
     if Axiora.Visuals.NotificationCooldown then
-        -- Queue it
+        -- Queue it (with size limit to prevent memory leak)
+        local maxQueueSize = 10
+        if #Axiora.Visuals.NotificationQueue >= maxQueueSize then
+            -- Remove oldest notification to make room
+            table.remove(Axiora.Visuals.NotificationQueue, 1)
+        end
         table.insert(Axiora.Visuals.NotificationQueue, {
             title = title, message = message, duration = duration, notifType = notifType
         })
@@ -3616,6 +3881,1551 @@ function Axiora.Calibration.LoadCalibration()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- INTERACTIVE CALIBRATION SYSTEM (New)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Calibration.Phase1UI = nil
+Axiora.Calibration.Phase2UI = nil
+Axiora.Calibration.TempOffset = Vector2.new(0, 0)
+Axiora.Calibration.CurrentOffset = Vector2.new(0, 0)
+Axiora.Calibration.GreenTarget = nil
+Axiora.Calibration.RedPredictor = nil
+Axiora.Calibration.IsCalibrating = false
+
+-- Get environment fingerprint for detecting changes
+function Axiora.Calibration.GetEnvironmentFingerprint()
+    local viewport = Axiora.Math.Screen.Viewport
+    local inset = Axiora.Math.Screen.GuiInset
+    
+    local screenScale = 1.0
+    pcall(function()
+        if GuiService and GuiService.GetResolutionScale then
+            screenScale = GuiService:GetResolutionScale()
+        end
+    end)
+    
+    return {
+        Executor = Axiora.Capabilities.Executor,
+        ViewportX = math.floor(viewport.X),
+        ViewportY = math.floor(viewport.Y),
+        GuiInsetX = math.floor(inset.X),
+        GuiInsetY = math.floor(inset.Y),
+        ScreenScale = screenScale,
+        PlaceId = game.PlaceId
+    }
+end
+
+-- Check if environment changed since last calibration
+function Axiora.Calibration.HasEnvironmentChanged(savedEnv)
+    if not savedEnv then return true end
+    
+    local current = Axiora.Calibration.GetEnvironmentFingerprint()
+    
+    if current.Executor ~= savedEnv.Executor then return true end
+    if current.ViewportX ~= savedEnv.ViewportX then return true end
+    if current.ViewportY ~= savedEnv.ViewportY then return true end
+    if math.abs((current.GuiInsetY or 0) - (savedEnv.GuiInsetY or 0)) > 2 then return true end
+    
+    return false
+end
+
+-- Check if calibration is needed
+function Axiora.Calibration.CheckNeeded()
+    if not Axiora.Capabilities.ReadFile then return true end
+    
+    local success, exists = pcall(function()
+        return isfile("Axiora/calibration.json")
+    end)
+    
+    if not success or not exists then return true end
+    
+    local loadSuccess, data = pcall(function()
+        return HttpService:JSONDecode(readfile("Axiora/calibration.json"))
+    end)
+    
+    if not loadSuccess or not data then return true end
+    
+    if Axiora.Calibration.HasEnvironmentChanged(data.Environment) then
+        return true
+    end
+    
+    -- Load existing calibration
+    Axiora.Settings.XOffset = data.OffsetX or 0
+    Axiora.Settings.YOffset = data.OffsetY or 0
+    return false
+end
+
+-- Main entry point for calibration
+function Axiora.Calibration.StartInteractiveCalibration()
+    if Axiora.Calibration.IsCalibrating then return end
+    Axiora.Calibration.IsCalibrating = true
+    
+    Axiora.Math.WaitForInit(2)
+    
+    -- FIX: Use existing ScreenGui or wait for it
+    local sg = Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui
+    if not sg then
+        -- Wait for main UI to initialize
+        local maxWait = 3
+        local waited = 0
+        while not Axiora.UI.ScreenGui and not Axiora.Visuals.ScreenGui and waited < maxWait do
+            task.wait(0.2)
+            waited = waited + 0.2
+        end
+        sg = Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui
+    end
+    
+    if not sg then
+        -- Last resort: create minimal ScreenGui
+        sg = Instance.new("ScreenGui")
+        sg.Name = "AxioraCalibration"
+        sg.IgnoreGuiInset = true
+        sg.ResetOnSpawn = false
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.DisplayOrder = 9999
+        pcall(function() sg.Parent = CoreGui end)
+        if not sg.Parent then
+            local LP = getLocalPlayer()
+            if LP then sg.Parent = LP:FindFirstChild("PlayerGui") end
+        end
+        Axiora.UI.ScreenGui = sg
+    end
+    
+    task.wait(0.3)
+    Axiora.Calibration.StartPhase1(sg)
+end
+
+-- PHASE 1: Coarse Auto-Detection
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- HOLOGRAPHIC CALIBRATION SYSTEM (v2.0)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.Calibration.ShowOverlay()
+    local sg = Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui
+    if not sg then return end
+    
+    if Axiora.Calibration.Overlay then
+        Axiora.Calibration.Overlay:Destroy()
+    end
+    
+    Axiora.Calibration.IsCalibrating = true
+    local vp = Axiora.Math.Screen.Viewport
+    
+    -- 1. Dark Acrylic Backdrop
+    local overlay = Instance.new("Frame")
+    overlay.Name = "CalibrationOverlay"
+    overlay.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+    overlay.BackgroundTransparency = 0.2
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.ZIndex = 2000
+    overlay.Parent = sg
+    
+    -- Add blur effect if supported (e.g. via Lighting, but we can't easily add to Lighting from here)
+    -- Just use dark transparent overlay for focus
+    
+    Axiora.Calibration.Overlay = overlay
+    
+    -- 2. Neon Crosshair (Center)
+    local reticle = Instance.new("Frame")
+    reticle.Name = "Reticle"
+    reticle.Size = UDim2.new(0, 120, 0, 120)
+    reticle.Position = UDim2.new(0.5, 0, 0.5, 0)
+    reticle.AnchorPoint = Vector2.new(0.5, 0.5)
+    reticle.BackgroundTransparency = 1
+    reticle.ZIndex = 2001
+    reticle.Parent = overlay
+    
+    -- Rotating outer ring
+    local ring = Instance.new("ImageLabel")
+    ring.Image = "rbxassetid://3570695787" -- Circle ring asset
+    ring.ImageColor3 = Color3.fromRGB(0, 255, 255) -- Cyan
+    ring.BackgroundTransparency = 1
+    ring.Size = UDim2.new(1, 0, 1, 0)
+    ring.Parent = reticle
+    
+    -- Inner dot
+    local dot = Instance.new("Frame")
+    dot.BackgroundColor3 = Color3.fromRGB(255, 50, 80)
+    dot.Size = UDim2.new(0, 8, 0, 8)
+    dot.Position = UDim2.new(0.5, 0, 0.5, 0)
+    dot.AnchorPoint = Vector2.new(0.5, 0.5)
+    dot.Parent = reticle
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+    
+    -- Animate Reticle
+    task.spawn(function()
+        local rot = 0
+        while overlay and overlay.Parent do
+            rot = rot + 2
+            ring.Rotation = rot
+            task.wait(0.03)
+        end
+    end)
+    
+    -- 3. Floating Controls (Bottom)
+    local controlsPanel = Instance.new("Frame")
+    controlsPanel.Name = "ControlsPanel"
+    controlsPanel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    controlsPanel.BackgroundTransparency = 0.1
+    controlsPanel.Size = UDim2.new(0, 400, 0, 100)
+    controlsPanel.Position = UDim2.new(0.5, 0, 0.85, 0) -- Near bottom
+    controlsPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+    controlsPanel.Parent = overlay
+    Instance.new("UICorner", controlsPanel).CornerRadius = UDim.new(0, 16)
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Text = "CALIBRATION MODE"
+    title.TextColor3 = Color3.fromRGB(0, 255, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 14
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, 0, 0, 24)
+    title.Position = UDim2.new(0, 0, 0, 10)
+    title.Parent = controlsPanel
+    
+    -- Slider Logic
+    local currentOffset = Axiora.Settings.XOffset or 0
+    local sliderTrack = Instance.new("Frame")
+    sliderTrack.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    sliderTrack.Size = UDim2.new(0.8, 0, 0, 8)
+    sliderTrack.Position = UDim2.new(0.1, 0, 0.5, 0)
+    sliderTrack.Parent = controlsPanel
+    Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(1, 0)
+    
+    local knob = Instance.new("Frame")
+    knob.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+    knob.Size = UDim2.new(0, 20, 0, 20)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Parent = sliderTrack
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Text = currentOffset .. " px"
+    valueLabel.TextColor3 = Color3.new(1, 1, 1)
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextSize = 20
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Position = UDim2.new(0.5, 0, 0.7, 0)
+    valueLabel.AnchorPoint = Vector2.new(0.5, 0)
+    valueLabel.Parent = controlsPanel
+    
+    local function updateSliderVisuals()
+        local min, max = -50, 50
+        local pct = (currentOffset - min) / (max - min)
+        pct = math.clamp(pct, 0, 1)
+        knob.Position = UDim2.new(pct, 0, 0.5, 0)
+        valueLabel.Text = (currentOffset > 0 and "+" or "") .. math.floor(currentOffset) .. " px"
+        Axiora.Settings.XOffset = currentOffset -- Live update
+    end
+    
+    updateSliderVisuals()
+    
+    -- Slider Interaction
+    local dragging = false
+    knob.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    
+    userInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    
+    userInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local pos = input.Position.X
+            local startX = sliderTrack.AbsolutePosition.X
+            local width = sliderTrack.AbsoluteSize.X
+            local rel = math.clamp((pos - startX) / width, 0, 1)
+            
+            -- Map 0-1 to -50 to +50
+            currentOffset = math.floor((rel * 100) - 50)
+            updateSliderVisuals()
+        end
+    end)
+    
+    -- 4. Interactive Test (Click Anywhere)
+    local clickConn
+    clickConn = overlay.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            -- Ignore clicks on the panel itself
+    -- (Actually overlay is full screen, so we check if mouse is over panel)
+            local mPos = UserInputService:GetMouseLocation()
+            local pPos = controlsPanel.AbsolutePosition
+            local pSize = controlsPanel.AbsoluteSize
+            
+            if mPos.X >= pPos.X and mPos.X <= pPos.X + pSize.X and
+               mPos.Y >= pPos.Y and mPos.Y <= pSize.Y + pPos.Y then
+                return -- Clicked on panel
+            end
+            
+            -- VISUALIZE ACCURACY
+            -- 1. Where user clicked (Real intent)
+            local intentPos = mPos
+            
+            -- 2. Where script would click with current offset
+            -- Script adds XOffset to input. So if we input X, script clicks X + Offset?
+            -- Wait. GetAbsoluteInput REVERSES the logic presumably?
+            -- No, GetAbsoluteInput converts relative (0-1) to screen coords.
+            -- Axiora.Input.Click takes coordinates.
+            -- The Offset is ADDED to the coordinate before clicking.
+            -- So if I intend to click at 100, and Offset is +10, script clicks 110.
+            -- So the "Actual Landing" is Intent + Offset.
+            
+            local landingX = intentPos.X + currentOffset
+            local landingY = intentPos.Y -- Y is not offset
+            
+            -- Show RIPPLE at Landing
+            if Axiora.Visuals.Ripple then
+                task.spawn(function() Axiora.Visuals.Ripple(landingX, landingY) end)
+            end
+            
+            -- Show GHOST DOT at Intent (Green = Good, Red = Drift)
+            local ghost = Instance.new("Frame")
+            ghost.Size = UDim2.new(0, 10, 0, 10)
+            ghost.Position = UDim2.new(0, intentPos.X, 0, intentPos.Y)
+            ghost.AnchorPoint = Vector2.new(0.5, 0.5)
+            ghost.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            ghost.BackgroundTransparency = 0.5
+            ghost.Parent = overlay
+            Instance.new("UICorner", ghost).CornerRadius = UDim.new(1, 0)
+            
+            -- Connect them with a line if offset is significant
+            if math.abs(currentOffset) > 2 then
+                local line = Instance.new("Frame")
+                line.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+                line.BorderSizePixel = 0
+                line.Size = UDim2.new(0, math.abs(currentOffset), 0, 2)
+                -- Position between points
+                local midX = (intentPos.X + landingX) / 2
+                line.Position = UDim2.new(0, midX, 0, intentPos.Y)
+                line.AnchorPoint = Vector2.new(0.5, 0.5)
+                line.Parent = overlay
+                task.delay(1, function() line:Destroy() end)
+            end
+            
+            task.delay(1, function() ghost:Destroy() end)
+        end
+    end)
+    
+    -- 5. Save & Exit Button
+    local saveBtn = Instance.new("TextButton")
+    saveBtn.Text = "SAVE & CLOSE"
+    saveBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+    saveBtn.Size = UDim2.new(0, 120, 0, 30)
+    saveBtn.Position = UDim2.new(0.95, 0, 0.1, 0) -- Top right
+    saveBtn.AnchorPoint = Vector2.new(0.95, 0.1)
+    saveBtn.Parent = overlay,
+    Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
+    
+    saveBtn.MouseButton1Click:Connect(function()
+        Axiora.Calibration.SaveCalibrationData()
+    end)
+end
+
+function Axiora.Calibration.StartInteractiveCalibration()
+    Axiora.Calibration.ShowOverlay()
+end
+
+function Axiora.Calibration.SaveCalibrationData()
+    if Axiora.Calibration.Overlay then
+        Axiora.Calibration.Overlay:Destroy()
+        Axiora.Calibration.Overlay = nil
+    end
+    Axiora.Calibration.IsCalibrating = false
+    
+    -- Save to file logic
+    local saveData = {
+        OffsetX = Axiora.Settings.XOffset,
+        Timestamp = os.time()
+    }
+    
+    if Axiora.Capabilities.WriteFile then
+        pcall(function()
+            if not isfolder("Axiora") then makefolder("Axiora") end
+            writefile("Axiora/calibration.json", HttpService:JSONEncode(saveData))
+        end)
+    end
+    
+    if Axiora.Visuals and Axiora.Visuals.Notify then
+        Axiora.Visuals.Notify("Calibration", "Offsets Saved", 2, "success")
+    end
+end
+
+function Axiora.Recalibrate()
+    Axiora.Calibration.StartInteractiveCalibration()
+end
+    local sg = passedSG or Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui
+    if not sg then return end
+    
+    -- Create fullscreen overlay
+    local overlay = Instance.new("Frame")
+    overlay.Name = "CalibrationPhase1"
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.15
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.ZIndex = 1000
+    overlay.Parent = sg
+    
+    Axiora.Calibration.Phase1UI = overlay
+    
+    -- Crosshair container
+    local crosshair = Instance.new("Frame")
+    crosshair.Name = "Crosshair"
+    crosshair.BackgroundColor3 = Color3.fromRGB(255, 80, 100)
+    crosshair.BackgroundTransparency = 0
+    crosshair.Size = UDim2.new(0, 50, 0, 50)
+    crosshair.Position = UDim2.fromScale(0.5, 0.5)
+    crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshair.BorderSizePixel = 0
+    crosshair.ZIndex = 1001
+    crosshair.Parent = overlay
+    Instance.new("UICorner", crosshair).CornerRadius = UDim.new(1, 0)
+    
+    -- Horizontal line
+    local hLine = Instance.new("Frame")
+    hLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    hLine.Size = UDim2.new(3, 0, 0, 2)
+    hLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+    hLine.AnchorPoint = Vector2.new(0.5, 0.5)
+    hLine.BorderSizePixel = 0
+    hLine.ZIndex = 1002
+    hLine.Parent = crosshair
+    
+    -- Vertical line
+    local vLine = Instance.new("Frame")
+    vLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    vLine.Size = UDim2.new(0, 2, 3, 0)
+    vLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+    vLine.AnchorPoint = Vector2.new(0.5, 0.5)
+    vLine.BorderSizePixel = 0
+    vLine.ZIndex = 1002
+    vLine.Parent = crosshair
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(0, 500, 0, 40)
+    title.Position = UDim2.new(0.5, 0, 0.25, 0)
+    title.AnchorPoint = Vector2.new(0.5, 0.5)
+    title.Text = "🎯 INPUT CALIBRATION"
+    title.TextColor3 = Color3.fromRGB(60, 180, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 24
+    title.ZIndex = 1001
+    title.Parent = overlay
+    
+    -- Instruction
+    local instruction = Instance.new("TextLabel")
+    instruction.BackgroundTransparency = 1
+    instruction.Size = UDim2.new(0, 400, 0, 50)
+    instruction.Position = UDim2.new(0.5, 0, 0.68, 0)
+    instruction.AnchorPoint = Vector2.new(0.5, 0.5)
+    instruction.Text = "Click the CENTER of the red circle"
+    instruction.TextColor3 = Color3.new(1, 1, 1)
+    instruction.Font = Enum.Font.GothamBold
+    instruction.TextSize = 18
+    instruction.ZIndex = 1001
+    instruction.Parent = overlay
+    
+    -- Subtitle
+    local subtitle = Instance.new("TextLabel")
+    subtitle.BackgroundTransparency = 1
+    subtitle.Size = UDim2.new(0, 400, 0, 30)
+    subtitle.Position = UDim2.new(0.5, 0, 0.73, 0)
+    subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+    subtitle.Text = "This helps detect your input offset"
+    subtitle.TextColor3 = Color3.fromRGB(150, 150, 170)
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextSize = 13
+    subtitle.ZIndex = 1001
+    subtitle.Parent = overlay
+    
+    -- Wait for click
+    local clickConnection
+    clickConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            
+            local mousePos = UserInputService:GetMouseLocation()
+            local crosshairCenter = crosshair.AbsolutePosition + (crosshair.AbsoluteSize / 2)
+            
+            -- Calculate rough offset (where we should click - where we did click)
+            local roughOffset = Vector2.new(
+                crosshairCenter.X - mousePos.X,
+                crosshairCenter.Y - mousePos.Y
+            )
+            
+            Axiora.Calibration.TempOffset = roughOffset
+            
+            clickConnection:Disconnect()
+            overlay:Destroy()
+            Axiora.Calibration.Phase1UI = nil
+            
+            task.wait(0.2)
+            Axiora.Calibration.StartPhase2()
+        end
+    end)
+end
+
+-- PHASE 2: X-Axis Only Calibration (Simplified Horizontal Slider)
+function Axiora.Calibration.StartPhase2()
+    local sg = Axiora.UI.ScreenGui
+    if not sg then return end
+    
+    -- Start with rough X offset from Phase 1, Y stays at 0
+    local roughX = Axiora.Calibration.TempOffset.X
+    Axiora.Calibration.CurrentOffset = Vector2.new(roughX, 0)
+    
+    -- Main panel (compact)
+    local panel = Instance.new("Frame")
+    panel.Name = "CalibrationPhase2"
+    panel.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+    panel.BackgroundTransparency = 0.02
+    panel.Size = UDim2.new(0, 320, 0, 245)
+    panel.Position = UDim2.fromScale(0.5, 0.5)
+    panel.AnchorPoint = Vector2.new(0.5, 0.5)
+    panel.BorderSizePixel = 0
+    panel.ZIndex = 1000
+    panel.Parent = sg
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 14)
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 180, 255)
+    stroke.Transparency = 0.5
+    stroke.Thickness = 2
+    stroke.Parent = panel
+    
+    Axiora.Calibration.Phase2UI = panel
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, -20, 0, 30)
+    title.Position = UDim2.new(0, 10, 0, 10)
+    title.Text = "🎯 X-AXIS CALIBRATION"
+    title.TextColor3 = Color3.fromRGB(60, 180, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 16
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 1001
+    title.Parent = panel
+    
+    -- Offset value label
+    local offsetLabel = Instance.new("TextLabel")
+    offsetLabel.Name = "OffsetLabel"
+    offsetLabel.BackgroundTransparency = 1
+    offsetLabel.Size = UDim2.new(1, -20, 0, 25)
+    offsetLabel.Position = UDim2.new(0, 10, 0, 40)
+    offsetLabel.Text = "X Offset: " .. math.floor(roughX) .. " px"
+    offsetLabel.TextColor3 = Color3.new(1, 1, 1)
+    offsetLabel.Font = Enum.Font.GothamBold
+    offsetLabel.TextSize = 14
+    offsetLabel.TextXAlignment = Enum.TextXAlignment.Center
+    offsetLabel.ZIndex = 1001
+    offsetLabel.Parent = panel
+    
+    -- Slider track
+    local sliderTrack = Instance.new("Frame")
+    sliderTrack.Name = "SliderTrack"
+    sliderTrack.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+    sliderTrack.Size = UDim2.new(1, -80, 0, 12)
+    sliderTrack.Position = UDim2.new(0, 40, 0, 75)
+    sliderTrack.BorderSizePixel = 0
+    sliderTrack.ZIndex = 1001
+    sliderTrack.Parent = panel
+    Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(1, 0)
+    
+    -- Slider handle
+    local sliderHandle = Instance.new("Frame")
+    sliderHandle.Name = "SliderHandle"
+    sliderHandle.BackgroundColor3 = Color3.fromRGB(60, 180, 255)
+    sliderHandle.Size = UDim2.new(0, 24, 0, 24)
+    sliderHandle.AnchorPoint = Vector2.new(0.5, 0.5)
+    sliderHandle.Position = UDim2.new(0.5, 0, 0.5, 0)
+    sliderHandle.BorderSizePixel = 0
+    sliderHandle.ZIndex = 1002
+    sliderHandle.Parent = sliderTrack
+    Instance.new("UICorner", sliderHandle).CornerRadius = UDim.new(1, 0)
+    
+    -- Left/Right buttons
+    local leftBtn = Instance.new("TextButton")
+    leftBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    leftBtn.Size = UDim2.new(0, 30, 0, 30)
+    leftBtn.Position = UDim2.new(0, 5, 0, 66)
+    leftBtn.Text = "◀"
+    leftBtn.TextColor3 = Color3.new(1, 1, 1)
+    leftBtn.Font = Enum.Font.GothamBold
+    leftBtn.TextSize = 16
+    leftBtn.BorderSizePixel = 0
+    leftBtn.ZIndex = 1002
+    leftBtn.Parent = panel
+    Instance.new("UICorner", leftBtn).CornerRadius = UDim.new(0, 6)
+    
+    local rightBtn = Instance.new("TextButton")
+    rightBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    rightBtn.Size = UDim2.new(0, 30, 0, 30)
+    rightBtn.Position = UDim2.new(1, -35, 0, 66)
+    rightBtn.Text = "▶"
+    rightBtn.TextColor3 = Color3.new(1, 1, 1)
+    rightBtn.Font = Enum.Font.GothamBold
+    rightBtn.TextSize = 16
+    rightBtn.BorderSizePixel = 0
+    rightBtn.ZIndex = 1002
+    rightBtn.Parent = panel
+    Instance.new("UICorner", rightBtn).CornerRadius = UDim.new(0, 6)
+    
+    -- Range labels
+    local minLabel = Instance.new("TextLabel")
+    minLabel.BackgroundTransparency = 1
+    minLabel.Size = UDim2.new(0, 40, 0, 16)
+    minLabel.Position = UDim2.new(0, 40, 0, 90)
+    minLabel.Text = "-50"
+    minLabel.TextColor3 = Color3.fromRGB(100, 100, 120)
+    minLabel.Font = Enum.Font.Gotham
+    minLabel.TextSize = 10
+    minLabel.TextXAlignment = Enum.TextXAlignment.Left
+    minLabel.ZIndex = 1001
+    minLabel.Parent = panel
+    
+    local maxLabel = Instance.new("TextLabel")
+    maxLabel.BackgroundTransparency = 1
+    maxLabel.Size = UDim2.new(0, 40, 0, 16)
+    maxLabel.Position = UDim2.new(1, -80, 0, 90)
+    maxLabel.Text = "+50"
+    maxLabel.TextColor3 = Color3.fromRGB(100, 100, 120)
+    maxLabel.Font = Enum.Font.Gotham
+    maxLabel.TextSize = 10
+    maxLabel.TextXAlignment = Enum.TextXAlignment.Right
+    maxLabel.ZIndex = 1001
+    maxLabel.Parent = panel
+    
+    -- Function to update slider position and label
+    local function updateSlider()
+        local xOffset = Axiora.Calibration.CurrentOffset.X
+        xOffset = math.clamp(xOffset, -50, 50)
+        Axiora.Calibration.CurrentOffset = Vector2.new(xOffset, 0)
+        
+        local normalized = (xOffset + 50) / 100
+        sliderHandle.Position = UDim2.new(normalized, 0, 0.5, 0)
+        offsetLabel.Text = "X Offset: " .. (xOffset >= 0 and "+" or "") .. math.floor(xOffset) .. " px"
+        
+        -- Color based on value
+        if math.abs(xOffset) < 5 then
+            offsetLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+        else
+            offsetLabel.TextColor3 = Color3.new(1, 1, 1)
+        end
+    end
+    
+    -- Left/Right button handlers
+    leftBtn.MouseButton1Click:Connect(function()
+        Axiora.Calibration.CurrentOffset = Axiora.Calibration.CurrentOffset + Vector2.new(-1, 0)
+        updateSlider()
+    end)
+    
+    rightBtn.MouseButton1Click:Connect(function()
+        Axiora.Calibration.CurrentOffset = Axiora.Calibration.CurrentOffset + Vector2.new(1, 0)
+        updateSlider()
+    end)
+    
+    -- Slider drag functionality
+    local dragging = false
+    sliderHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    
+    sliderHandle.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local trackPos = sliderTrack.AbsolutePosition.X
+            local trackWidth = sliderTrack.AbsoluteSize.X
+            local mouseX = UserInputService:GetMouseLocation().X
+            local normalized = math.clamp((mouseX - trackPos) / trackWidth, 0, 1)
+            local xOffset = (normalized * 100) - 50
+            Axiora.Calibration.CurrentOffset = Vector2.new(xOffset, 0)
+            updateSlider()
+        end
+    end)
+    
+    -- Keyboard support
+    local keyConn
+    keyConn = UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == Enum.KeyCode.Left or input.KeyCode == Enum.KeyCode.A then
+            Axiora.Calibration.CurrentOffset = Axiora.Calibration.CurrentOffset + Vector2.new(-1, 0)
+            updateSlider()
+        elseif input.KeyCode == Enum.KeyCode.Right or input.KeyCode == Enum.KeyCode.D then
+            Axiora.Calibration.CurrentOffset = Axiora.Calibration.CurrentOffset + Vector2.new(1, 0)
+            updateSlider()
+        end
+    end)
+    
+    -- ═══════════════════════════════════════════════════════════════════════════════
+    -- TEST CLICK WITH VISUAL CROSSHAIR
+    -- ═══════════════════════════════════════════════════════════════════════════════
+    
+    -- Create crosshair indicator (shows where clicks will land)
+    local crosshair = Instance.new("Frame")
+    crosshair.Name = "CalibrationCrosshair"
+    crosshair.BackgroundTransparency = 1
+    crosshair.Size = UDim2.new(0, 60, 0, 60)
+    crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+    crosshair.ZIndex = 999
+    crosshair.Parent = Axiora.Calibration.Phase2UI
+    
+    -- Vertical line
+    local vLine = Instance.new("Frame")
+    vLine.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    vLine.BorderSizePixel = 0
+    vLine.Size = UDim2.new(0, 2, 1, 0)
+    vLine.Position = UDim2.new(0.5, -1, 0, 0)
+    vLine.ZIndex = 999
+    vLine.Parent = crosshair
+    
+    -- Horizontal line
+    local hLine = Instance.new("Frame")
+    hLine.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    hLine.BorderSizePixel = 0
+    hLine.Size = UDim2.new(1, 0, 0, 2)
+    hLine.Position = UDim2.new(0, 0, 0.5, -1)
+    hLine.ZIndex = 999
+    hLine.Parent = crosshair
+    
+    -- Center dot
+    local centerDot = Instance.new("Frame")
+    centerDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    centerDot.BorderSizePixel = 0
+    centerDot.Size = UDim2.new(0, 12, 0, 12)
+    centerDot.Position = UDim2.new(0.5, -6, 0.5, -6)
+    centerDot.ZIndex = 1000
+    centerDot.Parent = crosshair
+    Instance.new("UICorner", centerDot).CornerRadius = UDim.new(1, 0)
+    
+    -- Crosshair label
+    local crosshairLabel = Instance.new("TextLabel")
+    crosshairLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    crosshairLabel.BackgroundTransparency = 0.4
+    crosshairLabel.Size = UDim2.new(0, 120, 0, 24)
+    crosshairLabel.Position = UDim2.new(0.5, -60, 1, 5)
+    crosshairLabel.Text = "CLICK HERE"
+    crosshairLabel.TextColor3 = Color3.new(1, 1, 1)
+    crosshairLabel.Font = Enum.Font.GothamBold
+    crosshairLabel.TextSize = 12
+    crosshairLabel.ZIndex = 1000
+    crosshairLabel.Parent = crosshair
+    Instance.new("UICorner", crosshairLabel).CornerRadius = UDim.new(0, 6)
+    
+    -- Function to update crosshair position with current offset
+    local function updateCrosshair()
+        local screenCenter = Vector2.new(
+            Axiora.Math.Screen.Viewport.X / 2,
+            Axiora.Math.Screen.Viewport.Y / 2
+        )
+        local xOffset = Axiora.Calibration.CurrentOffset.X
+        crosshair.Position = UDim2.new(0, screenCenter.X + xOffset, 0, screenCenter.Y)
+    end
+    
+    -- Extended updateSlider to also update crosshair
+    local originalUpdateSlider = updateSlider
+    updateSlider = function()
+        originalUpdateSlider()
+        updateCrosshair()
+    end
+    
+    -- Test Click Button
+    local testBtn = Instance.new("TextButton")
+    testBtn.BackgroundColor3 = Color3.fromRGB(255, 180, 50)
+    testBtn.BackgroundTransparency = 0.1
+    testBtn.Size = UDim2.new(1, -40, 0, 40)
+    testBtn.Position = UDim2.new(0, 20, 0, 125)
+    testBtn.Text = "🎯 TEST CLICK AT CROSSHAIR"
+    testBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
+    testBtn.Font = Enum.Font.GothamBold
+    testBtn.TextSize = 13
+    testBtn.BorderSizePixel = 0
+    testBtn.ZIndex = 1002
+    testBtn.Parent = panel
+    Instance.new("UICorner", testBtn).CornerRadius = UDim.new(0, 10)
+    
+    testBtn.MouseButton1Click:Connect(function()
+        -- Get absolute click position with current offset
+        local absPos = Axiora.Math.GetAbsoluteInput(0.5, 0.5)
+        
+        -- Visual pulse on crosshair
+        local pulse = TweenService:Create(centerDot, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 24, 0, 24),
+            Position = UDim2.new(0.5, -12, 0.5, -12)
+        })
+        pulse:Play()
+        pulse.Completed:Wait()
+        
+        -- Perform the click
+        Axiora.Input.Click(absPos.X, absPos.Y)
+        
+        -- Create ripple effect at click position
+        if Axiora.Visuals and Axiora.Visuals.Ripple then
+            pcall(function()
+                Axiora.Visuals.Ripple(absPos.X, absPos.Y)
+            end)
+        end
+        
+        -- Shrink back
+        TweenService:Create(centerDot, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 12, 0, 12),
+            Position = UDim2.new(0.5, -6, 0.5, -6)
+        }):Play()
+        
+        -- Flash green if successful
+        centerDot.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+        task.delay(0.3, function()
+            centerDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+        end)
+        
+        Axiora.Visuals.Notify("Test Click", 
+            string.format("Clicked at (%d, %d)", math.floor(absPos.X), math.floor(absPos.Y)), 
+            2, "info")
+    end)
+    
+    -- Save button (moved down to make room)
+    local saveBtn = Instance.new("TextButton")
+    saveBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+    saveBtn.BackgroundTransparency = 0.1
+    saveBtn.Size = UDim2.new(1, -40, 0, 44)
+    saveBtn.Position = UDim2.new(0, 20, 0, 175)
+    saveBtn.Text = "✓ SAVE & CONTINUE"
+    saveBtn.TextColor3 = Color3.new(1, 1, 1)
+    saveBtn.Font = Enum.Font.GothamBlack
+    saveBtn.TextSize = 15
+    saveBtn.BorderSizePixel = 0
+    saveBtn.ZIndex = 1002
+    saveBtn.Parent = panel
+    Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 10)
+    
+    saveBtn.MouseButton1Click:Connect(function()
+        keyConn:Disconnect()
+        crosshair:Destroy()  -- Clean up crosshair
+        Axiora.Calibration.SaveCalibrationData()
+    end)
+    
+    -- Initial update
+    updateSlider()
+    updateCrosshair()
+end
+
+-- Adjust offset (kept for compatibility)
+function Axiora.Calibration.AdjustOffset(delta)
+    Axiora.Calibration.CurrentOffset = Axiora.Calibration.CurrentOffset + Vector2.new(delta.X, 0)
+end
+
+-- Update visualization (simplified - no longer needed but kept for compatibility)
+function Axiora.Calibration.UpdateVisualization()
+    -- No-op in simplified version
+end
+
+-- Test click (removed - not needed for X-only calibration)
+function Axiora.Calibration.TestClick()
+    Axiora.Visuals.Notify("Calibration", "Use slider to adjust X offset", 2, "info")
+end
+
+-- Save calibration data (X offset only)
+function Axiora.Calibration.SaveCalibrationData()
+    local xOffset = math.floor(Axiora.Calibration.CurrentOffset.X)
+    
+    Axiora.Settings.XOffset = xOffset
+    Axiora.Settings.YOffset = 0  -- Y is always 0
+    
+    local saveData = {
+        OffsetX = xOffset,
+        OffsetY = 0,
+        Timestamp = os.time(),
+        Environment = Axiora.Calibration.GetEnvironmentFingerprint(),
+        Version = Axiora._VERSION or "6.0.0",
+        CalibrationMethod = "x-axis-slider"
+    }
+    
+    if Axiora.Capabilities.WriteFile then
+        pcall(function()
+            if not isfolder("Axiora") then makefolder("Axiora") end
+            writefile("Axiora/calibration.json", HttpService:JSONEncode(saveData))
+        end)
+    end
+    
+    -- Clean up UI
+    if Axiora.Calibration.Phase2UI then
+        Axiora.Calibration.Phase2UI:Destroy()
+        Axiora.Calibration.Phase2UI = nil
+    end
+    
+    Axiora.Calibration.IsCalibrating = false
+    
+    -- Notify success
+    task.wait(0.3)
+    if Axiora.Visuals and Axiora.Visuals.Notify then
+        pcall(function()
+            Axiora.Visuals.Notify("Calibration", "Saved! X Offset: " .. xOffset .. " px", 3, "success")
+        end)
+    end
+end
+
+-- Manual recalibration command
+function Axiora.Recalibrate()
+    Axiora.Calibration.StartInteractiveCalibration()
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 18.5: AUTOMATION ENGINE (Visual Scripting)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation = {
+    Rules = {},
+    MaxRules = 50,
+    Running = false,
+    SessionStartTime = os.time(),
+    LastChat = {message = "", sender = "", time = 0},
+    EvaluatorThread = nil,
+    
+    -- Debounce and connection tracking
+    _debounceTimers = {},
+    _connections = {},
+    DebounceDuration = 0.5,
+    
+    -- Rule modes
+    MODE_PLAYBACK = "playback",
+    MODE_ALWAYS = "always",
+    MODE_DISABLED = "disabled"
+}
+
+-- Generate unique rule ID
+function Axiora.Automation.GenerateId()
+    return "rule_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
+end
+
+-- Create a new rule
+function Axiora.Automation.CreateRule(trigger, condition, action, mode)
+    if #Axiora.Automation.Rules >= Axiora.Automation.MaxRules then
+        Axiora.Visuals.Notify("Automation", "Max rules reached (50)", 3, "error")
+        return nil
+    end
+    
+    local rule = {
+        id = Axiora.Automation.GenerateId(),
+        enabled = true,
+        mode = mode or Axiora.Automation.MODE_PLAYBACK,
+        trigger = trigger,
+        condition = condition,
+        action = action,
+        lastTriggered = 0,
+        triggerCount = 0
+    }
+    
+    table.insert(Axiora.Automation.Rules, rule)
+    Axiora.Automation.SaveRules()
+    
+    if #Axiora.Automation.Rules >= 40 then
+        Axiora.Visuals.Notify("Automation", "Approaching limit (" .. #Axiora.Automation.Rules .. "/50)", 2, "warning")
+    end
+    
+    return rule
+end
+
+-- Delete a rule by ID
+function Axiora.Automation.DeleteRule(ruleId)
+    for i, rule in ipairs(Axiora.Automation.Rules) do
+        if rule.id == ruleId then
+            table.remove(Axiora.Automation.Rules, i)
+            Axiora.Automation.SaveRules()
+            return true
+        end
+    end
+    return false
+end
+
+-- Toggle rule enabled/disabled
+function Axiora.Automation.ToggleRule(ruleId)
+    for _, rule in ipairs(Axiora.Automation.Rules) do
+        if rule.id == ruleId then
+            rule.enabled = not rule.enabled
+            Axiora.Automation.SaveRules()
+            return rule.enabled
+        end
+    end
+    return nil
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TRIGGERS (5)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation.Triggers = {
+    -- Every X seconds
+    interval = function(rule, params)
+        local interval = params.seconds or 60
+        local now = os.clock()
+        if now - (rule.lastTriggered or 0) >= interval then
+            rule.lastTriggered = now
+            return true
+        end
+        return false
+    end,
+    
+    -- When player joins (checked via _lastPlayerCount)
+    playerJoin = function(rule, params)
+        local currentCount = #Players:GetPlayers()
+        local lastCount = Axiora.Automation._lastPlayerCount or currentCount
+        if currentCount > lastCount then
+            return true
+        end
+        return false
+    end,
+    
+    -- When player leaves
+    playerLeave = function(rule, params)
+        local currentCount = #Players:GetPlayers()
+        local lastCount = Axiora.Automation._lastPlayerCount or currentCount
+        if currentCount < lastCount then
+            return true
+        end
+        return false
+    end,
+    
+    -- When chat message received
+    chatReceived = function(rule, params)
+        local lastChat = Axiora.Automation.LastChat
+        if lastChat.time > (rule.lastChatTime or 0) then
+            rule.lastChatTime = lastChat.time
+            return true
+        end
+        return false
+    end,
+    
+    -- When macro completes
+    macroComplete = function(rule, params)
+        if Axiora.State._macroJustCompleted then
+            return true
+        end
+        return false
+    end,
+    
+    -- Always trigger (for pure condition-based)
+    always = function(rule, params)
+        return true
+    end,
+    
+    -- PHASE 2 TRIGGERS --
+    
+    -- When key is pressed
+    keyPressed = function(rule, params)
+        local targetKey = params.key or "E"
+        if Axiora.Automation._lastKeyPressed == targetKey then
+            Axiora.Automation._lastKeyPressed = nil
+            return true
+        end
+        return false
+    end,
+    
+    -- When health is low
+    healthLow = function(rule, params)
+        local threshold = params.threshold or 30
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.Health > 0 then
+            local healthPercent = (humanoid.Health / humanoid.MaxHealth) * 100
+            if healthPercent < threshold and not rule._healthTriggered then
+                rule._healthTriggered = true
+                return true
+            elseif healthPercent >= threshold then
+                rule._healthTriggered = false
+            end
+        end
+        return false
+    end,
+    
+    -- When character dies
+    onDeath = function(rule, params)
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.Health <= 0 and not rule._deathTriggered then
+            rule._deathTriggered = true
+            return true
+        elseif humanoid and humanoid.Health > 0 then
+            rule._deathTriggered = false
+        end
+        return false
+    end,
+    
+    -- After N macro loops
+    loopCount = function(rule, params)
+        local targetLoops = params.loops or 5
+        local currentLoops = Axiora.State.LoopCount or 0
+        if currentLoops >= targetLoops and currentLoops > (rule._lastLoopCheck or 0) then
+            rule._lastLoopCheck = currentLoops
+            return true
+        end
+        return false
+    end
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- CONDITIONS (8)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation.Conditions = {
+    -- Player count comparison
+    playerCount = function(params)
+        local count = #Players:GetPlayers()
+        local op = params.operator or ">"
+        local value = params.value or 5
+        
+        if op == ">" then return count > value
+        elseif op == "<" then return count < value
+        elseif op == "=" or op == "==" then return count == value
+        elseif op == ">=" then return count >= value
+        elseif op == "<=" then return count <= value
+        end
+        return false
+    end,
+    
+    -- Nearest player distance
+    playerDistance = function(params)
+        local maxDist = params.distance or 50
+        local op = params.operator or "<"
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local myPos = LP.Character:GetPivot().Position
+        local nearestDist = math.huge
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LP and player.Character then
+                local dist = (player.Character:GetPivot().Position - myPos).Magnitude
+                if dist < nearestDist then nearestDist = dist end
+            end
+        end
+        
+        if op == "<" then return nearestDist < maxDist
+        elseif op == ">" then return nearestDist > maxDist
+        end
+        return false
+    end,
+    
+    -- Position Y (void detection)
+    positionY = function(params)
+        local threshold = params.value or -50
+        local op = params.operator or "<"
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local y = LP.Character:GetPivot().Position.Y
+        
+        if op == "<" then return y < threshold
+        elseif op == ">" then return y > threshold
+        end
+        return false
+    end,
+    
+    -- Session time (minutes)
+    sessionTime = function(params)
+        local minutes = params.value or 30
+        local op = params.operator or ">"
+        local elapsed = (os.time() - Axiora.Automation.SessionStartTime) / 60
+        
+        if op == ">" then return elapsed > minutes
+        elseif op == "<" then return elapsed < minutes
+        end
+        return false
+    end,
+    
+    -- Specific player name exists
+    playerName = function(params)
+        local targetName = params.name or ""
+        local checkType = params.type or "exists" -- exists, joined, left
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if string.lower(player.Name) == string.lower(targetName) or
+               string.lower(player.DisplayName) == string.lower(targetName) then
+                return true
+            end
+        end
+        return false
+    end,
+    
+    -- Chat contains text
+    chatContains = function(params)
+        local text = params.text or ""
+        local lastChat = Axiora.Automation.LastChat
+        if lastChat.message and string.find(string.lower(lastChat.message), string.lower(text)) then
+            return true
+        end
+        return false
+    end,
+    
+    -- Always true (skip condition)
+    always = function(params)
+        return true
+    end,
+    
+    -- Random chance (percentage)
+    randomChance = function(params)
+        local percent = params.percent or 50
+        return math.random(100) <= percent
+    end,
+    
+    -- PHASE 2 CONDITIONS --
+    
+    -- Health below percentage
+    healthBelow = function(params)
+        local threshold = params.percent or 50
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.MaxHealth > 0 then
+            local healthPercent = (humanoid.Health / humanoid.MaxHealth) * 100
+            return healthPercent < threshold
+        end
+        return false
+    end,
+    
+    -- Character is moving
+    isMoving = function(params)
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return false end
+        
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            return humanoid.MoveDirection.Magnitude > 0.1
+        end
+        return false
+    end,
+    
+    -- Buffer has N or more nodes
+    bufferSize = function(params)
+        local minSize = params.value or 10
+        local op = params.operator or ">"
+        local size = #Axiora.State.Buffer
+        
+        if op == ">" then return size > minSize
+        elseif op == "<" then return size < minSize
+        elseif op == "=" or op == "==" then return size == minSize
+        end
+        return false
+    end
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ACTIONS (7 + Phase 2)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Automation.Actions = {
+    -- Play macro by name
+    playMacro = function(params)
+        local name = params.name or ""
+        if name ~= "" and Axiora.Load then
+            task.spawn(function()
+                Axiora.Load(name)
+                task.wait(0.5)
+                if Axiora.Play then Axiora.Play() end
+            end)
+        end
+    end,
+    
+    -- Stop/Pause current macro
+    stopMacro = function(params)
+        if Axiora.Stop then Axiora.Stop() end
+    end,
+    
+    -- Wait N seconds (for chaining)
+    wait = function(params)
+        local seconds = params.seconds or 1
+        task.wait(seconds)
+    end,
+    
+    -- Send chat message
+    sendChat = function(params)
+        local message = params.message or "Hello"
+        pcall(function()
+            local LP = getLocalPlayer()
+            if LP then
+                local chatService = game:GetService("TextChatService")
+                local channels = chatService:FindFirstChild("TextChannels")
+                if channels then
+                    local general = channels:FindFirstChild("RBXGeneral")
+                    if general then
+                        general:SendAsync(message)
+                    end
+                end
+            end
+        end)
+    end,
+    
+    -- Leave server
+    leaveServer = function(params)
+        task.spawn(function()
+            Axiora.Visuals.Notify("Automation", "Leaving server...", 2, "info")
+            task.wait(1)
+            pcall(function()
+                game:GetService("TeleportService"):Teleport(game.PlaceId)
+            end)
+        end)
+    end,
+    
+    -- Rejoin server
+    rejoinServer = function(params)
+        task.spawn(function()
+            Axiora.Visuals.Notify("Automation", "Rejoining...", 2, "info")
+            task.wait(1)
+            pcall(function()
+                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
+            end)
+        end)
+    end,
+    
+    -- Show notification
+    notify = function(params)
+        local title = params.title or "Automation"
+        local message = params.message or "Rule triggered"
+        Axiora.Visuals.Notify(title, message, 3, "info")
+    end,
+    
+    -- PHASE 2 ACTIONS --
+    
+    -- Jump
+    jump = function(params)
+        local LP = getLocalPlayer()
+        if not LP or not LP.Character then return end
+        
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Jump = true
+        end
+    end,
+    
+    -- Pause macro (not stop)
+    pauseMacro = function(params)
+        if Axiora.State.Status == "PLAYING" then
+            Axiora.State.Status = "PAUSED"
+            Axiora.Visuals.Notify("Automation", "Macro paused", 2, "info")
+        end
+    end,
+    
+    -- Resume macro
+    resumeMacro = function(params)
+        if Axiora.State.Status == "PAUSED" then
+            Axiora.State.Status = "PLAYING"
+            Axiora.Visuals.Notify("Automation", "Macro resumed", 2, "info")
+        end
+    end,
+    
+    -- Reset and restart current macro
+    resetMacro = function(params)
+        if Axiora.Stop then Axiora.Stop() end
+        task.wait(0.5)
+        if Axiora.Play then Axiora.Play() end
+    end
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- RULE EVALUATOR
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.Automation.EvaluateRule(rule)
+    if not rule.enabled then return false end
+    
+    -- Check mode
+    local isPlaying = Axiora.State.Status == "PLAYING"
+    if rule.mode == Axiora.Automation.MODE_PLAYBACK and not isPlaying then
+        return false
+    elseif rule.mode == Axiora.Automation.MODE_DISABLED then
+        return false
+    end
+    
+    -- Debounce check (prevent rapid re-triggering)
+    local now = os.clock()
+    local debounceDuration = rule.debounce or Axiora.Automation.DebounceDuration or 0.5
+    local lastFire = Axiora.Automation._debounceTimers[rule.id] or 0
+    if now - lastFire < debounceDuration then
+        return false
+    end
+    
+    -- Dependency check (rule only runs if dependent rule has fired)
+    if rule.dependsOn then
+        local depFired = false
+        for _, r in ipairs(Axiora.Automation.Rules) do
+            if r.id == rule.dependsOn and (r.triggerCount or 0) > 0 then
+                depFired = true
+                break
+            end
+        end
+        if not depFired then
+            return false
+        end
+    end
+    
+    -- Check trigger
+    local triggerFunc = Axiora.Automation.Triggers[rule.trigger.type]
+    if not triggerFunc then return false end
+    if not triggerFunc(rule, rule.trigger) then return false end
+    
+    -- Check condition
+    local conditionFunc = Axiora.Automation.Conditions[rule.condition.type]
+    if conditionFunc and not conditionFunc(rule.condition) then return false end
+    
+    -- Execute action
+    local actionFunc = Axiora.Automation.Actions[rule.action.type]
+    if actionFunc then
+        -- Update debounce timer
+        Axiora.Automation._debounceTimers[rule.id] = now
+        rule.triggerCount = (rule.triggerCount or 0) + 1
+        task.spawn(function()
+            actionFunc(rule.action)
+        end)
+        return true
+    end
+    
+    return false
+end
+
+function Axiora.Automation.StartEvaluator()
+    if Axiora.Automation.Running then return end
+    Axiora.Automation.Running = true
+    Axiora.Automation._lastPlayerCount = #Players:GetPlayers()
+    
+    -- Clear previous connections and reset state
+    Axiora.Automation._connections = {}
+    Axiora.Automation._debounceTimers = {}
+    
+    -- Chat listener
+    pcall(function()
+        local chatService = game:GetService("TextChatService")
+        local chatConn = chatService.MessageReceived:Connect(function(msg)
+            Axiora.Automation.LastChat = {
+                message = msg.Text or "",
+                sender = msg.TextSource and msg.TextSource.Name or "Unknown",
+                time = os.clock()
+            }
+        end)
+        table.insert(Axiora.Automation._connections, chatConn)
+    end)
+    
+    -- Key press listener (for keyPressed trigger)
+    pcall(function()
+        local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if input.UserInputType == Enum.UserInputType.Keyboard then
+                Axiora.Automation._lastKeyPressed = input.KeyCode.Name
+            end
+        end)
+        table.insert(Axiora.Automation._connections, keyConn)
+    end)
+    
+    -- Main evaluator loop
+    Axiora.Automation.EvaluatorThread = task.spawn(function()
+        while Axiora.Automation.Running do
+            for _, rule in ipairs(Axiora.Automation.Rules) do
+                pcall(function()
+                    Axiora.Automation.EvaluateRule(rule)
+                end)
+            end
+            
+            -- Update player count tracker
+            Axiora.Automation._lastPlayerCount = #Players:GetPlayers()
+            
+            -- Reset macro complete flag
+            Axiora.State._macroJustCompleted = false
+            
+            task.wait(0.5) -- Check every 0.5 seconds
+        end
+    end)
+end
+
+function Axiora.Automation.StopEvaluator()
+    Axiora.Automation.Running = false
+    
+    -- Clean up all connections to prevent memory leaks
+    for _, conn in ipairs(Axiora.Automation._connections or {}) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Axiora.Automation._connections = {}
+    
+    -- Reset debounce timers
+    Axiora.Automation._debounceTimers = {}
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- PERSISTENCE
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.Automation.SaveRules()
+    if not Axiora.Capabilities.WriteFile then return false end
+    
+    local saveData = {
+        rules = {},
+        version = "1.0"
+    }
+    
+    for _, rule in ipairs(Axiora.Automation.Rules) do
+        table.insert(saveData.rules, {
+            id = rule.id,
+            enabled = rule.enabled,
+            mode = rule.mode,
+            trigger = rule.trigger,
+            condition = rule.condition,
+            action = rule.action
+        })
+    end
+    
+    return pcall(function()
+        if not isfolder("Axiora") then makefolder("Axiora") end
+        writefile("Axiora/automation_rules.json", HttpService:JSONEncode(saveData))
+    end)
+end
+
+function Axiora.Automation.LoadRules()
+    if not Axiora.Capabilities.ReadFile then return false end
+    
+    local success, data = pcall(function()
+        if isfile("Axiora/automation_rules.json") then
+            return HttpService:JSONDecode(readfile("Axiora/automation_rules.json"))
+        end
+        return nil
+    end)
+    
+    if success and data and data.rules then
+        Axiora.Automation.Rules = {}
+        for _, ruleData in ipairs(data.rules) do
+            local rule = {
+                id = ruleData.id,
+                enabled = ruleData.enabled,
+                mode = ruleData.mode or Axiora.Automation.MODE_PLAYBACK,
+                trigger = ruleData.trigger,
+                condition = ruleData.condition,
+                action = ruleData.action,
+                lastTriggered = 0,
+                triggerCount = 0
+            }
+            table.insert(Axiora.Automation.Rules, rule)
+        end
+        return true
+    end
+    return false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- SECTION 19: MODERN UI INTERFACE (Fully Redesigned)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -3629,6 +5439,17 @@ Axiora.UI = {
     CurrentTab = 1,
     Orientation = "Portrait",
     Scale = 1.0,
+    IsOpen = false,
+    MainFrame = nil,
+    
+    -- Speed Presets (FIX: was missing causing nil error)
+    SpeedPresets = {
+        careful = 0.5,
+        normal = 1.0,
+        fast = 1.5,
+        turbo = 2.0
+    },
+    CurrentSpeed = "normal",
     
     -- Design System
     Theme = {
@@ -3637,12 +5458,17 @@ Axiora.UI = {
         Surface = Color3.fromRGB(18, 18, 28),   -- Elevated surfaces
         Overlay = Color3.fromRGB(25, 25, 40),   -- Panels
         Glass = 0.1,                            -- Transparency level
+        Background = Color3.fromRGB(15, 15, 25),
         
         -- Accents (State-dependent)
         Idle = Color3.fromRGB(60, 180, 255),    -- Cyan
         Recording = Color3.fromRGB(255, 50, 80), -- Crimson
         Playing = Color3.fromRGB(120, 255, 150), -- Green
         Paused = Color3.fromRGB(255, 200, 50),   -- Amber
+        
+        -- Primary colors
+        Primary = Color3.fromRGB(60, 180, 255),
+        Secondary = Color3.fromRGB(100, 100, 140),
         
         -- Node Types
         Movement = Color3.fromRGB(80, 150, 255), -- Blue
@@ -3651,9 +5477,8 @@ Axiora.UI = {
         Delay = Color3.fromRGB(100, 100, 120),   -- Gray
         
         -- Text
-        Primary = Color3.fromRGB(255, 255, 255),
-        Secondary = Color3.fromRGB(180, 180, 200),
-        Tertiary = Color3.fromRGB(120, 120, 140),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextDim = Color3.fromRGB(140, 140, 160),
         
         -- Status
         Success = Color3.fromRGB(50, 255, 150),
@@ -3667,7 +5492,8 @@ Axiora.UI = {
     Hub = nil,
     Tabs = {},
     Particles = {},
-    Connections = {}
+    Connections = {},
+    ToggleButton = nil
 }
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -3931,21 +5757,29 @@ function Axiora.Assistant.Show(text, mood)
     end
     
     local f = Axiora.Assistant.Frame
+    if not f then return end
+    
+    local msg = f:FindFirstChild("Message")
+    if not msg then return end
+    
     f.Visible = true
     f.BackgroundTransparency = 1
-    f.Message.TextTransparency = 1
-    f.Message.Text = text or Axiora.Assistant.Messages[math.random(1, #Axiora.Assistant.Messages)]
+    msg.TextTransparency = 1
+    msg.Text = text or Axiora.Assistant.Messages[math.random(1, #Axiora.Assistant.Messages)]
     
     -- Animate In
     TweenService:Create(f, TweenInfo.new(0.5, Enum.EasingStyle.Back), {BackgroundTransparency = 0.2}):Play()
-    TweenService:Create(f.Message, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+    TweenService:Create(msg, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
     
     -- Auto Hide
     task.delay(4, function()
+        if not f or not f.Parent then return end
         TweenService:Create(f, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(f.Message, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        if msg and msg.Parent then
+            TweenService:Create(msg, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        end
         task.wait(0.5)
-        if f.BackgroundTransparency >= 0.9 then f.Visible = false end
+        if f and f.BackgroundTransparency >= 0.9 then f.Visible = false end
     end)
 end
 
@@ -4098,7 +5932,7 @@ function Axiora.UI.OpenHub()
     hub.BackgroundColor3 = theme.Deep
     hub.BackgroundTransparency = 0.05
     hub.AnchorPoint = Vector2.new(0.5, 0.5) -- Center pivot
-    hub.Size = UDim2.new(0, 450, 0, 500) -- Fixed size per user request
+    hub.Size = UDim2.new(0.5, 0, 0.6, 0) -- Responsive: 50% Width, 60% Height
     hub.Position = UDim2.new(0.5, 0, 1.5, 0) -- Start off screen (bottom)
     hub.Parent = sg
     
@@ -4166,7 +6000,8 @@ function Axiora.UI.OpenHub()
         {Id = 1, Icon = "📊", Name = "Home"},
         {Id = 2, Icon = "✏️", Name = "Editor"},
         {Id = 3, Icon = "📁", Name = "Files"},
-        {Id = 4, Icon = "🔧", Name = "Tools"}
+        {Id = 4, Icon = "🔧", Name = "Tools"},
+        {Id = 5, Icon = "⚙️", Name = "Scripts"}
     }
     
     for _, tab in ipairs(tabs) do
@@ -4248,6 +6083,8 @@ function Axiora.UI.SwitchTab(tabId)
         Axiora.UI.BuildLibrary(Axiora.UI.ContentArea)
     elseif tabId == 4 then
         Axiora.UI.BuildUtilities(Axiora.UI.ContentArea)
+    elseif tabId == 5 then
+        Axiora.UI.BuildScripts(Axiora.UI.ContentArea)
     end
 end
 
@@ -4615,6 +6452,220 @@ function Axiora.UI.BuildLibrary(parent)
     end
 end
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 5: SCRIPTS (Automation Rules + URL Loader)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.BuildScripts(parent)
+    local theme = Axiora.UI.Theme
+    
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.BackgroundTransparency = 1
+    scroll.Size = UDim2.new(1, -20, 1, -10)
+    scroll.Position = UDim2.new(0, 10, 0, 5)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 600)
+    scroll.ScrollBarThickness = 2
+    scroll.Parent = parent
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 10)
+    layout.Parent = scroll
+    
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- SECTION 1: URL LOADER
+    -- ═══════════════════════════════════════════════════════════════════════
+    
+    local urlSection = Instance.new("Frame")
+    urlSection.BackgroundColor3 = theme.Surface
+    urlSection.BackgroundTransparency = 0.3
+    urlSection.Size = UDim2.new(1, 0, 0, 100)
+    urlSection.Parent = scroll
+    Instance.new("UICorner", urlSection).CornerRadius = UDim.new(0, 10)
+    
+    local urlTitle = Axiora.UI.Primitives.CreateNeonText(urlSection, "🌐 LOAD FROM URL", 14, theme.Idle)
+    urlTitle.Position = UDim2.new(0, 10, 0, 8)
+    
+    -- URL Input Box
+    local urlInput = Instance.new("TextBox")
+    urlInput.BackgroundColor3 = theme.Deep
+    urlInput.BackgroundTransparency = 0.3
+    urlInput.Size = UDim2.new(1, -20, 0, 35)
+    urlInput.Position = UDim2.new(0, 10, 0, 35)
+    urlInput.PlaceholderText = "Enter macro URL (pastebin, github raw, etc.)"
+    urlInput.PlaceholderColor3 = theme.Tertiary
+    urlInput.Text = ""
+    urlInput.TextColor3 = theme.Primary
+    urlInput.Font = Enum.Font.Gotham
+    urlInput.TextSize = 12
+    urlInput.ClearTextOnFocus = false
+    urlInput.Parent = urlSection
+    Instance.new("UICorner", urlInput).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIPadding", urlInput).PaddingLeft = UDim.new(0, 10)
+    
+    -- Load URL Button
+    local loadUrlBtn = Instance.new("TextButton")
+    loadUrlBtn.BackgroundColor3 = theme.Playing
+    loadUrlBtn.Size = UDim2.new(1, -20, 0, 30)
+    loadUrlBtn.Position = UDim2.new(0, 10, 0, 75)
+    loadUrlBtn.Text = "⬇️ LOAD FROM URL"
+    loadUrlBtn.TextColor3 = Color3.new(1, 1, 1)
+    loadUrlBtn.Font = Enum.Font.GothamBold
+    loadUrlBtn.TextSize = 12
+    loadUrlBtn.Parent = urlSection
+    Instance.new("UICorner", loadUrlBtn).CornerRadius = UDim.new(0, 6)
+    
+    loadUrlBtn.MouseButton1Click:Connect(function()
+        local url = urlInput.Text
+        if url == "" or not url:match("^https?://") then
+            Axiora.Visuals.Notify("URL Loader", "Please enter a valid URL", 2, "error")
+            return
+        end
+        
+        loadUrlBtn.Text = "⏳ LOADING..."
+        
+        task.spawn(function()
+            local success, result = pcall(function()
+                return game:HttpGet(url)
+            end)
+            
+            if success and result then
+                local decoded = pcall(function()
+                    local data = HttpService:JSONDecode(result)
+                    if data and (data.buffer or data.b) then
+                        Axiora.State.Buffer = data.buffer or data.b
+                        Axiora.Visuals.Notify("URL Loader", "Loaded " .. #Axiora.State.Buffer .. " nodes!", 3, "success")
+                        return true
+                    end
+                end)
+                
+                if not decoded then
+                    Axiora.Visuals.Notify("URL Loader", "Invalid macro format", 2, "error")
+                end
+            else
+                Axiora.Visuals.Notify("URL Loader", "Failed to fetch URL", 2, "error")
+            end
+            
+            loadUrlBtn.Text = "⬇️ LOAD FROM URL"
+        end)
+    end)
+    
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- SECTION 2: AUTOMATION RULES
+    -- ═══════════════════════════════════════════════════════════════════════
+    
+    local rulesSection = Instance.new("Frame")
+    rulesSection.BackgroundTransparency = 1
+    rulesSection.Size = UDim2.new(1, 0, 0, 40)
+    rulesSection.Parent = scroll
+    
+    local rulesTitle = Axiora.UI.Primitives.CreateNeonText(rulesSection, "⚡ AUTOMATION RULES", 14, theme.Idle)
+    rulesTitle.Position = UDim2.new(0, 0, 0.3, 0)
+    
+    -- Add Rule Button
+    local addRuleBtn = Instance.new("TextButton")
+    addRuleBtn.BackgroundColor3 = theme.Success
+    addRuleBtn.Size = UDim2.new(0, 80, 0, 28)
+    addRuleBtn.Position = UDim2.new(1, -85, 0.5, 0)
+    addRuleBtn.AnchorPoint = Vector2.new(0, 0.5)
+    addRuleBtn.Text = "+ NEW"
+    addRuleBtn.TextColor3 = Color3.new(1, 1, 1)
+    addRuleBtn.Font = Enum.Font.GothamBold
+    addRuleBtn.TextSize = 11
+    addRuleBtn.Parent = rulesSection
+    Instance.new("UICorner", addRuleBtn).CornerRadius = UDim.new(0, 6)
+    
+    addRuleBtn.MouseButton1Click:Connect(function()
+        if Axiora.Automation and Axiora.Automation.ShowRuleCreationModal then
+            Axiora.Automation.ShowRuleCreationModal(Axiora.UI.ScreenGui, function()
+                -- Refresh the list after creation
+                Axiora.UI.SwitchTab(5)
+            end)
+        else
+            Axiora.Visuals.Notify("Scripts", "Rule creation modal not available", 2, "warning")
+        end
+    end)
+    
+    -- List existing rules
+    local rules = Axiora.Automation and Axiora.Automation.Rules or {}
+    
+    if #rules == 0 then
+        local emptyLabel = Axiora.UI.Primitives.CreateNeonText(scroll, "No automation rules yet. Tap + NEW to create one!", 12, theme.Tertiary)
+        emptyLabel.Size = UDim2.new(1, 0, 0, 40)
+        emptyLabel.TextWrapped = true
+    else
+        for i, rule in ipairs(rules) do
+            local ruleCard = Instance.new("Frame")
+            ruleCard.BackgroundColor3 = theme.Surface
+            ruleCard.BackgroundTransparency = 0.2
+            ruleCard.Size = UDim2.new(1, 0, 0, 60)
+            ruleCard.Parent = scroll
+            Instance.new("UICorner", ruleCard).CornerRadius = UDim.new(0, 8)
+            
+            -- Rule name/trigger
+            local ruleName = Axiora.UI.Primitives.CreateNeonText(ruleCard, 
+                (rule.trigger and rule.trigger.type or "Unknown") .. " → " .. (rule.action and rule.action.type or "Unknown"), 
+                12, theme.Primary)
+            ruleName.Position = UDim2.new(0, 10, 0, 10)
+            ruleName.Size = UDim2.new(0.7, 0, 0, 20)
+            ruleName.TextXAlignment = Enum.TextXAlignment.Left
+            
+            -- Mode label
+            local modeLabel = Axiora.UI.Primitives.CreateNeonText(ruleCard, 
+                rule.mode or "always", 
+                10, rule.enabled and theme.Success or theme.Tertiary)
+            modeLabel.Position = UDim2.new(0, 10, 0, 32)
+            modeLabel.Size = UDim2.new(0.5, 0, 0, 16)
+            modeLabel.TextXAlignment = Enum.TextXAlignment.Left
+            
+            -- Toggle button
+            local toggleBtn = Instance.new("TextButton")
+            toggleBtn.BackgroundColor3 = rule.enabled and theme.Success or theme.Error
+            toggleBtn.Size = UDim2.new(0, 50, 0, 24)
+            toggleBtn.Position = UDim2.new(1, -110, 0.5, 0)
+            toggleBtn.AnchorPoint = Vector2.new(0, 0.5)
+            toggleBtn.Text = rule.enabled and "ON" or "OFF"
+            toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+            toggleBtn.Font = Enum.Font.GothamBold
+            toggleBtn.TextSize = 10
+            toggleBtn.Parent = ruleCard
+            Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 4)
+            
+            toggleBtn.MouseButton1Click:Connect(function()
+                if Axiora.Automation.ToggleRule then
+                    local newState = Axiora.Automation.ToggleRule(rule.id)
+                    toggleBtn.BackgroundColor3 = newState and theme.Success or theme.Error
+                    toggleBtn.Text = newState and "ON" or "OFF"
+                end
+            end)
+            
+            -- Delete button
+            local deleteBtn = Instance.new("TextButton")
+            deleteBtn.BackgroundColor3 = theme.Error
+            deleteBtn.BackgroundTransparency = 0.5
+            deleteBtn.Size = UDim2.new(0, 40, 0, 24)
+            deleteBtn.Position = UDim2.new(1, -50, 0.5, 0)
+            deleteBtn.AnchorPoint = Vector2.new(0, 0.5)
+            deleteBtn.Text = "🗑️"
+            deleteBtn.TextSize = 14
+            deleteBtn.Parent = ruleCard
+            Instance.new("UICorner", deleteBtn).CornerRadius = UDim.new(0, 4)
+            
+            deleteBtn.MouseButton1Click:Connect(function()
+                if Axiora.Automation.DeleteRule then
+                    Axiora.Automation.DeleteRule(rule.id)
+                    ruleCard:Destroy()
+                    Axiora.Visuals.Notify("Scripts", "Rule deleted", 2, "info")
+                end
+            end)
+        end
+    end
+    
+    -- Update canvas size
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+    end)
+end
+
 function Axiora.UI.CloseHub()
     if Axiora.UI.Hub then
         TweenService:Create(Axiora.UI.Hub, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {Position = UDim2.new(0,0,1,0)}):Play()
@@ -4652,6 +6703,208 @@ local function addGlow(parent, color, size)
     return glow
 end
 
+-- Helper: Create gradient effect on UI element
+local function createGradient(parent, startColor, endColor, rotation)
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, startColor),
+        ColorSequenceKeypoint.new(1, endColor)
+    })
+    gradient.Rotation = rotation or 0
+    gradient.Parent = parent
+    return gradient
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 1: COMMAND CENTER (Home)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.BuildCommandCenter(parent)
+    local theme = Axiora.UI.Theme
+    
+    local controlsTab = Instance.new("Frame")
+    controlsTab.Name = "CommandCenter"
+    controlsTab.BackgroundTransparency = 1
+    controlsTab.Size = UDim2.new(1, 0, 1, 0)
+    controlsTab.Parent = parent
+    
+    -- Record/Stop Toggle Button
+    local recordBtn = Instance.new("TextButton")
+    recordBtn.Name = "RecordToggle"
+    recordBtn.BackgroundColor3 = theme.Error
+    recordBtn.BackgroundTransparency = 0.15
+    recordBtn.Size = UDim2.new(0.48, 0, 0, 50)
+    recordBtn.Position = UDim2.new(0, 0, 0, 0)
+    recordBtn.Text = ""
+    recordBtn.AutoButtonColor = false
+    recordBtn.BorderSizePixel = 0
+    recordBtn.Parent = controlsTab
+    Instance.new("UICorner", recordBtn).CornerRadius = UDim.new(0, 10)
+    
+    local recordIcon = Instance.new("TextLabel")
+    recordIcon.BackgroundTransparency = 1
+    recordIcon.Size = UDim2.new(1, 0, 0, 24)
+    recordIcon.Position = UDim2.new(0, 0, 0, 6)
+    recordIcon.Text = "⏺"
+    recordIcon.TextColor3 = Color3.new(1, 1, 1)
+    recordIcon.Font = Enum.Font.GothamBold
+    recordIcon.TextSize = 18
+    recordIcon.Parent = recordBtn
+    
+    local recordLabel = Instance.new("TextLabel")
+    recordLabel.BackgroundTransparency = 1
+    recordLabel.Size = UDim2.new(1, 0, 0, 16)
+    recordLabel.Position = UDim2.new(0, 0, 1, -20)
+    recordLabel.Text = "RECORD"
+    recordLabel.TextColor3 = Color3.new(1, 1, 1)
+    recordLabel.Font = Enum.Font.GothamBold
+    recordLabel.TextSize = 9
+    recordLabel.Parent = recordBtn
+    
+    recordBtn.MouseButton1Click:Connect(function()
+        if Axiora.State.Status == "RECORDING" then
+            Axiora.Stop()
+        else
+            Axiora.Record()
+        end
+    end)
+    
+    -- Play/Pause Toggle Button
+    local playBtn = Instance.new("TextButton")
+    playBtn.Name = "PlayToggle"
+    playBtn.BackgroundColor3 = theme.Success
+    playBtn.BackgroundTransparency = 0.15
+    playBtn.Size = UDim2.new(0.48, 0, 0, 50)
+    playBtn.Position = UDim2.new(0.52, 0, 0, 0)
+    playBtn.Text = ""
+    playBtn.AutoButtonColor = false
+    playBtn.BorderSizePixel = 0
+    playBtn.Parent = controlsTab
+    Instance.new("UICorner", playBtn).CornerRadius = UDim.new(0, 10)
+    
+    local playIcon = Instance.new("TextLabel")
+    playIcon.BackgroundTransparency = 1
+    playIcon.Size = UDim2.new(1, 0, 0, 24)
+    playIcon.Position = UDim2.new(0, 0, 0, 6)
+    playIcon.Text = "▶"
+    playIcon.TextColor3 = Color3.new(1, 1, 1)
+    playIcon.Font = Enum.Font.GothamBold
+    playIcon.TextSize = 18
+    playIcon.Parent = playBtn
+    
+    local playLabel = Instance.new("TextLabel")
+    playLabel.BackgroundTransparency = 1
+    playLabel.Size = UDim2.new(1, 0, 0, 16)
+    playLabel.Position = UDim2.new(0, 0, 1, -20)
+    playLabel.Text = "PLAY"
+    playLabel.TextColor3 = Color3.new(1, 1, 1)
+    playLabel.Font = Enum.Font.GothamBold
+    playLabel.TextSize = 9
+    playLabel.Parent = playBtn
+    
+    playBtn.MouseButton1Click:Connect(function()
+        if Axiora.State.Status == "PLAYING" then
+            Axiora.Pause()
+        elseif Axiora.State.Status == "PAUSED" then
+            Axiora.Resume()
+        else
+            Axiora.Play(true)
+        end
+    end)
+    
+    -- Speed Section
+    local speedLabel = Instance.new("TextLabel")
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Size = UDim2.new(1, 0, 0, 18)
+    speedLabel.Position = UDim2.new(0, 0, 0, 58)
+    speedLabel.Text = "SPEED"
+    speedLabel.TextColor3 = theme.TextDim
+    speedLabel.Font = Enum.Font.GothamBold
+    speedLabel.TextSize = 9
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    speedLabel.Parent = controlsTab
+    
+    local speedBtns = {}
+    local presets = {"0.5x", "1x", "1.5x", "2x"}
+    local presetKeys = {"careful", "normal", "fast", "turbo"}
+    
+    for i, label in ipairs(presets) do
+        local speedBtn = Instance.new("TextButton")
+        speedBtn.BackgroundColor3 = i == 2 and theme.Primary or theme.Surface
+        speedBtn.BackgroundTransparency = i == 2 and 0.3 or 0.6
+        speedBtn.Size = UDim2.new(0.23, 0, 0, 26)
+        speedBtn.Position = UDim2.new((i-1) * 0.25, (i-1) * 2, 0, 78)
+        speedBtn.Text = label
+        speedBtn.TextColor3 = theme.Text
+        speedBtn.Font = Enum.Font.GothamBold
+        speedBtn.TextSize = 10
+        speedBtn.AutoButtonColor = false
+        speedBtn.BorderSizePixel = 0
+        speedBtn.Parent = controlsTab
+        Instance.new("UICorner", speedBtn).CornerRadius = UDim.new(0, 5)
+        speedBtns[i] = speedBtn
+        
+        speedBtn.MouseButton1Click:Connect(function()
+            Axiora.UI.SetSpeed(presetKeys[i])
+            for j, btn in ipairs(speedBtns) do
+                TweenService:Create(btn, TweenInfo.new(0.15), {
+                    BackgroundColor3 = j == i and theme.Primary or theme.Surface,
+                    BackgroundTransparency = j == i and 0.3 or 0.6
+                }):Play()
+            end
+        end)
+    end
+    
+    -- Quick Actions Row
+    local saveBtn = Instance.new("TextButton")
+    saveBtn.BackgroundColor3 = theme.Info
+    saveBtn.BackgroundTransparency = 0.4
+    saveBtn.Size = UDim2.new(0.48, 0, 0, 32)
+    saveBtn.Position = UDim2.new(0, 0, 0, 112)
+    saveBtn.Text = "💾 SAVE"
+    saveBtn.TextColor3 = theme.Text
+    saveBtn.Font = Enum.Font.GothamBold
+    saveBtn.TextSize = 10
+    saveBtn.AutoButtonColor = false
+    saveBtn.BorderSizePixel = 0
+    saveBtn.Parent = controlsTab
+    Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 6)
+    saveBtn.MouseButton1Click:Connect(function() Axiora.Save() end)
+    
+    local loadBtn = Instance.new("TextButton")
+    loadBtn.BackgroundColor3 = theme.Info
+    loadBtn.BackgroundTransparency = 0.4
+    loadBtn.Size = UDim2.new(0.48, 0, 0, 32)
+    loadBtn.Position = UDim2.new(0.52, 0, 0, 112)
+    loadBtn.Text = "📂 LOAD"
+    loadBtn.TextColor3 = theme.Text
+    loadBtn.Font = Enum.Font.GothamBold
+    loadBtn.TextSize = 10
+    loadBtn.AutoButtonColor = false
+    loadBtn.BorderSizePixel = 0
+    loadBtn.Parent = controlsTab
+    Instance.new("UICorner", loadBtn).CornerRadius = UDim.new(0, 6)
+    loadBtn.MouseButton1Click:Connect(function() Axiora.UI.ShowLoadPicker() end)
+    
+    -- Recalibrate button (easy access for X offset recalibration)
+    local calibrateBtn = Instance.new("TextButton")
+    calibrateBtn.BackgroundColor3 = theme.Warning or Color3.fromRGB(255, 180, 50)
+    calibrateBtn.BackgroundTransparency = 0.4
+    calibrateBtn.Size = UDim2.new(1, 0, 0, 28)
+    calibrateBtn.Position = UDim2.new(0, 0, 0, 148)
+    calibrateBtn.Text = "🎯 CALIBRATE X OFFSET"
+    calibrateBtn.TextColor3 = theme.Text
+    calibrateBtn.Font = Enum.Font.GothamBold
+    calibrateBtn.TextSize = 10
+    calibrateBtn.AutoButtonColor = false
+    calibrateBtn.BorderSizePixel = 0
+    calibrateBtn.Parent = controlsTab
+    Instance.new("UICorner", calibrateBtn).CornerRadius = UDim.new(0, 6)
+    calibrateBtn.MouseButton1Click:Connect(function() 
+        Axiora.Calibration.StartInteractiveCalibration()
+    end)
+end
+
 function Axiora.UI.Create()
     if Axiora.UI.ScreenGui then
         pcall(function() Axiora.UI.ScreenGui:Destroy() end)
@@ -4659,8 +6912,18 @@ function Axiora.UI.Create()
     
     local theme = Axiora.Visuals.GetTheme()
     
+    -- Mobile scaling
+    local isMobile = Axiora.Settings.IsMobile
+    local btnScale = isMobile and Axiora.Settings.MobileButtonScale or 1.0
+    local fontScale = isMobile and Axiora.Settings.MobileFontScale or 1.0
+    local minBtn = Axiora.Settings.MinButtonSize
+    
+    -- Panel size (larger on mobile for easier touch)
+    local panelWidth = isMobile and 360 or 340
+    local panelHeight = isMobile and 340 or 280
+    
     local sg = Instance.new("ScreenGui")
-    sg.Name = "AxioraUI_Modern"
+    sg.Name = "AxioraUI_Compact"
     sg.IgnoreGuiInset = true
     sg.ResetOnSpawn = false
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -4679,20 +6942,21 @@ function Axiora.UI.Create()
     Axiora.UI.ScreenGui = sg
     
     -- ═══════════════════════════════════════════════════════════════════════
-    -- FLOATING TOGGLE BUTTON (Always visible)
+    -- FLOATING TOGGLE BUTTON (Always visible, larger on mobile)
     -- ═══════════════════════════════════════════════════════════════════════
     
+    local toggleSize = isMobile and 56 or 44
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Name = "ToggleButton"
     toggleBtn.BackgroundColor3 = theme.Primary
     toggleBtn.BackgroundTransparency = 0.1
-    toggleBtn.Size = UDim2.new(0, 50, 0, 50)
-    toggleBtn.Position = UDim2.new(0, 15, 0.5, 0)
+    toggleBtn.Size = UDim2.new(0, toggleSize, 0, toggleSize)
+    toggleBtn.Position = UDim2.new(0, 12, 0.5, 0)
     toggleBtn.AnchorPoint = Vector2.new(0, 0.5)
     toggleBtn.Text = "▶"
     toggleBtn.TextColor3 = Color3.new(1, 1, 1)
     toggleBtn.Font = Enum.Font.GothamBlack
-    toggleBtn.TextSize = 22
+    toggleBtn.TextSize = 18
     toggleBtn.AutoButtonColor = false
     toggleBtn.BorderSizePixel = 0
     toggleBtn.ZIndex = 100
@@ -4700,66 +6964,31 @@ function Axiora.UI.Create()
     
     Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
     
-    local toggleStroke = Instance.new("UIStroke")
-    toggleStroke.Color = Color3.new(1, 1, 1)
-    toggleStroke.Transparency = 0.7
-    toggleStroke.Thickness = 2
-    toggleStroke.Parent = toggleBtn
-    
-    -- Pulse animation for toggle button
-    local pulseConnection = nil
-    local function startPulse()
-        if pulseConnection then return end
-        local pulseUp = true
-        pulseConnection = RunService.Heartbeat:Connect(function()
-            local current = toggleBtn.BackgroundTransparency
-            if pulseUp then
-                toggleBtn.BackgroundTransparency = math.max(0, current - 0.02)
-                if current <= 0.05 then pulseUp = false end
-            else
-                toggleBtn.BackgroundTransparency = math.min(0.4, current + 0.02)
-                if current >= 0.35 then pulseUp = true end
-            end
-        end)
-    end
-    
-    local function stopPulse()
-        if pulseConnection then
-            pulseConnection:Disconnect()
-            pulseConnection = nil
-            toggleBtn.BackgroundTransparency = 0.1
-        end
-    end
-    
     -- Status color on toggle button
     local function updateToggleColor()
         if Axiora.State.Status == "RECORDING" then
             toggleBtn.BackgroundColor3 = theme.Error
             toggleBtn.Text = "⏺"
-            startPulse()
         elseif Axiora.State.Status == "PLAYING" then
             toggleBtn.BackgroundColor3 = theme.Success
             toggleBtn.Text = "▶"
-            stopPulse()
         elseif Axiora.State.Status == "PAUSED" then
             toggleBtn.BackgroundColor3 = theme.Warning
             toggleBtn.Text = "⏸"
-            stopPulse()
         else
             toggleBtn.BackgroundColor3 = theme.Primary
             toggleBtn.Text = "▶"
-            stopPulse()
         end
     end
     
     Axiora.UI.ToggleButton = toggleBtn
     
-    -- Toggle button drag
+    -- Toggle button drag functionality
     local toggleDragging = false
     local toggleDragStart, toggleStartPos
     
     toggleBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             toggleDragging = true
             toggleDragStart = UserInputService:GetMouseLocation()
             toggleStartPos = toggleBtn.Position
@@ -4767,10 +6996,10 @@ function Axiora.UI.Create()
     end)
     
     toggleBtn.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             local movedDist = (UserInputService:GetMouseLocation() - toggleDragStart).Magnitude
-            if movedDist < 5 then
-                -- It was a click, not a drag
+            if movedDist < 8 then
+                -- It was a click, not a drag - open panel
                 Axiora.UI.TogglePanel()
             end
             toggleDragging = false
@@ -4778,7 +7007,7 @@ function Axiora.UI.Create()
     end)
     
     UserInputService.InputChanged:Connect(function(input)
-        if toggleDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if toggleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local current = UserInputService:GetMouseLocation()
             local delta = current - toggleDragStart
             toggleBtn.Position = UDim2.new(
@@ -4789,14 +7018,14 @@ function Axiora.UI.Create()
     end)
 
     -- ═══════════════════════════════════════════════════════════════════════
-    -- MAIN PANEL (Glassmorphism Design)
+    -- MAIN PANEL (Responsive - larger on mobile for touch)
     -- ═══════════════════════════════════════════════════════════════════════
     
     local main = Instance.new("Frame")
     main.Name = "MainPanel"
     main.BackgroundColor3 = theme.Background
-    main.BackgroundTransparency = 0.08
-    main.Size = UDim2.new(0, 420, 0, 520)
+    main.BackgroundTransparency = 0.05
+    main.Size = UDim2.new(0, panelWidth, 0, panelHeight)
     main.Position = UDim2.new(0.5, 0, 0.5, 0)
     main.AnchorPoint = Vector2.new(0.5, 0.5)
     main.BorderSizePixel = 0
@@ -4804,117 +7033,82 @@ function Axiora.UI.Create()
     main.Visible = true
     main.Parent = sg
     
-    Instance.new("UICorner", main).CornerRadius = UDim.new(0, 16)
+    Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
     
     local mainStroke = Instance.new("UIStroke")
     mainStroke.Color = theme.Primary
-    mainStroke.Transparency = 0.4
-    mainStroke.Thickness = 2
+    mainStroke.Transparency = 0.5
+    mainStroke.Thickness = 1.5
     mainStroke.Parent = main
     
-    -- Inner glass effect
-    local glass = Instance.new("Frame")
-    glass.Name = "GlassOverlay"
-    glass.BackgroundColor3 = Color3.new(1, 1, 1)
-    glass.BackgroundTransparency = 0.97
-    glass.Size = UDim2.new(1, 0, 1, 0)
-    glass.BorderSizePixel = 0
-    glass.ZIndex = 0
-    glass.Parent = main
-    
     -- ═══════════════════════════════════════════════════════════════════════
-    -- HEADER with gradient accent
+    -- HEADER (Compact)
     -- ═══════════════════════════════════════════════════════════════════════
     
     local header = Instance.new("Frame")
     header.Name = "Header"
     header.BackgroundColor3 = theme.Surface
-    header.BackgroundTransparency = 0.3
-    header.Size = UDim2.new(1, 0, 0, 55)
+    header.BackgroundTransparency = 0.4
+    header.Size = UDim2.new(1, 0, 0, 36)
     header.BorderSizePixel = 0
     header.Parent = main
     
-    -- Gradient accent bar at top
+    -- Gradient accent bar
     local accentBar = Instance.new("Frame")
-    accentBar.Name = "AccentBar"
     accentBar.BackgroundColor3 = theme.Primary
-    accentBar.Size = UDim2.new(1, 0, 0, 3)
+    accentBar.Size = UDim2.new(1, 0, 0, 2)
     accentBar.BorderSizePixel = 0
     accentBar.Parent = header
     createGradient(accentBar, theme.Primary, theme.Secondary, 0)
     
     -- Title
     local title = Instance.new("TextLabel")
-    title.Name = "Title"
     title.BackgroundTransparency = 1
-    title.Size = UDim2.new(1, -100, 0, 30)
-    title.Position = UDim2.new(0, 20, 0, 12)
-    title.Text = "AXIORA ULTIMATE"
+    title.Size = UDim2.new(1, -60, 1, -2)
+    title.Position = UDim2.new(0, 12, 0, 2)
+    title.Text = "AXIORA"
     title.TextColor3 = theme.Primary
     title.Font = Enum.Font.GothamBlack
-    title.TextSize = 18
+    title.TextSize = 14
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Parent = header
     
-    -- Version badge
-    local versionBadge = Instance.new("TextLabel")
-    versionBadge.Name = "Version"
-    versionBadge.BackgroundColor3 = theme.Primary
-    versionBadge.BackgroundTransparency = 0.8
-    versionBadge.Size = UDim2.new(0, 50, 0, 18)
-    versionBadge.Position = UDim2.new(0, 20, 0, 35)
-    versionBadge.Text = "v" .. Axiora._VERSION
-    versionBadge.TextColor3 = theme.Primary
-    versionBadge.Font = Enum.Font.GothamBold
-    versionBadge.TextSize = 10
-    versionBadge.Parent = header
-    Instance.new("UICorner", versionBadge).CornerRadius = UDim.new(0, 4)
-    
     -- Close button
     local closeBtn = Instance.new("TextButton")
-    closeBtn.Name = "CloseBtn"
     closeBtn.BackgroundColor3 = theme.Error
-    closeBtn.BackgroundTransparency = 0.8
-    closeBtn.Size = UDim2.new(0, 36, 0, 36)
-    closeBtn.Position = UDim2.new(1, -48, 0, 10)
+    closeBtn.BackgroundTransparency = 0.85
+    closeBtn.Size = UDim2.new(0, 28, 0, 28)
+    closeBtn.Position = UDim2.new(1, -34, 0, 4)
     closeBtn.Text = "✕"
     closeBtn.TextColor3 = theme.Text
     closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 14
+    closeBtn.TextSize = 12
     closeBtn.AutoButtonColor = false
     closeBtn.BorderSizePixel = 0
     closeBtn.Parent = header
-    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
+    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
     
-    closeBtn.MouseEnter:Connect(function()
-        TweenService:Create(closeBtn, TweenInfo.new(0.2), {BackgroundTransparency = 0.3}):Play()
-    end)
-    closeBtn.MouseLeave:Connect(function()
-        TweenService:Create(closeBtn, TweenInfo.new(0.2), {BackgroundTransparency = 0.8}):Play()
-    end)
     closeBtn.MouseButton1Click:Connect(function()
         Axiora.UI.TogglePanel()
     end)
     
     -- ═══════════════════════════════════════════════════════════════════════
-    -- STATUS BAR (Live updating)
+    -- STATUS BAR (Compact)
     -- ═══════════════════════════════════════════════════════════════════════
     
     local statusBar = Instance.new("Frame")
     statusBar.Name = "StatusBar"
     statusBar.BackgroundColor3 = theme.Surface
-    statusBar.BackgroundTransparency = 0.5
-    statusBar.Size = UDim2.new(1, -30, 0, 45)
-    statusBar.Position = UDim2.new(0, 15, 0, 65)
+    statusBar.BackgroundTransparency = 0.6
+    statusBar.Size = UDim2.new(1, -20, 0, 28)
+    statusBar.Position = UDim2.new(0, 10, 0, 42)
     statusBar.BorderSizePixel = 0
     statusBar.Parent = main
-    Instance.new("UICorner", statusBar).CornerRadius = UDim.new(0, 10)
+    Instance.new("UICorner", statusBar).CornerRadius = UDim.new(0, 6)
     
-    -- Status indicator dot
     local statusDot = Instance.new("Frame")
-    statusDot.Name = "StatusDot"
-    statusDot.Size = UDim2.new(0, 12, 0, 12)
-    statusDot.Position = UDim2.new(0, 12, 0.5, 0)
+    statusDot.Size = UDim2.new(0, 8, 0, 8)
+    statusDot.Position = UDim2.new(0, 10, 0.5, 0)
     statusDot.AnchorPoint = Vector2.new(0, 0.5)
     statusDot.BackgroundColor3 = theme.TextDim
     statusDot.BorderSizePixel = 0
@@ -4922,329 +7116,130 @@ function Axiora.UI.Create()
     Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
     
     local statusText = Instance.new("TextLabel")
-    statusText.Name = "StatusText"
     statusText.BackgroundTransparency = 1
-    statusText.Size = UDim2.new(0.5, -40, 1, 0)
-    statusText.Position = UDim2.new(0, 32, 0, 0)
+    statusText.Size = UDim2.new(0.4, -25, 1, 0)
+    statusText.Position = UDim2.new(0, 24, 0, 0)
     statusText.Text = "IDLE"
     statusText.TextColor3 = theme.Text
     statusText.Font = Enum.Font.GothamBold
-    statusText.TextSize = 14
+    statusText.TextSize = 11
     statusText.TextXAlignment = Enum.TextXAlignment.Left
     statusText.Parent = statusBar
     
     local bufferText = Instance.new("TextLabel")
-    bufferText.Name = "BufferText"
     bufferText.BackgroundTransparency = 1
     bufferText.Size = UDim2.new(0.5, -10, 1, 0)
     bufferText.Position = UDim2.new(0.5, 0, 0, 0)
-    bufferText.Text = "Buffer: 0 nodes"
+    bufferText.Text = "0 nodes"
     bufferText.TextColor3 = theme.TextDim
     bufferText.Font = Enum.Font.Gotham
-    bufferText.TextSize = 11
+    bufferText.TextSize = 10
     bufferText.TextXAlignment = Enum.TextXAlignment.Right
     bufferText.Parent = statusBar
     
     -- ═══════════════════════════════════════════════════════════════════════
-    -- CONTROL BUTTONS (2-Column Grid)
+    -- TAB BAR
     -- ═══════════════════════════════════════════════════════════════════════
     
-    local controlsContainer = Instance.new("Frame")
-    controlsContainer.Name = "Controls"
-    controlsContainer.BackgroundTransparency = 1
-    controlsContainer.Size = UDim2.new(1, -30, 0, 180)
-    controlsContainer.Position = UDim2.new(0, 15, 0, 120)
-    controlsContainer.Parent = main
+    local tabBar = Instance.new("Frame")
+    tabBar.Name = "TabBar"
+    tabBar.BackgroundTransparency = 1
+    tabBar.Size = UDim2.new(1, -20, 0, 28)
+    tabBar.Position = UDim2.new(0, 10, 0, 76)
+    tabBar.Parent = main
     
-    local gridLayout = Instance.new("UIGridLayout")
-    gridLayout.CellSize = UDim2.new(0.5, -5, 0, 55)
-    gridLayout.CellPadding = UDim2.new(0, 10, 0, 10)
-    gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    gridLayout.Parent = controlsContainer
+    local tabNames = {"Home", "Editor", "Files", "Tools", "Scripts"}
+    local tabIcons = {Home="📊", Editor="✏️", Files="📁", Tools="🔧", Scripts="⚙️"}
+    local tabButtons = {}
+    local tabContents = {}
+    local activeTab = "Home"
     
-    -- Helper: Create modern button with icon
-    local function createModernButton(icon, label, color, order, callback)
-        local btn = Instance.new("TextButton")
-        btn.Name = label
-        btn.BackgroundColor3 = color
-        btn.BackgroundTransparency = 0.2
-        btn.Text = ""
-        btn.AutoButtonColor = false
-        btn.BorderSizePixel = 0
-        btn.LayoutOrder = order
-        btn.Parent = controlsContainer
+    local tabIndicator = Instance.new("Frame")
+    tabIndicator.Name = "TabIndicator"
+    tabIndicator.BackgroundColor3 = theme.Primary
+    tabIndicator.Size = UDim2.new(0, panelWidth/5, 0, 2)
+    tabIndicator.Position = UDim2.new(0, 0, 1, -2)
+    tabIndicator.BorderSizePixel = 0
+    tabIndicator.Parent = tabBar
+    
+    for i, tabName in ipairs(tabNames) do
+        local tabBtn = Instance.new("TextButton")
+        tabBtn.Name = tabName
+        tabBtn.BackgroundTransparency = 1
+        tabBtn.Size = UDim2.new(1/5, 0, 1, -2)
+        tabBtn.Position = UDim2.new((i-1)/5, 0, 0, 0)
+        tabBtn.Text = tabIcons[tabName]
+        tabBtn.TextColor3 = i == 1 and theme.Primary or theme.TextDim
+        tabBtn.Font = Enum.Font.GothamBold
+        tabBtn.TextSize = 18
+        tabBtn.AutoButtonColor = false
+        tabBtn.BorderSizePixel = 0
+        tabBtn.Parent = tabBar
+        tabButtons[tabName] = tabBtn
         
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
-        createGradient(btn, color, Color3.new(
-            math.max(0, color.R - 0.15),
-            math.max(0, color.G - 0.15),
-            math.max(0, color.B - 0.15)
-        ), 90)
+        -- Tooltip/Name on hover could go here, but keeping it clean for mobile
         
-        local btnStroke = Instance.new("UIStroke")
-        btnStroke.Color = Color3.new(1, 1, 1)
-        btnStroke.Transparency = 0.85
-        btnStroke.Thickness = 1
-        btnStroke.Parent = btn
-        
-        local iconLabel = Instance.new("TextLabel")
-        iconLabel.BackgroundTransparency = 1
-        iconLabel.Size = UDim2.new(1, 0, 0, 25)
-        iconLabel.Position = UDim2.new(0, 0, 0, 5)
-        iconLabel.Text = icon
-        iconLabel.TextColor3 = Color3.new(1, 1, 1)
-        iconLabel.Font = Enum.Font.GothamBold
-        iconLabel.TextSize = 20
-        iconLabel.Parent = btn
-        
-        local textLabel = Instance.new("TextLabel")
-        textLabel.BackgroundTransparency = 1
-        textLabel.Size = UDim2.new(1, 0, 0, 18)
-        textLabel.Position = UDim2.new(0, 0, 1, -23)
-        textLabel.Text = label
-        textLabel.TextColor3 = Color3.new(1, 1, 1)
-        textLabel.Font = Enum.Font.GothamBold
-        textLabel.TextSize = 10
-        textLabel.TextTransparency = 0.2
-        textLabel.Parent = btn
-        
-        -- Hover effects
-        btn.MouseEnter:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quart), {
-                BackgroundTransparency = 0
-            }):Play()
-            TweenService:Create(btnStroke, TweenInfo.new(0.2), {Transparency = 0.5}):Play()
-        end)
-        btn.MouseLeave:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quart), {
-                BackgroundTransparency = 0.2
-            }):Play()
-            TweenService:Create(btnStroke, TweenInfo.new(0.2), {Transparency = 0.85}):Play()
-        end)
-        btn.MouseButton1Click:Connect(function()
-            -- Click ripple effect
-            local ripple = Instance.new("Frame")
-            ripple.BackgroundColor3 = Color3.new(1, 1, 1)
-            ripple.BackgroundTransparency = 0.5
-            ripple.Size = UDim2.new(0, 0, 0, 0)
-            ripple.Position = UDim2.new(0.5, 0, 0.5, 0)
-            ripple.AnchorPoint = Vector2.new(0.5, 0.5)
-            ripple.BorderSizePixel = 0
-            ripple.Parent = btn
-            Instance.new("UICorner", ripple).CornerRadius = UDim.new(1, 0)
+        tabBtn.MouseButton1Click:Connect(function()
+            activeTab = tabName
+            for name, btn in pairs(tabButtons) do
+                btn.TextColor3 = name == tabName and theme.Primary or theme.TextDim
+            end
             
-            TweenService:Create(ripple, TweenInfo.new(0.4), {
-                Size = UDim2.new(2, 0, 2, 0),
-                BackgroundTransparency = 1
+            -- Animate indicator
+            TweenService:Create(tabIndicator, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Position = UDim2.new((i-1)/5, 0, 1, -2)
             }):Play()
-            task.delay(0.4, function() ripple:Destroy() end)
             
-            callback()
-        end)
-        
-        return btn
-    end
-    
-    -- Main control buttons
-    createModernButton("⏺", "RECORD", theme.Error, 1, function()
-        if Axiora.State.Status == "RECORDING" then
-            Axiora.Stop()
-        else
-            Axiora.Record()
-        end
-    end)
-    
-    createModernButton("▶", "PLAY", theme.Success, 2, function()
-        if Axiora.State.Status == "PLAYING" then
-            Axiora.Pause()
-        else
-            Axiora.Play(true)
-        end
-    end)
-    
-    createModernButton("⏹", "STOP", theme.Secondary, 3, function()
-        Axiora.Stop()
-    end)
-    
-    createModernButton("💾", "SAVE", theme.Info, 4, function()
-        Axiora.Save()
-    end)
-    
-    createModernButton("📂", "LOAD", theme.Info, 5, function()
-        Axiora.UI.ShowLoadPicker()
-    end)
-    
-    createModernButton("✏️", "EDIT", theme.Warning, 6, function()
-        Axiora.UI.ShowEditorPanel()
-    end)
-    
-    createModernButton("📍", "MARK", theme.Success, 7, function()
-        Axiora.MarkPosition()
-    end)
-    
-    createModernButton("🔗", "COMBINE", theme.Secondary, 8, function()
-        Axiora.UI.ShowCombinePanel()
-    end)
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- SPEED CONTROL SECTION
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local speedSection = Instance.new("Frame")
-    speedSection.Name = "SpeedSection"
-    speedSection.BackgroundColor3 = theme.Surface
-    speedSection.BackgroundTransparency = 0.5
-    speedSection.Size = UDim2.new(1, -30, 0, 50)
-    speedSection.Position = UDim2.new(0, 15, 0, 310)
-    speedSection.BorderSizePixel = 0
-    speedSection.Parent = main
-    Instance.new("UICorner", speedSection).CornerRadius = UDim.new(0, 10)
-    
-    local speedLabel = Instance.new("TextLabel")
-    speedLabel.BackgroundTransparency = 1
-    speedLabel.Size = UDim2.new(0, 60, 1, 0)
-    speedLabel.Position = UDim2.new(0, 10, 0, 0)
-    speedLabel.Text = "SPEED"
-    speedLabel.TextColor3 = theme.TextDim
-    speedLabel.Font = Enum.Font.GothamBold
-    speedLabel.TextSize = 10
-    speedLabel.Parent = speedSection
-    
-    local speedPresetBtns = {}
-    local presets = {"careful", "normal", "fast", "turbo"}
-    local presetLabels = {"0.5x", "1x", "1.5x", "2.5x"}
-    
-    for i, preset in ipairs(presets) do
-        local presetBtn = Instance.new("TextButton")
-        presetBtn.Name = preset
-        presetBtn.BackgroundColor3 = preset == "normal" and theme.Primary or theme.Surface
-        presetBtn.BackgroundTransparency = preset == "normal" and 0.3 or 0.6
-        presetBtn.Size = UDim2.new(0, 65, 0, 30)
-        presetBtn.Position = UDim2.new(0, 70 + (i-1) * 75, 0.5, 0)
-        presetBtn.AnchorPoint = Vector2.new(0, 0.5)
-        presetBtn.Text = presetLabels[i]
-        presetBtn.TextColor3 = theme.Text
-        presetBtn.Font = Enum.Font.GothamBold
-        presetBtn.TextSize = 11
-        presetBtn.AutoButtonColor = false
-        presetBtn.BorderSizePixel = 0
-        presetBtn.Parent = speedSection
-        Instance.new("UICorner", presetBtn).CornerRadius = UDim.new(0, 6)
-        
-        speedPresetBtns[preset] = presetBtn
-        
-        presetBtn.MouseButton1Click:Connect(function()
-            Axiora.UI.SetSpeed(preset)
-            -- Update button visuals
-            for p, btn in pairs(speedPresetBtns) do
-                if p == preset then
-                    TweenService:Create(btn, TweenInfo.new(0.2), {
-                        BackgroundColor3 = theme.Primary,
-                        BackgroundTransparency = 0.3
-                    }):Play()
-                else
-                    TweenService:Create(btn, TweenInfo.new(0.2), {
-                        BackgroundColor3 = theme.Surface,
-                        BackgroundTransparency = 0.6
-                    }):Play()
-                end
+            -- Switch content
+            for name, content in pairs(tabContents) do
+                content.Visible = name == tabName
+            end
+            
+            -- Refresh content if needed
+            if tabName == "Scripts" and Axiora.UI.RefreshScripts then
+                Axiora.UI.RefreshScripts() -- We'll add this helper
+            elseif tabName == "Files" and Axiora.UI.RefreshLibrary then
+                Axiora.UI.RefreshLibrary()
             end
         end)
     end
     
     -- ═══════════════════════════════════════════════════════════════════════
-    -- ADVANCED CONTROLS (Scrollable)
+    -- TAB CONTENT CONTAINER
     -- ═══════════════════════════════════════════════════════════════════════
     
-    local advancedLabel = Instance.new("TextLabel")
-    advancedLabel.BackgroundTransparency = 1
-    advancedLabel.Size = UDim2.new(1, -30, 0, 20)
-    advancedLabel.Position = UDim2.new(0, 15, 0, 370)
-    advancedLabel.Text = "ADVANCED CONTROLS"
-    advancedLabel.TextColor3 = theme.TextDim
-    advancedLabel.Font = Enum.Font.GothamBold
-    advancedLabel.TextSize = 10
-    advancedLabel.TextXAlignment = Enum.TextXAlignment.Left
-    advancedLabel.Parent = main
+    local contentContainer = Instance.new("Frame")
+    contentContainer.Name = "ContentContainer"
+    contentContainer.BackgroundTransparency = 1
+    contentContainer.Size = UDim2.new(1, -20, 0, 160)
+    contentContainer.Position = UDim2.new(0, 10, 0, 110)
+    contentContainer.Parent = main
     
-    local advancedScroll = Instance.new("ScrollingFrame")
-    advancedScroll.Name = "AdvancedControls"
-    advancedScroll.BackgroundTransparency = 1
-    advancedScroll.Size = UDim2.new(1, -30, 0, 110)
-    advancedScroll.Position = UDim2.new(0, 15, 0, 395)
-    advancedScroll.CanvasSize = UDim2.new(0, 0, 0, 140)
-    advancedScroll.ScrollBarThickness = 3
-    advancedScroll.ScrollBarImageColor3 = theme.Primary
-    advancedScroll.BorderSizePixel = 0
-    advancedScroll.Parent = main
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- INITIALIZE TABS
+    -- ═══════════════════════════════════════════════════════════════════════
     
-    local advLayout = Instance.new("UIListLayout")
-    advLayout.Padding = UDim.new(0, 6)
-    advLayout.Parent = advancedScroll
-    
-    -- Helper: Create compact button
-    local function createCompactBtn(text, color, callback)
-        local btn = Instance.new("TextButton")
-        btn.BackgroundColor3 = color
-        btn.BackgroundTransparency = 0.7
-        btn.Size = UDim2.new(1, 0, 0, 32)
-        btn.Text = text
-        btn.TextColor3 = theme.Text
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.AutoButtonColor = false
-        btn.BorderSizePixel = 0
-        btn.Parent = advancedScroll
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    local function initTab(name, builderFunc)
+        local container = Instance.new("Frame")
+        container.Name = name
+        container.BackgroundTransparency = 1
+        container.Size = UDim2.new(1, 0, 1, 0)
+        container.Visible = (name == "Home")
+        container.Parent = contentContainer
+        tabContents[name] = container
         
-        btn.MouseEnter:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.4}):Play()
-        end)
-        btn.MouseLeave:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.7}):Play()
-        end)
-        btn.MouseButton1Click:Connect(callback)
-        return btn
+        if builderFunc then
+            task.spawn(function()
+                builderFunc(container)
+            end)
+        end
     end
     
-    createCompactBtn("🎯 Render Path Visualization", theme.Primary, function()
-        Axiora.Visuals.RenderPath()
-    end)
-    
-    createCompactBtn("➕ Add to Sequence Queue", theme.Warning, function()
-        Axiora.Sequences.AddCurrentBuffer()
-    end)
-    
-    createCompactBtn("⚡ Execute Sequence Queue", theme.Warning, function()
-        Axiora.Sequences.ExecuteQueue()
-    end)
-    
-    createCompactBtn("🔄 Toggle Auto-Restart", theme.Error, function()
-        Axiora.AutoRestart.Toggle()
-    end)
-    
-    createCompactBtn("📊 Print Analytics Report", theme.Secondary, function()
-        Axiora.Analytics.Print()
-    end)
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- FOOTER
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local footer = Instance.new("TextLabel")
-    footer.Name = "Footer"
-    footer.BackgroundTransparency = 1
-    footer.Size = UDim2.new(1, 0, 0, 15)
-    footer.Position = UDim2.new(0, 0, 1, -15)
-    footer.Text = "F1=Record | F2=Play | F3=Stop | F4=Toggle UI"
-    footer.TextColor3 = theme.TextDim
-    footer.TextTransparency = 0.5
-    footer.Font = Enum.Font.Gotham
-    footer.TextSize = 9
-    footer.Parent = main
-    
-    Axiora.UI.MainFrame = main
-    Axiora.UI.IsOpen = true
+    initTab("Home", Axiora.UI.BuildCommandCenter)
+    initTab("Editor", Axiora.UI.BuildEditor)
+    initTab("Files", Axiora.UI.BuildLibrary)
+    initTab("Tools", Axiora.UI.BuildUtilities)
+    initTab("Scripts", Axiora.UI.BuildScripts)
     
     -- ═══════════════════════════════════════════════════════════════════════
     -- STATUS UPDATE LOOP
@@ -5252,22 +7247,53 @@ function Axiora.UI.Create()
     
     local statusThread = task.spawn(function()
         while sg and sg.Parent do
-            -- Update status text and color
             statusText.Text = Axiora.State.Status
-            bufferText.Text = "Buffer: " .. #Axiora.State.Buffer .. " nodes"
+            bufferText.Text = #Axiora.State.Buffer .. " nodes"
             
-            if Axiora.State.Status == "RECORDING" then
-                statusDot.BackgroundColor3 = theme.Error
-            elseif Axiora.State.Status == "PLAYING" then
-                statusDot.BackgroundColor3 = theme.Success
-            elseif Axiora.State.Status == "PAUSED" then
-                statusDot.BackgroundColor3 = theme.Warning
-            else
-                statusDot.BackgroundColor3 = theme.TextDim
+            -- Find buttons dynamically since they are now in sub-modules
+            local homeTab = tabContents["Home"]
+            local cmdCenter = homeTab and homeTab:FindFirstChild("CommandCenter")
+            
+            if cmdCenter then
+                local recBtn = cmdCenter:FindFirstChild("RecordToggle")
+                local playBtn = cmdCenter:FindFirstChild("PlayToggle")
+                
+                -- Update button visuals based on status
+                if Axiora.State.Status == "RECORDING" then
+                    statusDot.BackgroundColor3 = theme.Error
+                    if recBtn then
+                        recBtn.BackgroundColor3 = theme.Secondary
+                        local icon = recBtn:FindFirstChild("TextLabel")
+                        if icon then icon.Text = "⏹" end
+                    end
+                elseif Axiora.State.Status == "PLAYING" then
+                    statusDot.BackgroundColor3 = theme.Success
+                    if playBtn then
+                        local icon = playBtn:FindFirstChild("TextLabel")
+                        if icon then icon.Text = "⏸" end
+                    end
+                elseif Axiora.State.Status == "PAUSED" then
+                    statusDot.BackgroundColor3 = theme.Warning
+                    if playBtn then
+                        local icon = playBtn:FindFirstChild("TextLabel")
+                        if icon then icon.Text = "▶" end -- Resume icon
+                    end
+                else
+                    statusDot.BackgroundColor3 = theme.TextDim
+                    if recBtn then
+                        recBtn.BackgroundColor3 = theme.Error
+                        local icon = recBtn:FindFirstChild("TextLabel")
+                        if icon then icon.Text = "⏺" end
+                    end
+                    if playBtn then
+                        local icon = playBtn:FindFirstChild("TextLabel")
+                        if icon then icon.Text = "▶" end
+                    end
+                end
             end
             
-            updateToggleColor()
-            task.wait(0.3)
+            pcall(updateToggleColor)
+            task.wait(0.25)
         end
     end)
     table.insert(Axiora.State.Threads, statusThread)
@@ -5309,10 +7335,14 @@ end
 
 -- Speed preset function
 function Axiora.UI.SetSpeed(preset)
-    if Axiora.UI.SpeedPresets[preset] then
-        Axiora.Playback.Speed = Axiora.UI.SpeedPresets[preset]
+    if Axiora.UI.SpeedPresets and Axiora.UI.SpeedPresets[preset] then
+        Axiora.Settings.TimeScale = Axiora.UI.SpeedPresets[preset]
         Axiora.UI.CurrentSpeed = preset
-        Axiora.Visuals.Notify("Speed", "Playback speed: " .. preset .. " (" .. Axiora.UI.SpeedPresets[preset] .. "x)", 2, "info")
+        if Axiora.Visuals and Axiora.Visuals.Notify then
+            pcall(function()
+                Axiora.Visuals.Notify("Speed", "Playback: " .. preset .. " (" .. Axiora.UI.SpeedPresets[preset] .. "x)", 2, "info")
+            end)
+        end
     end
 end
 
@@ -5965,6 +7995,245 @@ function Axiora.UI.ShowCombinePanel()
     end)
 end
 
+-- Rule creation modal for automation
+function Axiora.UI.CreateRuleModal(parentGui, onComplete)
+    local theme = Axiora.UI.Theme or {
+        Background = Color3.fromRGB(18, 18, 25),
+        Surface = Color3.fromRGB(28, 28, 38),
+        Primary = Color3.fromRGB(120, 90, 255),
+        Success = Color3.fromRGB(40, 200, 100),
+        Error = Color3.fromRGB(255, 80, 80),
+        Text = Color3.fromRGB(240, 240, 255),
+        TextDim = Color3.fromRGB(140, 140, 160)
+    }
+    
+    local triggers = {"interval", "playerJoin", "playerLeave", "chatReceived", "macroComplete", "always", "keyPressed", "healthLow", "onDeath", "loopCount"}
+    local conditions = {"always", "playerCount", "playerDistance", "positionY", "sessionTime", "playerName", "chatContains", "randomChance", "healthBelow", "isMoving", "bufferSize"}
+    local actions = {"playMacro", "stopMacro", "wait", "sendChat", "leaveServer", "rejoinServer", "notify", "jump", "pauseMacro", "resumeMacro", "resetMacro"}
+    
+    local selectedTrigger = triggers[1]
+    local selectedCondition = conditions[1]
+    local selectedAction = actions[1]
+    local selectedMode = Axiora.Automation.MODE_PLAYBACK
+    
+    -- Overlay
+    local overlay = Instance.new("Frame")
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.5
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.BorderSizePixel = 0
+    overlay.ZIndex = 200
+    overlay.Parent = parentGui
+    
+    -- Modal panel
+    local panel = Instance.new("Frame")
+    panel.BackgroundColor3 = theme.Background
+    panel.Size = UDim2.new(0, 280, 0, 340)
+    panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    panel.AnchorPoint = Vector2.new(0.5, 0.5)
+    panel.BorderSizePixel = 0
+    panel.ZIndex = 201
+    panel.Parent = overlay
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Text = "✨ CREATE RULE"
+    title.TextColor3 = theme.Primary
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 14
+    title.ZIndex = 202
+    title.Parent = panel
+    
+    local yPos = 35
+    
+    -- Helper to create dropdown
+    local function createDropdown(labelText, options, defaultValue, onSelect)
+        local container = Instance.new("Frame")
+        container.BackgroundTransparency = 1
+        container.Size = UDim2.new(1, -20, 0, 40)
+        container.Position = UDim2.new(0, 10, 0, yPos)
+        container.ZIndex = 202
+        container.Parent = panel
+        
+        local label = Instance.new("TextLabel")
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.new(1, 0, 0, 14)
+        label.Text = labelText
+        label.TextColor3 = theme.TextDim
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 9
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.ZIndex = 202
+        label.Parent = container
+        
+        local btn = Instance.new("TextButton")
+        btn.BackgroundColor3 = theme.Surface
+        btn.Size = UDim2.new(1, 0, 0, 24)
+        btn.Position = UDim2.new(0, 0, 0, 14)
+        btn.Text = defaultValue .. " ▼"
+        btn.TextColor3 = theme.Text
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 10
+        btn.AutoButtonColor = false
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 202
+        btn.Parent = container
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+        
+        local currentIndex = 1
+        for i, v in ipairs(options) do
+            if v == defaultValue then currentIndex = i break end
+        end
+        
+        btn.MouseButton1Click:Connect(function()
+            currentIndex = (currentIndex % #options) + 1
+            local newVal = options[currentIndex]
+            btn.Text = newVal .. " ▼"
+            onSelect(newVal)
+        end)
+        
+        yPos = yPos + 44
+        return btn
+    end
+    
+    -- Trigger dropdown
+    createDropdown("TRIGGER (When)", triggers, selectedTrigger, function(v) selectedTrigger = v end)
+    
+    -- Condition dropdown
+    createDropdown("CONDITION (If)", conditions, selectedCondition, function(v) selectedCondition = v end)
+    
+    -- Action dropdown
+    createDropdown("ACTION (Do)", actions, selectedAction, function(v) selectedAction = v end)
+    
+    -- Mode dropdown
+    local modes = {"playback", "always", "disabled"}
+    createDropdown("MODE", modes, selectedMode, function(v) selectedMode = v end)
+    
+    -- Param input (for macro name, seconds, etc)
+    local paramLabel = Instance.new("TextLabel")
+    paramLabel.BackgroundTransparency = 1
+    paramLabel.Size = UDim2.new(1, -20, 0, 14)
+    paramLabel.Position = UDim2.new(0, 10, 0, yPos)
+    paramLabel.Text = "PARAMETER (name, seconds, etc)"
+    paramLabel.TextColor3 = theme.TextDim
+    paramLabel.Font = Enum.Font.GothamBold
+    paramLabel.TextSize = 9
+    paramLabel.TextXAlignment = Enum.TextXAlignment.Left
+    paramLabel.ZIndex = 202
+    paramLabel.Parent = panel
+    
+    local paramInput = Instance.new("TextBox")
+    paramInput.BackgroundColor3 = theme.Surface
+    paramInput.Size = UDim2.new(1, -20, 0, 26)
+    paramInput.Position = UDim2.new(0, 10, 0, yPos + 14)
+    paramInput.Text = ""
+    paramInput.PlaceholderText = "e.g., MyMacro, 60, Hello"
+    paramInput.TextColor3 = theme.Text
+    paramInput.PlaceholderColor3 = theme.TextDim
+    paramInput.Font = Enum.Font.Gotham
+    paramInput.TextSize = 10
+    paramInput.ClearTextOnFocus = false
+    paramInput.BorderSizePixel = 0
+    paramInput.ZIndex = 202
+    paramInput.Parent = panel
+    Instance.new("UICorner", paramInput).CornerRadius = UDim.new(0, 5)
+    
+    yPos = yPos + 48
+    
+    -- Create button
+    local createBtn = Instance.new("TextButton")
+    createBtn.BackgroundColor3 = theme.Success
+    createBtn.BackgroundTransparency = 0.2
+    createBtn.Size = UDim2.new(0.48, 0, 0, 36)
+    createBtn.Position = UDim2.new(0, 10, 0, yPos)
+    createBtn.Text = "✓ CREATE"
+    createBtn.TextColor3 = Color3.new(1, 1, 1)
+    createBtn.Font = Enum.Font.GothamBold
+    createBtn.TextSize = 11
+    createBtn.AutoButtonColor = false
+    createBtn.BorderSizePixel = 0
+    createBtn.ZIndex = 202
+    createBtn.Parent = panel
+    Instance.new("UICorner", createBtn).CornerRadius = UDim.new(0, 6)
+    
+    -- Cancel button
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.BackgroundColor3 = theme.Error
+    cancelBtn.BackgroundTransparency = 0.5
+    cancelBtn.Size = UDim2.new(0.48, 0, 0, 36)
+    cancelBtn.Position = UDim2.new(0.52, 0, 0, yPos)
+    cancelBtn.Text = "✕ CANCEL"
+    cancelBtn.TextColor3 = Color3.new(1, 1, 1)
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.TextSize = 11
+    cancelBtn.AutoButtonColor = false
+    cancelBtn.BorderSizePixel = 0
+    cancelBtn.ZIndex = 202
+    cancelBtn.Parent = panel
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+    
+    createBtn.MouseButton1Click:Connect(function()
+        local param = paramInput.Text
+        
+        -- Build trigger object
+        local trigger = {type = selectedTrigger}
+        if selectedTrigger == "interval" then
+            trigger.seconds = tonumber(param) or 60
+        end
+        
+        -- Build condition object
+        local condition = {type = selectedCondition}
+        if selectedCondition == "playerCount" then
+            condition.operator = ">"
+            condition.value = tonumber(param) or 5
+        elseif selectedCondition == "playerDistance" then
+            condition.operator = "<"
+            condition.distance = tonumber(param) or 50
+        elseif selectedCondition == "positionY" then
+            condition.operator = "<"
+            condition.value = tonumber(param) or -50
+        elseif selectedCondition == "sessionTime" then
+            condition.operator = ">"
+            condition.value = tonumber(param) or 30
+        elseif selectedCondition == "playerName" then
+            condition.name = param or ""
+        elseif selectedCondition == "chatContains" then
+            condition.text = param or ""
+        elseif selectedCondition == "randomChance" then
+            condition.percent = tonumber(param) or 50
+        end
+        
+        -- Build action object
+        local action = {type = selectedAction}
+        if selectedAction == "playMacro" then
+            action.name = param or ""
+        elseif selectedAction == "wait" then
+            action.seconds = tonumber(param) or 1
+        elseif selectedAction == "sendChat" then
+            action.message = param or "Hello"
+        elseif selectedAction == "notify" then
+            action.title = "Automation"
+            action.message = param or "Rule triggered!"
+        end
+        
+        -- Create the rule
+        local rule = Axiora.Automation.CreateRule(trigger, condition, action, selectedMode)
+        if rule then
+            Axiora.Visuals.Notify("Scripts", "Rule created!", 2, "success")
+        end
+        
+        overlay:Destroy()
+        if onComplete then onComplete() end
+    end)
+    
+    cancelBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+    end)
+end
+
 function Axiora.UI.Destroy()
     if Axiora.UI.ScreenGui then
         pcall(function() Axiora.UI.ScreenGui:Destroy() end)
@@ -5973,6 +8242,1431 @@ function Axiora.UI.Destroy()
         Axiora.UI.ToggleButton = nil
         Axiora.UI.IsOpen = false
     end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 21: ENHANCED PATHFINDING SYSTEM
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Pathfinding = {
+    -- FIX: Increased thresholds to reduce false positives during slow movement/cutscenes
+    StuckThreshold = 1.5,       -- Distance threshold for stuck detection (was 0.5, too aggressive)
+    StuckCheckInterval = 1.2,   -- Time between stuck checks (was 0.8)
+    MaxStuckRecoveries = 5,     -- Max recovery attempts before giving up
+    WaypointTolerance = 3.0,    -- Arrival tolerance in studs
+    DynamicObstacles = true,    -- Track moving obstacles
+    PathSmoothingEnabled = true,
+    
+    -- Internal state
+    _lastPosition = nil,
+    _lastCheckTime = 0,
+    _stuckCount = 0,
+    _recoveryIndex = 1
+}
+
+-- Check if character is stuck with hysteresis to prevent false positives
+function Axiora.Pathfinding.IsStuck(currentPos)
+    local now = os.clock()
+    
+    if now - Axiora.Pathfinding._lastCheckTime < Axiora.Pathfinding.StuckCheckInterval then
+        return false
+    end
+    
+    Axiora.Pathfinding._lastCheckTime = now
+    
+    if not Axiora.Pathfinding._lastPosition then
+        Axiora.Pathfinding._lastPosition = currentPos
+        return false
+    end
+    
+    local distance = (currentPos - Axiora.Pathfinding._lastPosition).Magnitude
+    Axiora.Pathfinding._lastPosition = currentPos
+    
+    if distance < Axiora.Pathfinding.StuckThreshold then
+        Axiora.Pathfinding._stuckCount = Axiora.Pathfinding._stuckCount + 1
+        return Axiora.Pathfinding._stuckCount >= 2  -- Require 2 consecutive stuck checks
+    else
+        Axiora.Pathfinding._stuckCount = 0
+        return false
+    end
+end
+
+-- Multiple recovery strategies for when character gets stuck
+function Axiora.Pathfinding.RecoverFromStuck(character)
+    if not character then return false end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return false end
+    
+    local strategies = {
+        function() -- Strategy 1: Jump
+            humanoid.Jump = true
+            task.wait(0.3)
+        end,
+        function() -- Strategy 2: Move sideways (right)
+            humanoid:Move(Vector3.new(1, 0, 0))
+            task.wait(0.4)
+            humanoid:Move(Vector3.zero)
+        end,
+        function() -- Strategy 3: Move sideways (left)
+            humanoid:Move(Vector3.new(-1, 0, 0))
+            task.wait(0.4)
+            humanoid:Move(Vector3.zero)
+        end,
+        function() -- Strategy 4: Move backwards
+            humanoid:Move(Vector3.new(0, 0, -1))
+            task.wait(0.4)
+            humanoid:Move(Vector3.zero)
+        end,
+        function() -- Strategy 5: Jump + diagonal
+            humanoid.Jump = true
+            humanoid:Move(Vector3.new(0.7, 0, 0.7))
+            task.wait(0.5)
+            humanoid:Move(Vector3.zero)
+        end
+    }
+    
+    local strategyIndex = Axiora.Pathfinding._recoveryIndex
+    if strategyIndex > #strategies then
+        strategyIndex = 1
+    end
+    
+    pcall(strategies[strategyIndex])
+    Axiora.Pathfinding._recoveryIndex = strategyIndex + 1
+    
+    return true
+end
+
+-- Reset pathfinding state
+function Axiora.Pathfinding.Reset()
+    Axiora.Pathfinding._lastPosition = nil
+    Axiora.Pathfinding._lastCheckTime = 0
+    Axiora.Pathfinding._stuckCount = 0
+    Axiora.Pathfinding._recoveryIndex = 1
+end
+
+-- Smooth path using Catmull-Rom spline (for 3D visualization)
+function Axiora.Pathfinding.SmoothPath(waypoints, segments)
+    if #waypoints < 4 then return waypoints end
+    segments = segments or 5
+    
+    local smoothed = {}
+    
+    for i = 2, #waypoints - 2 do
+        local p0 = waypoints[i - 1]
+        local p1 = waypoints[i]
+        local p2 = waypoints[i + 1]
+        local p3 = waypoints[i + 2]
+        
+        for t = 0, 1, 1 / segments do
+            local t2 = t * t
+            local t3 = t2 * t
+            
+            local x = 0.5 * ((2 * p1.X) + (-p0.X + p2.X) * t + 
+                      (2 * p0.X - 5 * p1.X + 4 * p2.X - p3.X) * t2 + 
+                      (-p0.X + 3 * p1.X - 3 * p2.X + p3.X) * t3)
+            local y = 0.5 * ((2 * p1.Y) + (-p0.Y + p2.Y) * t + 
+                      (2 * p0.Y - 5 * p1.Y + 4 * p2.Y - p3.Y) * t2 + 
+                      (-p0.Y + 3 * p1.Y - 3 * p2.Y + p3.Y) * t3)
+            local z = 0.5 * ((2 * p1.Z) + (-p0.Z + p2.Z) * t + 
+                      (2 * p0.Z - 5 * p1.Z + 4 * p2.Z - p3.Z) * t2 + 
+                      (-p0.Z + 3 * p1.Z - 3 * p2.Z + p3.Z) * t3)
+            
+            table.insert(smoothed, Vector3.new(x, y, z))
+        end
+    end
+    
+    return smoothed
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 22: MACRO VALIDATION & INTEGRITY
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Validation = {
+    CurrentVersion = 2,
+    AutoFix = true,
+    StrictMode = false
+}
+
+-- Validate a single node
+function Axiora.Validation.ValidateNode(node, index)
+    if type(node) ~= "table" then
+        return false, "Node #" .. index .. " is not a table"
+    end
+    
+    if node.t == nil then
+        if Axiora.Validation.AutoFix then
+            node.t = 1  -- Default to movement
+            return true, "Auto-fixed: Node #" .. index .. " missing type"
+        end
+        return false, "Node #" .. index .. " missing type (t)"
+    end
+    
+    if node.d == nil then
+        if Axiora.Validation.AutoFix then
+            node.d = 0
+        else
+            return false, "Node #" .. index .. " missing delay (d)"
+        end
+    end
+    
+    -- Type-specific validation
+    if node.t == 1 then -- Movement
+        if not node.p and Axiora.Validation.StrictMode then
+            return false, "Move node #" .. index .. " missing position"
+        end
+    elseif node.t == 2 then -- Click
+        if (node.x == nil or node.y == nil) then
+            if Axiora.Validation.AutoFix then
+                node.x = node.x or 0.5
+                node.y = node.y or 0.5
+            else
+                return false, "Click node #" .. index .. " missing coordinates"
+            end
+        end
+    elseif node.t == 3 then -- Keyboard
+        if not node.k and Axiora.Validation.StrictMode then
+            return false, "Key node #" .. index .. " missing keycode"
+        end
+    end
+    
+    return true, nil
+end
+
+-- Validate entire buffer
+function Axiora.Validation.ValidateBuffer(buffer)
+    if type(buffer) ~= "table" then
+        return false, "Buffer is not a table", {}
+    end
+    
+    local errors = {}
+    local warnings = {}
+    
+    for i, node in ipairs(buffer) do
+        local valid, msg = Axiora.Validation.ValidateNode(node, i)
+        if not valid then
+            table.insert(errors, msg)
+        elseif msg then
+            table.insert(warnings, msg)
+        end
+    end
+    
+    if #errors > 0 then
+        return false, "Validation failed: " .. errors[1], errors
+    end
+    
+    return true, #warnings > 0 and (#warnings .. " nodes auto-fixed") or nil, warnings
+end
+
+-- Migrate old format to new
+function Axiora.Validation.MigrateVersion(data)
+    local version = data.version or data.v or 1
+    
+    if version < 2 then
+        -- v1 -> v2: Ensure all nodes have delay
+        for i, node in ipairs(data.buffer or data.b or {}) do
+            if node.d == nil then node.d = 0 end
+            -- Normalize position format
+            if node.p and type(node.p) == "table" and node.p[1] then
+                -- Already array format
+            elseif node.p and type(node.p) == "userdata" then
+                node.p = {node.p.X, node.p.Y, node.p.Z}
+            end
+        end
+        data.version = 2
+    end
+    
+    return data
+end
+
+-- Create backup before loading
+function Axiora.Validation.CreateBackup(name)
+    if not Axiora.Capabilities.WriteFile or not Axiora.Capabilities.ReadFile then
+        return false
+    end
+    
+    local sourcePath = "Axiora/saves/" .. name .. ".json"
+    local backupPath = "Axiora/backups/" .. name .. "_" .. os.time() .. ".json"
+    
+    local success = pcall(function()
+        if not isfolder("Axiora/backups") then makefolder("Axiora/backups") end
+        if isfile(sourcePath) then
+            writefile(backupPath, readfile(sourcePath))
+        end
+    end)
+    
+    return success
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 23: EXTENDED INPUT TYPES
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Extended node types
+Axiora.NodeTypes = {
+    MOVE = 1,
+    CLICK_LEFT = 2,
+    KEY = 3,
+    CONDITION = 4,
+    CLICK_RIGHT = 5,
+    CLICK_MIDDLE = 6,
+    SCROLL = 7,
+    HOLD_START = 8,
+    HOLD_END = 9,
+    GAMEPAD = 10,
+    GYRO = 11
+}
+
+-- Right-click function
+function Axiora.Input.RightClick(x, y)
+    if Axiora.Input.Method == "Delta" and Axiora.Input._deltaInput then
+        local success = pcall(function()
+            if Axiora.Input._deltaInput.mouse_move then
+                Axiora.Input._deltaInput.mouse_move(x, y)
+            end
+            task.wait(0.01)
+            if Axiora.Input._deltaInput.mouse2_click then
+                Axiora.Input._deltaInput.mouse2_click()
+            end
+        end)
+        if success then return true end
+    end
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, 1, true, game, 1)
+            task.wait(0.03)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 1, false, game, 1)
+        end)
+        return true
+    end
+    
+    return false
+end
+
+-- Middle-click function
+function Axiora.Input.MiddleClick(x, y)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, 2, true, game, 1)
+            task.wait(0.03)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 2, false, game, 1)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Scroll wheel function
+function Axiora.Input.Scroll(x, y, direction, amount)
+    amount = amount or 1
+    local scrollValue = direction == "up" and amount or -amount
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseWheelEvent(x, y, scrollValue)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Mouse hold (press without release)
+function Axiora.Input.MouseDown(x, y, button)
+    button = button or 0 -- 0 = left, 1 = right, 2 = middle
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, button, true, game, 1)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Mouse release
+function Axiora.Input.MouseUp(x, y, button)
+    button = button or 0
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, button, false, game, 1)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Key hold (press without release)
+function Axiora.Input.KeyDown(keyCode)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        end)
+        return true
+    end
+    
+    if Axiora.Capabilities.KeyPress then
+        pcall(function() keypress(keyCode) end)
+        return true
+    end
+    
+    return false
+end
+
+-- Key release
+function Axiora.Input.KeyUp(keyCode)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+        end)
+        return true
+    end
+    
+    if Axiora.Capabilities.KeyRelease then
+        pcall(function() keyrelease(keyCode) end)
+        return true
+    end
+    
+    return false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 24: GAME-SPECIFIC PROFILES
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Profiles = {
+    Current = nil,
+    List = {},
+    AutoDetect = true,
+    AutoLoad = true
+}
+
+function Axiora.Profiles.GetPlaceId()
+    return game.PlaceId
+end
+
+function Axiora.Profiles.GetGameName()
+    local success, info = pcall(function()
+        return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+    end)
+    if success and info then
+        return info.Name or "Unknown"
+    end
+    return "Game_" .. game.PlaceId
+end
+
+function Axiora.Profiles.LoadForCurrentGame()
+    if not Axiora.Profiles.AutoDetect then return false end
+    if not Axiora.Capabilities.ReadFile then return false end
+    
+    local placeId = Axiora.Profiles.GetPlaceId()
+    local profilePath = "Axiora/profiles/" .. placeId .. ".json"
+    
+    local success, data = pcall(function()
+        if isfile(profilePath) then
+            return HttpService:JSONDecode(readfile(profilePath))
+        end
+        return nil
+    end)
+    
+    if success and data then
+        Axiora.Profiles.Current = data
+        
+        -- Apply saved settings
+        for key, value in pairs(data.settings or {}) do
+            if Axiora.Settings[key] ~= nil then
+                Axiora.Settings[key] = value
+            end
+        end
+        
+        -- Apply calibration
+        if data.calibration then
+            Axiora.Settings.XOffset = data.calibration.XOffset or 0
+            Axiora.Settings.YOffset = data.calibration.YOffset or 0
+        end
+        
+        Axiora.Visuals.Notify("Profile", "Loaded: " .. (data.gameName or "Game profile"), 2, "success")
+        Axiora.Events:Fire("ProfileLoaded", {PlaceId = placeId, Profile = data})
+        return true
+    end
+    
+    return false
+end
+
+function Axiora.Profiles.SaveCurrentGame()
+    if not Axiora.Capabilities.WriteFile then
+        Axiora.Visuals.Notify("Profile", "Cannot save - no file system", 2, "error")
+        return false
+    end
+    
+    local placeId = Axiora.Profiles.GetPlaceId()
+    local profilePath = "Axiora/profiles/" .. placeId .. ".json"
+    
+    local profile = {
+        placeId = placeId,
+        gameName = Axiora.Profiles.GetGameName(),
+        settings = {
+            XOffset = Axiora.Settings.XOffset,
+            YOffset = Axiora.Settings.YOffset,
+            TimeScale = Axiora.Settings.TimeScale,
+            ClickRecoveryEnabled = Axiora.Settings.ClickRecoveryEnabled,
+            ClickRecoveryMaxAttempts = Axiora.Settings.ClickRecoveryMaxAttempts,
+            MovementSampleRate = Axiora.Settings.MovementSampleRate
+        },
+        calibration = {
+            XOffset = Axiora.Settings.XOffset,
+            YOffset = Axiora.Settings.YOffset
+        },
+        timestamp = os.time(),
+        version = Axiora._VERSION
+    }
+    
+    local success = pcall(function()
+        if not isfolder("Axiora/profiles") then makefolder("Axiora/profiles") end
+        writefile(profilePath, HttpService:JSONEncode(profile))
+    end)
+    
+    if success then
+        Axiora.Profiles.Current = profile
+        Axiora.Visuals.Notify("Profile", "Saved for " .. profile.gameName, 2, "success")
+        return true
+    end
+    
+    Axiora.Visuals.Notify("Profile", "Failed to save", 2, "error")
+    return false
+end
+
+function Axiora.Profiles.DeleteProfile(placeId)
+    placeId = placeId or Axiora.Profiles.GetPlaceId()
+    local profilePath = "Axiora/profiles/" .. placeId .. ".json"
+    
+    if Axiora.Capabilities.DeleteFile then
+        pcall(function()
+            if isfile(profilePath) then
+                delfile(profilePath)
+            end
+        end)
+        Axiora.Visuals.Notify("Profile", "Deleted profile", 2, "info")
+        return true
+    end
+    
+    return false
+end
+
+function Axiora.Profiles.ListProfiles()
+    local profiles = {}
+    
+    if not Axiora.Capabilities.ReadFile then return profiles end
+    
+    pcall(function()
+        if isfolder("Axiora/profiles") then
+            for _, file in ipairs(listfiles("Axiora/profiles")) do
+                if string.match(file, "%.json$") then
+                    local data = HttpService:JSONDecode(readfile(file))
+                    table.insert(profiles, {
+                        placeId = data.placeId,
+                        gameName = data.gameName,
+                        timestamp = data.timestamp
+                    })
+                end
+            end
+        end
+    end)
+    
+    return profiles
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 25: BIOMETRIC ANTI-AFK (Human-like Input Simulation)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.BiometricAntiAFK = {
+    Enabled = false,
+    _thread = nil,
+    
+    -- Configurable patterns
+    Patterns = {
+        MicroMovements = true,
+        OccasionalScrolls = true,
+        CameraLooks = true,
+        RandomJumps = false,
+        
+        -- Timing (seconds)
+        MinInterval = 30,
+        MaxInterval = 180,
+        
+        -- Movement
+        MouseJitter = 3  -- pixels
+    }
+}
+
+-- Generate human-like random delay with gaussian distribution
+function Axiora.BiometricAntiAFK.GenerateDelay()
+    local min = Axiora.BiometricAntiAFK.Patterns.MinInterval
+    local max = Axiora.BiometricAntiAFK.Patterns.MaxInterval
+    
+    -- Simulate gaussian with multiple random calls
+    local sum = 0
+    for i = 1, 3 do
+        sum = sum + math.random()
+    end
+    local gaussian = sum / 3  -- 0-1 range, clustered toward 0.5
+    
+    return min + (max - min) * gaussian
+end
+
+-- Simulate micro mouse movement
+function Axiora.BiometricAntiAFK.SimulateMicroMovement()
+    local jitter = Axiora.BiometricAntiAFK.Patterns.MouseJitter
+    local dx = math.random(-jitter, jitter)
+    local dy = math.random(-jitter, jitter)
+    
+    local mousePos = UserInputService:GetMouseLocation()
+    local newX = math.clamp(mousePos.X + dx, 0, Axiora.Math.Screen.Viewport.X)
+    local newY = math.clamp(mousePos.Y + dy, 0, Axiora.Math.Screen.Viewport.Y)
+    
+    if Axiora.Input.Method == "Native" then
+        pcall(function()
+            mousemoveabs(newX, newY)
+        end)
+    end
+end
+
+-- Simulate camera look
+function Axiora.BiometricAntiAFK.SimulateCameraLook()
+    pcall(function()
+        local cam = workspace.CurrentCamera
+        if cam then
+            local angleX = math.rad(math.random(-3, 3))
+            local angleY = math.rad(math.random(-2, 2))
+            cam.CFrame = cam.CFrame * CFrame.Angles(angleX, angleY, 0)
+        end
+    end)
+end
+
+-- Random action picker
+function Axiora.BiometricAntiAFK.PerformRandomAction()
+    local actions = {}
+    local patterns = Axiora.BiometricAntiAFK.Patterns
+    
+    if patterns.MicroMovements then
+        table.insert(actions, Axiora.BiometricAntiAFK.SimulateMicroMovement)
+    end
+    if patterns.CameraLooks then
+        table.insert(actions, Axiora.BiometricAntiAFK.SimulateCameraLook)
+    end
+    if patterns.OccasionalScrolls then
+        table.insert(actions, function()
+            local dir = math.random() > 0.5 and "up" or "down"
+            Axiora.Input.Scroll(0, 0, dir, 1)
+        end)
+    end
+    if patterns.RandomJumps then
+        table.insert(actions, function()
+            local LP = getLocalPlayer()
+            if LP and LP.Character then
+                local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Jump = true end
+            end
+        end)
+    end
+    
+    if #actions > 0 then
+        local action = actions[math.random(1, #actions)]
+        pcall(action)
+    end
+end
+
+function Axiora.BiometricAntiAFK.Start()
+    if Axiora.BiometricAntiAFK.Enabled then return end
+    Axiora.BiometricAntiAFK.Enabled = true
+    
+    Axiora.BiometricAntiAFK._thread = task.spawn(function()
+        while Axiora.BiometricAntiAFK.Enabled do
+            local delay = Axiora.BiometricAntiAFK.GenerateDelay()
+            task.wait(delay)
+            
+            if Axiora.BiometricAntiAFK.Enabled then
+                Axiora.BiometricAntiAFK.PerformRandomAction()
+            end
+        end
+    end)
+    
+    Axiora.Visuals.Notify("Biometric", "Human-like anti-AFK started", 2, "success")
+    Axiora.Events:Fire("BiometricAntiAFKStarted", {})
+end
+
+function Axiora.BiometricAntiAFK.Stop()
+    Axiora.BiometricAntiAFK.Enabled = false
+    Axiora.Visuals.Notify("Biometric", "Anti-AFK stopped", 2, "info")
+    Axiora.Events:Fire("BiometricAntiAFKStopped", {})
+end
+
+function Axiora.BiometricAntiAFK.Toggle()
+    if Axiora.BiometricAntiAFK.Enabled then
+        Axiora.BiometricAntiAFK.Stop()
+    else
+        Axiora.BiometricAntiAFK.Start()
+    end
+    return Axiora.BiometricAntiAFK.Enabled
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 26: SMART BREAKPOINTS (Conditional Pause)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.SmartBreakpoints = {
+    Conditions = {},
+    Enabled = true
+}
+
+-- Add a conditional breakpoint
+function Axiora.SmartBreakpoints.Add(nodeIndex, condition)
+    --[[
+    condition format:
+    {
+        type = "health" | "position" | "players" | "time" | "inventory",
+        operator = "<" | ">" | "==" | "near" | "far",
+        value = number | {x, y, z},
+        radius = number (for position),
+        message = "optional notification"
+    }
+    ]]
+    
+    Axiora.SmartBreakpoints.Conditions[nodeIndex] = condition
+    
+    -- Also set regular breakpoint
+    if Axiora.SetBreakpoint then
+        Axiora.SetBreakpoint(nodeIndex)
+    end
+    
+    Axiora.Visuals.Notify("Breakpoint", "Smart breakpoint added at node #" .. nodeIndex, 2, "success")
+    return true
+end
+
+-- Remove a smart breakpoint
+function Axiora.SmartBreakpoints.Remove(nodeIndex)
+    Axiora.SmartBreakpoints.Conditions[nodeIndex] = nil
+    
+    if Axiora.RemoveBreakpoint then
+        Axiora.RemoveBreakpoint(nodeIndex)
+    end
+    
+    return true
+end
+
+-- Check if smart breakpoint condition is met
+function Axiora.SmartBreakpoints.Check(nodeIndex)
+    if not Axiora.SmartBreakpoints.Enabled then return false end
+    
+    local condition = Axiora.SmartBreakpoints.Conditions[nodeIndex]
+    if not condition then return false end
+    
+    local LP = getLocalPlayer()
+    if not LP then return false end
+    
+    local shouldBreak = false
+    
+    if condition.type == "health" then
+        local character = LP.Character
+        if character then
+            local hum = character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.MaxHealth > 0 then
+                local healthPct = (hum.Health / hum.MaxHealth) * 100
+                
+                if condition.operator == "<" and healthPct < condition.value then
+                    shouldBreak = true
+                elseif condition.operator == ">" and healthPct > condition.value then
+                    shouldBreak = true
+                elseif condition.operator == "==" and math.abs(healthPct - condition.value) < 1 then
+                    shouldBreak = true
+                end
+            end
+        end
+        
+    elseif condition.type == "position" then
+        local character = LP.Character
+        if character then
+            local pos = character:GetPivot().Position
+            local target = Vector3.new(
+                condition.value[1] or condition.value.x or 0,
+                condition.value[2] or condition.value.y or 0,
+                condition.value[3] or condition.value.z or 0
+            )
+            local distance = (pos - target).Magnitude
+            local radius = condition.radius or 10
+            
+            if condition.operator == "near" and distance < radius then
+                shouldBreak = true
+            elseif condition.operator == "far" and distance > radius then
+                shouldBreak = true
+            end
+        end
+        
+    elseif condition.type == "players" then
+        local count = #Players:GetPlayers()
+        
+        if condition.operator == "<" and count < condition.value then
+            shouldBreak = true
+        elseif condition.operator == ">" and count > condition.value then
+            shouldBreak = true
+        elseif condition.operator == "==" and count == condition.value then
+            shouldBreak = true
+        end
+        
+    elseif condition.type == "time" then
+        local elapsed = Axiora.Analytics and Axiora.Analytics.GetUptime() or 0
+        local minutes = elapsed / 60
+        
+        if condition.operator == ">" and minutes > condition.value then
+            shouldBreak = true
+        elseif condition.operator == "<" and minutes < condition.value then
+            shouldBreak = true
+        end
+    end
+    
+    if shouldBreak and condition.message then
+        Axiora.Visuals.Notify("Smart Breakpoint", condition.message, 3, "warning")
+    end
+    
+    return shouldBreak
+end
+
+-- Clear all smart breakpoints
+function Axiora.SmartBreakpoints.ClearAll()
+    Axiora.SmartBreakpoints.Conditions = {}
+    if Axiora.ClearBreakpoints then
+        Axiora.ClearBreakpoints()
+    end
+    Axiora.Visuals.Notify("Breakpoint", "All smart breakpoints cleared", 2, "info")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 27: CONTROLLER & GYRO SUPPORT
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Controller = {
+    Enabled = false,
+    Recording = false,
+    Sensitivity = 1.0,
+    DeadZone = 0.1,
+    _connections = {}
+}
+
+Axiora.Controller.ButtonMap = {
+    [Enum.KeyCode.ButtonA] = "A",
+    [Enum.KeyCode.ButtonB] = "B",
+    [Enum.KeyCode.ButtonX] = "X",
+    [Enum.KeyCode.ButtonY] = "Y",
+    [Enum.KeyCode.ButtonL1] = "LB",
+    [Enum.KeyCode.ButtonR1] = "RB",
+    [Enum.KeyCode.ButtonL2] = "LT",
+    [Enum.KeyCode.ButtonR2] = "RT",
+    [Enum.KeyCode.ButtonL3] = "LS",
+    [Enum.KeyCode.ButtonR3] = "RS",
+    [Enum.KeyCode.DPadUp] = "DUp",
+    [Enum.KeyCode.DPadDown] = "DDown",
+    [Enum.KeyCode.DPadLeft] = "DLeft",
+    [Enum.KeyCode.DPadRight] = "DRight",
+    [Enum.KeyCode.ButtonStart] = "Start",
+    [Enum.KeyCode.ButtonSelect] = "Select"
+}
+
+function Axiora.Controller.IsConnected()
+    return UserInputService.GamepadEnabled
+end
+
+function Axiora.Controller.StartRecording()
+    if not Axiora.Controller.IsConnected() then
+        Axiora.Visuals.Notify("Controller", "No gamepad detected", 2, "error")
+        return false
+    end
+    
+    Axiora.Controller.Recording = true
+    Axiora.Controller.Enabled = true
+    
+    -- Button press listener
+    local buttonConn = UserInputService.InputBegan:Connect(function(input, processed)
+        if not Axiora.Controller.Recording then return end
+        if Axiora.State.Status ~= "RECORDING" then return end
+        
+        local buttonName = Axiora.Controller.ButtonMap[input.KeyCode]
+        if buttonName then
+            local node = {
+                t = Axiora.NodeTypes.GAMEPAD,
+                d = Axiora.Recording.GetElapsedTime and Axiora.Recording.GetElapsedTime() or 0,
+                button = buttonName,
+                pressed = true
+            }
+            table.insert(Axiora.State.Buffer, node)
+            Axiora.Recording.NodeCount = (Axiora.Recording.NodeCount or 0) + 1
+        end
+    end)
+    table.insert(Axiora.Controller._connections, buttonConn)
+    
+    -- Button release listener
+    local releaseConn = UserInputService.InputEnded:Connect(function(input, processed)
+        if not Axiora.Controller.Recording then return end
+        if Axiora.State.Status ~= "RECORDING" then return end
+        
+        local buttonName = Axiora.Controller.ButtonMap[input.KeyCode]
+        if buttonName then
+            local node = {
+                t = Axiora.NodeTypes.GAMEPAD,
+                d = Axiora.Recording.GetElapsedTime and Axiora.Recording.GetElapsedTime() or 0,
+                button = buttonName,
+                pressed = false
+            }
+            table.insert(Axiora.State.Buffer, node)
+        end
+    end)
+    table.insert(Axiora.Controller._connections, releaseConn)
+    
+    Axiora.Visuals.Notify("Controller", "Gamepad recording started", 2, "success")
+    return true
+end
+
+function Axiora.Controller.StopRecording()
+    Axiora.Controller.Recording = false
+    
+    for _, conn in ipairs(Axiora.Controller._connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Axiora.Controller._connections = {}
+    
+    Axiora.Visuals.Notify("Controller", "Gamepad recording stopped", 2, "info")
+end
+
+-- Simulate gamepad button press
+function Axiora.Controller.SimulateButton(buttonName, pressed)
+    -- Find the KeyCode for the button
+    local keyCode = nil
+    for code, name in pairs(Axiora.Controller.ButtonMap) do
+        if name == buttonName then
+            keyCode = code
+            break
+        end
+    end
+    
+    if keyCode and VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(pressed, keyCode, false, game)
+        end)
+        return true
+    end
+    
+    return false
+end
+
+-- Gyroscope support (mobile)
+Axiora.Gyro = {
+    Enabled = false,
+    Recording = false,
+    Sensitivity = 1.0,
+    SampleRate = 0.1, -- Sample every N seconds
+    _connection = nil,
+    _lastSample = 0
+}
+
+function Axiora.Gyro.IsSupported()
+    return UserInputService.GyroscopeEnabled
+end
+
+function Axiora.Gyro.StartTracking()
+    if not Axiora.Gyro.IsSupported() then
+        Axiora.Visuals.Notify("Gyro", "Device doesn't support gyroscope", 2, "error")
+        return false
+    end
+    
+    Axiora.Gyro.Enabled = true
+    Axiora.Gyro.Recording = true
+    Axiora.Gyro._lastSample = os.clock()  -- FIX: Initialize to current time to prevent first sample delay
+    
+    Axiora.Gyro._connection = UserInputService.DeviceRotationChanged:Connect(function(rotation, cframe)
+        if not Axiora.Gyro.Recording then return end
+        if Axiora.State.Status ~= "RECORDING" then return end
+        
+        local now = os.clock()
+        if now - Axiora.Gyro._lastSample < Axiora.Gyro.SampleRate then
+            return
+        end
+        Axiora.Gyro._lastSample = now
+        
+        local node = {
+            t = Axiora.NodeTypes.GYRO,
+            d = Axiora.Recording.GetElapsedTime and Axiora.Recording.GetElapsedTime() or 0,
+            rotation = {
+                x = rotation.X,
+                y = rotation.Y,
+                z = rotation.Z,
+                w = rotation.W
+            }
+        }
+        table.insert(Axiora.State.Buffer, node)
+    end)
+    
+    Axiora.Visuals.Notify("Gyro", "Gyroscope tracking started", 2, "success")
+    return true
+end
+
+function Axiora.Gyro.StopTracking()
+    Axiora.Gyro.Recording = false
+    Axiora.Gyro.Enabled = false
+    
+    if Axiora.Gyro._connection then
+        pcall(function() Axiora.Gyro._connection:Disconnect() end)
+        Axiora.Gyro._connection = nil
+    end
+    
+    Axiora.Visuals.Notify("Gyro", "Gyroscope tracking stopped", 2, "info")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 28: 3D VISUALIZATION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Visualization3D = {
+    Enabled = false,
+    ShowPath = true,
+    ShowClicks = true,
+    ShowVelocity = false,
+    ShowJumpArcs = true,
+    
+    PathColor = Color3.fromRGB(100, 200, 255),
+    ClickColor = Color3.fromRGB(255, 100, 150),
+    JumpColor = Color3.fromRGB(150, 255, 100),
+    
+    _parts = {},
+    _folder = nil
+}
+
+function Axiora.Visualization3D.Init()
+    if Axiora.Visualization3D._folder then
+        pcall(function() Axiora.Visualization3D._folder:Destroy() end)
+    end
+    
+    Axiora.Visualization3D._folder = Instance.new("Folder")
+    Axiora.Visualization3D._folder.Name = "AxioraViz3D"
+    Axiora.Visualization3D._folder.Parent = workspace
+    Axiora.Visualization3D._parts = {}
+end
+
+function Axiora.Visualization3D.CreatePathLine(from, to, color)
+    local distance = (to - from).Magnitude
+    local mid = (from + to) / 2
+    
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.Color = color or Axiora.Visualization3D.PathColor
+    part.Size = Vector3.new(0.2, 0.2, distance)
+    part.CFrame = CFrame.lookAt(mid, to)
+    part.Transparency = 0.3
+    part.Parent = Axiora.Visualization3D._folder
+    
+    table.insert(Axiora.Visualization3D._parts, part)
+    return part
+end
+
+function Axiora.Visualization3D.CreateClickMarker(position, color)
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.Color = color or Axiora.Visualization3D.ClickColor
+    part.Shape = Enum.PartType.Ball
+    part.Size = Vector3.new(0.8, 0.8, 0.8)
+    part.Position = position
+    part.Transparency = 0.2
+    part.Parent = Axiora.Visualization3D._folder
+    
+    -- Add billboard for visibility
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0, 30, 0, 30)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = part
+    
+    local icon = Instance.new("TextLabel")
+    icon.Size = UDim2.new(1, 0, 1, 0)
+    icon.BackgroundTransparency = 1
+    icon.Text = "👆"
+    icon.TextSize = 20
+    icon.Parent = billboard
+    
+    table.insert(Axiora.Visualization3D._parts, part)
+    return part
+end
+
+function Axiora.Visualization3D.CreateJumpArc(startPos, peakHeight, endPos, color)
+    local segments = 10
+    local points = {}
+    
+    for i = 0, segments do
+        local t = i / segments
+        local x = startPos.X + (endPos.X - startPos.X) * t
+        local z = startPos.Z + (endPos.Z - startPos.Z) * t
+        -- Parabolic arc
+        local y = startPos.Y + (peakHeight * 4 * t * (1 - t))
+        table.insert(points, Vector3.new(x, y, z))
+    end
+    
+    for i = 1, #points - 1 do
+        Axiora.Visualization3D.CreatePathLine(points[i], points[i + 1], color or Axiora.Visualization3D.JumpColor)
+    end
+end
+
+function Axiora.Visualization3D.RenderBuffer(buffer)
+    Axiora.Visualization3D.Clear()
+    Axiora.Visualization3D.Init()
+    
+    if not buffer or #buffer == 0 then return end
+    
+    local lastPos = nil
+    local lastWasJump = false
+    
+    for i, node in ipairs(buffer) do
+        if node.t == 1 then -- Movement
+            local pos = Axiora.Math.DeserializeVec(node.p)
+            
+            if Axiora.Visualization3D.ShowPath and lastPos then
+                if lastWasJump and Axiora.Visualization3D.ShowJumpArcs then
+                    Axiora.Visualization3D.CreateJumpArc(lastPos, 3, pos)
+                else
+                    Axiora.Visualization3D.CreatePathLine(lastPos, pos)
+                end
+            end
+            
+            lastPos = pos
+            lastWasJump = node.j == true
+            
+        elseif node.t == 2 and Axiora.Visualization3D.ShowClicks then -- Click
+            if lastPos then
+                -- Create click marker at last known position (3D representation)
+                Axiora.Visualization3D.CreateClickMarker(lastPos + Vector3.new(0, 2, 0))
+            end
+        end
+    end
+    
+    Axiora.Visuals.Notify("3D Viz", "Rendered " .. #Axiora.Visualization3D._parts .. " elements", 2, "success")
+end
+
+function Axiora.Visualization3D.Clear()
+    for _, part in ipairs(Axiora.Visualization3D._parts) do
+        pcall(function() part:Destroy() end)
+    end
+    Axiora.Visualization3D._parts = {}
+    
+    if Axiora.Visualization3D._folder then
+        pcall(function() Axiora.Visualization3D._folder:ClearAllChildren() end)
+    end
+end
+
+function Axiora.Visualization3D.Toggle()
+    Axiora.Visualization3D.Enabled = not Axiora.Visualization3D.Enabled
+    
+    if Axiora.Visualization3D.Enabled then
+        Axiora.Visualization3D.RenderBuffer(Axiora.State.Buffer)
+    else
+        Axiora.Visualization3D.Clear()
+    end
+    
+    return Axiora.Visualization3D.Enabled
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 29: MULTI-INSTANCE ORCHESTRATION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.MultiInstance = {
+    Enabled = false,
+    Role = "standalone", -- standalone, leader, follower
+    InstanceId = tostring(math.random(100000, 999999)),
+    StaggerDelay = 0.5, -- Delay between instances
+    SyncEnabled = false,
+    
+    _channel = nil,
+    _connections = {}
+}
+
+-- Generate unique instance ID
+function Axiora.MultiInstance.GetInstanceId()
+    return Axiora.MultiInstance.InstanceId
+end
+
+-- Set instance role
+function Axiora.MultiInstance.SetRole(role)
+    if role ~= "leader" and role ~= "follower" and role ~= "standalone" then
+        role = "standalone"
+    end
+    Axiora.MultiInstance.Role = role
+    Axiora.Visuals.Notify("Multi-Instance", "Role set to: " .. role, 2, "info")
+end
+
+-- Start synchronized playback (leader broadcasts, followers listen)
+function Axiora.MultiInstance.StartSyncPlayback()
+    if Axiora.MultiInstance.Role == "leader" then
+        -- Leader starts and broadcasts
+        Axiora.Play(true)
+        Axiora.MultiInstance.BroadcastCommand("PLAY")
+    elseif Axiora.MultiInstance.Role == "follower" then
+        -- Follower waits for stagger delay then plays
+        task.delay(Axiora.MultiInstance.StaggerDelay, function()
+            Axiora.Play(true)
+        end)
+    else
+        -- Standalone just plays normally
+        Axiora.Play(true)
+    end
+end
+
+-- Broadcast command to other instances (via shared attribute if possible)
+function Axiora.MultiInstance.BroadcastCommand(command)
+    -- This uses a shared workspace attribute for cross-instance communication
+    -- Note: This only works if instances share the same server
+    pcall(function()
+        -- Clean up old sync attributes to prevent spam
+        for _, attr in ipairs(workspace:GetAttributes()) do
+            if string.match(tostring(attr), "^AxioraSync_") then
+                local attrAge = os.time() - tonumber(string.match(tostring(attr), "AxioraSync_(%d+)") or "0")
+                if attrAge > 10 then  -- Remove attributes older than 10 seconds
+                    workspace:SetAttribute(attr, nil)
+                end
+            end
+        end
+        
+        workspace:SetAttribute("AxioraSync_" .. os.time(), command .. "_" .. Axiora.MultiInstance.InstanceId)
+    end)
+end
+
+-- Listen for sync commands
+function Axiora.MultiInstance.StartListening()
+    if Axiora.MultiInstance.Role ~= "follower" then return end
+    
+    local conn = workspace.AttributeChanged:Connect(function(attr)
+        if string.match(attr, "^AxioraSync_") then
+            local value = workspace:GetAttribute(attr)
+            if value and string.match(value, "^PLAY_") then
+                -- Check it's not from ourselves
+                if not string.match(value, Axiora.MultiInstance.InstanceId) then
+                    task.delay(Axiora.MultiInstance.StaggerDelay, function()
+                        Axiora.Play(true)
+                    end)
+                end
+            elseif value and string.match(value, "^STOP_") then
+                Axiora.Stop()
+            end
+        end
+    end)
+    
+    table.insert(Axiora.MultiInstance._connections, conn)
+    Axiora.Visuals.Notify("Multi-Instance", "Listening for sync commands", 2, "info")
+end
+
+function Axiora.MultiInstance.StopListening()
+    for _, conn in ipairs(Axiora.MultiInstance._connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Axiora.MultiInstance._connections = {}
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 30: AI-ASSISTED CLICK RECOVERY (Enhanced)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.AIClickRecovery = {
+    Enabled = false,
+    LearnedOffsets = {},
+    MaxLearnedOffsets = 100,
+    ConfidenceThreshold = 0.7
+}
+
+-- Enhanced spiral with fibonacci-based pattern for better coverage
+function Axiora.AIClickRecovery.GetFibonacciSpiral(baseOffset, maxAttempts)
+    local offsets = {{0, 0}}  -- Start at center
+    local phi = (1 + math.sqrt(5)) / 2  -- Golden ratio
+    
+    for i = 1, maxAttempts - 1 do
+        local angle = i * phi * math.pi * 2
+        local radius = baseOffset * math.sqrt(i) / 2
+        local x = math.cos(angle) * radius
+        local y = math.sin(angle) * radius
+        table.insert(offsets, {math.floor(x), math.floor(y)})
+    end
+    
+    return offsets
+end
+
+-- Learn from successful recovery
+function Axiora.AIClickRecovery.Learn(originalX, originalY, successX, successY)
+    local offsetX = successX - originalX
+    local offsetY = successY - originalY
+    
+    -- Create location key (rounded to 10px grid)
+    local key = math.floor(originalX / 10) .. "_" .. math.floor(originalY / 10)
+    
+    if not Axiora.AIClickRecovery.LearnedOffsets[key] then
+        Axiora.AIClickRecovery.LearnedOffsets[key] = {
+            offsets = {},
+            successCount = 0
+        }
+    end
+    
+    local entry = Axiora.AIClickRecovery.LearnedOffsets[key]
+    table.insert(entry.offsets, {offsetX, offsetY})
+    entry.successCount = entry.successCount + 1
+    
+    -- Limit stored offsets
+    if #entry.offsets > 10 then
+        table.remove(entry.offsets, 1)
+    end
+    
+    -- Cleanup old entries if we have too many
+    local count = 0
+    for _ in pairs(Axiora.AIClickRecovery.LearnedOffsets) do
+        count = count + 1
+    end
+    
+    -- FIX: Remove entries UNTIL under limit (not just one)
+    while count > Axiora.AIClickRecovery.MaxLearnedOffsets do
+        for k, _ in pairs(Axiora.AIClickRecovery.LearnedOffsets) do
+            if k ~= key then  -- Don't remove the one we just added
+                Axiora.AIClickRecovery.LearnedOffsets[k] = nil
+                count = count - 1
+                break
+            end
+        end
+        if count <= Axiora.AIClickRecovery.MaxLearnedOffsets then break end
+    end
+end
+
+-- Get predicted offset based on learned data
+function Axiora.AIClickRecovery.GetPredictedOffset(x, y)
+    local key = math.floor(x / 10) .. "_" .. math.floor(y / 10)
+    local entry = Axiora.AIClickRecovery.LearnedOffsets[key]
+    
+    if not entry or #entry.offsets == 0 then
+        return nil
+    end
+    
+    -- Average the learned offsets
+    local avgX, avgY = 0, 0
+    for _, offset in ipairs(entry.offsets) do
+        avgX = avgX + offset[1]
+        avgY = avgY + offset[2]
+    end
+    avgX = avgX / #entry.offsets
+    avgY = avgY / #entry.offsets
+    
+    return {math.floor(avgX), math.floor(avgY)}
+end
+
+-- Enhanced click with AI assistance
+function Axiora.AIClickRecovery.SmartClick(x, y, validator)
+    if not Axiora.AIClickRecovery.Enabled then
+        return Axiora.ClickRecovery.ClickWithRetry(x, y, validator)
+    end
+    
+    -- First, try predicted offset if we have learned data
+    local predicted = Axiora.AIClickRecovery.GetPredictedOffset(x, y)
+    if predicted then
+        local predictedX = x + predicted[1]
+        local predictedY = y + predicted[2]
+        
+        Axiora.Input.Click(predictedX, predictedY)
+        
+        if validator then
+            task.wait(0.05)
+            local success = pcall(function() return validator() end)
+            if success then
+                return true, 1
+            end
+        else
+            return true, 1
+        end
+    end
+    
+    -- Fall back to fibonacci spiral
+    local offsets = Axiora.AIClickRecovery.GetFibonacciSpiral(
+        Axiora.Settings.ClickRecoveryOffsetPixels or 5,
+        Axiora.Settings.ClickRecoveryMaxAttempts or 9
+    )
+    
+    for attempt, offset in ipairs(offsets) do
+        local clickX = x + offset[1]
+        local clickY = y + offset[2]
+        
+        Axiora.Input.Click(clickX, clickY)
+        
+        if not validator then
+            return true, attempt
+        end
+        
+        task.wait(Axiora.Settings.ClickRecoveryDelay or 0.05)
+        
+        local success = pcall(function() return validator() end)
+        if success then
+            -- Learn from this success
+            if attempt > 1 then
+                Axiora.AIClickRecovery.Learn(x, y, clickX, clickY)
+            end
+            return true, attempt
+        end
+    end
+    
+    return false, #offsets
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 31: ENHANCED CALIBRATION (Y-Axis + DPI + Test Click)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Extend existing calibration with Y-axis support
+Axiora.Calibration.DPIScale = 1.0
+Axiora.Calibration.TestClickEnabled = true
+
+-- DPI detection (estimate based on screen size)
+function Axiora.Calibration.DetectDPI()
+    local viewport = Axiora.Math.Screen.Viewport
+    
+    -- Common resolutions and their typical DPI scales
+    if viewport.X >= 3840 then  -- 4K
+        return 2.0
+    elseif viewport.X >= 2560 then  -- 1440p
+        return 1.5
+    elseif viewport.X >= 1920 then  -- 1080p
+        return 1.0
+    elseif viewport.X >= 1366 then  -- Common laptop
+        return 1.0
+    else
+        return 1.0
+    end
+end
+
+-- Test click at specific position with visual feedback
+function Axiora.Calibration.PerformTestClick(relX, relY)
+    relX = relX or 0.5
+    relY = relY or 0.5
+    
+    -- Get absolute position with current offsets
+    local abs = Axiora.Math.GetAbsoluteInput(relX, relY)
+    
+    -- Visual indicator
+    if Axiora.Visuals and Axiora.Visuals.Ripple then
+        Axiora.Visuals.Ripple(abs.X, abs.Y, Color3.fromRGB(255, 200, 50))
+    end
+    
+    -- Perform click
+    Axiora.Input.Click(abs.X, abs.Y)
+    
+    Axiora.Visuals.Notify("Test Click", 
+        string.format("Clicked at (%.0f, %.0f)", abs.X, abs.Y), 
+        2, "info")
+    
+    return abs
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -5986,11 +9680,22 @@ function Axiora.Init()
     -- Initialize screen metrics
     Axiora.Math.WaitForInit(3)
     
+    -- Detect and apply DPI scale
+    Axiora.Calibration.DPIScale = Axiora.Calibration.DetectDPI()
+    Axiora.Settings.DPIScale = Axiora.Calibration.DPIScale  -- Make accessible from Settings
+    
     -- Initialize file system
     Axiora.Files.Init()
     
-    -- Try to load saved calibration
-    Axiora.Calibration.LoadCalibration()
+    -- Check if calibration is needed (first run or environment changed)
+    local needsCalibration = Axiora.Calibration.CheckNeeded()
+    
+    if needsCalibration then
+        -- Defer calibration until after UI is ready
+        task.delay(1.5, function()
+            Axiora.Calibration.StartInteractiveCalibration()
+        end)
+    end
     
     -- Try to load saved markers
     Axiora.LoadMarkedPositions()
@@ -6007,6 +9712,10 @@ function Axiora.Init()
     
     -- Initialize hotkeys
     Axiora.Hotkeys.Init()
+    
+    -- Load automation rules and start evaluator
+    Axiora.Automation.LoadRules()
+    Axiora.Automation.StartEvaluator()
     
     -- Enable Anti-AFK if configured
     if Axiora.Settings.AntiAFK then
