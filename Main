@@ -6346,6 +6346,17 @@ function Axiora.UI.Create()
     
     Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
     
+    -- Expose main panel
+    Axiora.UI.MainPanel = main
+    
+    -- Toggle Panel Function
+    function Axiora.UI.TogglePanel()
+        main.Visible = not main.Visible
+        -- Optional: Hide toggle button when panel is open if desired, 
+        -- but "Always Visible" comment suggests keeping it.
+        -- Let's just animate it slightly or sound effect if we had one.
+    end
+    
     local mainStroke = Instance.new("UIStroke")
     mainStroke.Color = theme.Primary
     mainStroke.Transparency = 0.5
