@@ -228,7 +228,15 @@ Axiora.Settings = {
     UIScale = 1.0, -- Auto-calculated based on screen
     MinButtonSize = 44, -- Minimum touch target size (Apple HIG)
     MobileButtonScale = 1.3, -- Scale factor for buttons on mobile
-    MobileFontScale = 1.2 -- Scale factor for fonts on mobile
+    MobileFontScale = 1.2, -- Scale factor for fonts on mobile
+    
+    -- Speed Presets (used by UI speed buttons)
+    SpeedPresets = {
+        careful = 0.5,
+        normal = 1.0,
+        fast = 1.5,
+        turbo = 2.0
+    }
 }
 
 -- Mobile detection
@@ -364,9 +372,16 @@ function Axiora.Math.GetAbsoluteInput(relX, relY)
     x = x + (Axiora.Settings.XOffset or 0)
     y = y + (Axiora.Settings.YOffset or 0)
     
+    -- Apply DPI scale if detected (for high-DPI displays)
+    local dpiScale = Axiora.Settings.DPIScale or 1.0
+    if dpiScale ~= 1.0 then
+        x = x * dpiScale
+        y = y * dpiScale
+    end
+    
     -- Clamp to valid screen range
-    local totalWidth = viewport.X + inset.X
-    local totalHeight = viewport.Y + inset.Y
+    local totalWidth = (viewport.X + inset.X) * dpiScale
+    local totalHeight = (viewport.Y + inset.Y) * dpiScale
     x = math.clamp(x, 0, totalWidth)
     y = math.clamp(y, 0, totalHeight)
     
@@ -833,6 +848,12 @@ Axiora.Recording = {
     LastClickPos = Vector2.zero,
     LastClickTime = 0
 }
+
+-- Get elapsed time since recording started (CRITICAL: was missing, breaks Controller/Gyro)
+function Axiora.Recording.GetElapsedTime()
+    if not Axiora.Recording.Active then return 0 end
+    return os.clock() - Axiora.Recording.StartTime
+end
 
 -- Clean disconnect all recording connections
 local function cleanupRecordingConnections()
@@ -1677,7 +1698,12 @@ function Axiora.Visuals.Notify(title, message, duration, notifType)
     end
     
     if Axiora.Visuals.NotificationCooldown then
-        -- Queue it
+        -- Queue it (with size limit to prevent memory leak)
+        local maxQueueSize = 10
+        if #Axiora.Visuals.NotificationQueue >= maxQueueSize then
+            -- Remove oldest notification to make room
+            table.remove(Axiora.Visuals.NotificationQueue, 1)
+        end
         table.insert(Axiora.Visuals.NotificationQueue, {
             title = title, message = message, duration = duration, notifType = notifType
         })
@@ -7537,8 +7563,9 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 Axiora.Pathfinding = {
-    StuckThreshold = 0.5,       -- Distance threshold for stuck detection
-    StuckCheckInterval = 0.8,   -- Time between stuck checks (was too aggressive at 0.3)
+    -- FIX: Increased thresholds to reduce false positives during slow movement/cutscenes
+    StuckThreshold = 1.5,       -- Distance threshold for stuck detection (was 0.5, too aggressive)
+    StuckCheckInterval = 1.2,   -- Time between stuck checks (was 0.8)
     MaxStuckRecoveries = 5,     -- Max recovery attempts before giving up
     WaypointTolerance = 3.0,    -- Arrival tolerance in studs
     DynamicObstacles = true,    -- Track moving obstacles
@@ -8470,6 +8497,7 @@ function Axiora.Gyro.StartTracking()
     
     Axiora.Gyro.Enabled = true
     Axiora.Gyro.Recording = true
+    Axiora.Gyro._lastSample = os.clock()  -- FIX: Initialize to current time to prevent first sample delay
     
     Axiora.Gyro._connection = UserInputService.DeviceRotationChanged:Connect(function(rotation, cframe)
         if not Axiora.Gyro.Recording then return end
@@ -8714,6 +8742,16 @@ function Axiora.MultiInstance.BroadcastCommand(command)
     -- This uses a shared workspace attribute for cross-instance communication
     -- Note: This only works if instances share the same server
     pcall(function()
+        -- Clean up old sync attributes to prevent spam
+        for _, attr in ipairs(workspace:GetAttributes()) do
+            if string.match(tostring(attr), "^AxioraSync_") then
+                local attrAge = os.time() - tonumber(string.match(tostring(attr), "AxioraSync_(%d+)") or "0")
+                if attrAge > 10 then  -- Remove attributes older than 10 seconds
+                    workspace:SetAttribute(attr, nil)
+                end
+            end
+        end
+        
         workspace:SetAttribute("AxioraSync_" .. os.time(), command .. "_" .. Axiora.MultiInstance.InstanceId)
     end)
 end
@@ -8806,12 +8844,16 @@ function Axiora.AIClickRecovery.Learn(originalX, originalY, successX, successY)
         count = count + 1
     end
     
-    if count > Axiora.AIClickRecovery.MaxLearnedOffsets then
-        -- Remove oldest entry
+    -- FIX: Remove entries UNTIL under limit (not just one)
+    while count > Axiora.AIClickRecovery.MaxLearnedOffsets do
         for k, _ in pairs(Axiora.AIClickRecovery.LearnedOffsets) do
-            Axiora.AIClickRecovery.LearnedOffsets[k] = nil
-            break
+            if k ~= key then  -- Don't remove the one we just added
+                Axiora.AIClickRecovery.LearnedOffsets[k] = nil
+                count = count - 1
+                break
+            end
         end
+        if count <= Axiora.AIClickRecovery.MaxLearnedOffsets then break end
     end
 end
 
@@ -8951,6 +8993,10 @@ function Axiora.Init()
     
     -- Initialize screen metrics
     Axiora.Math.WaitForInit(3)
+    
+    -- Detect and apply DPI scale
+    Axiora.Calibration.DPIScale = Axiora.Calibration.DetectDPI()
+    Axiora.Settings.DPIScale = Axiora.Calibration.DPIScale  -- Make accessible from Settings
     
     -- Initialize file system
     Axiora.Files.Init()
