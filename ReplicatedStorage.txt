@@ -18,10 +18,6 @@ local function rgb(r, g, b)
 	return Color3.fromRGB(r, g, b)
 end
 
-local function rgba(r, g, b, a)
-	return Color3.fromRGB(r, g, b), a
-end
-
 -- Create ScreenGui
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AxioraGUI"
@@ -48,10 +44,10 @@ gradient.Color = ColorSequence.new{
 gradient.Rotation = 135
 gradient.Parent = mainFrame
 
--- Container (max-width equivalent)
+-- Container (max-width equivalent) - MUCH SMALLER NOW
 local container = Instance.new("Frame")
 container.Name = "Container"
-container.Size = UDim2.new(0, 1152, 0, 800) -- max-w-6xl approximation
+container.Size = UDim2.new(0, 700, 0, 500) -- Reduced from 1152x800
 container.Position = UDim2.new(0.5, 0, 0.5, 0)
 container.AnchorPoint = Vector2.new(0.5, 0.5)
 container.BackgroundTransparency = 1
@@ -60,20 +56,20 @@ container.Parent = mainFrame
 -- Header
 local header = Instance.new("Frame")
 header.Name = "Header"
-header.Size = UDim2.new(0, 400, 0, 80)
-header.Position = UDim2.new(0.5, 0, 0, 20)
+header.Size = UDim2.new(0, 250, 0, 50)
+header.Position = UDim2.new(0.5, 0, 0, 10)
 header.AnchorPoint = Vector2.new(0.5, 0)
-header.BackgroundColor3 = rgb(107, 33, 168) -- purple-600/20 approximation
+header.BackgroundColor3 = rgb(88, 28, 135) -- purple-600/20 approximation
 header.BackgroundTransparency = 0.8
 header.BorderSizePixel = 0
 header.Parent = container
 
 local headerCorner = Instance.new("UICorner")
-headerCorner.CornerRadius = UDim.new(0, 16)
+headerCorner.CornerRadius = UDim.new(0, 12)
 headerCorner.Parent = header
 
 local headerStroke = Instance.new("UIStroke")
-headerStroke.Color = rgb(168, 85, 247) -- purple-500
+headerStroke.Color = rgb(168, 85, 247) -- purple-500/30
 headerStroke.Transparency = 0.7
 headerStroke.Thickness = 1
 headerStroke.Parent = header
@@ -81,8 +77,8 @@ headerStroke.Parent = header
 -- Pulse indicator
 local pulseIndicator = Instance.new("Frame")
 pulseIndicator.Name = "PulseIndicator"
-pulseIndicator.Size = UDim2.new(0, 12, 0, 12)
-pulseIndicator.Position = UDim2.new(0, 30, 0.5, 0)
+pulseIndicator.Size = UDim2.new(0, 8, 0, 8)
+pulseIndicator.Position = UDim2.new(0, 15, 0.5, 0)
 pulseIndicator.AnchorPoint = Vector2.new(0, 0.5)
 pulseIndicator.BackgroundColor3 = rgb(34, 211, 238) -- cyan-400
 pulseIndicator.BorderSizePixel = 0
@@ -99,52 +95,50 @@ pulseTween:Play()
 -- Title
 local title = Instance.new("TextLabel")
 title.Name = "Title"
-title.Size = UDim2.new(0, 200, 0, 50)
-title.Position = UDim2.new(0, 55, 0.5, 0)
-title.AnchorPoint = Vector2.new(0, 0.5)
+title.Size = UDim2.new(0, 150, 1, 0)
+title.Position = UDim2.new(0, 35, 0, 0)
 title.BackgroundTransparency = 1
 title.Text = "AXIORA"
 title.Font = Enum.Font.GothamBold
-title.TextSize = 32
+title.TextSize = 20
 title.TextColor3 = rgb(167, 139, 250) -- purple-400
-title.TextStrokeTransparency = 0
 title.Parent = header
 
 -- Version badge
 local versionBadge = Instance.new("TextLabel")
 versionBadge.Name = "VersionBadge"
-versionBadge.Size = UDim2.new(0, 50, 0, 20)
-versionBadge.Position = UDim2.new(0, 270, 0.5, 0)
+versionBadge.Size = UDim2.new(0, 35, 0, 16)
+versionBadge.Position = UDim2.new(0, 195, 0.5, 0)
 versionBadge.AnchorPoint = Vector2.new(0, 0.5)
-versionBadge.BackgroundColor3 = rgb(88, 28, 135) -- purple-900
+versionBadge.BackgroundColor3 = rgb(88, 28, 135) -- purple-900/30
 versionBadge.BackgroundTransparency = 0.7
 versionBadge.Text = "v6.0"
 versionBadge.Font = Enum.Font.Code
-versionBadge.TextSize = 10
-versionBadge.TextColor3 = rgb(216, 180, 254) -- purple-300
+versionBadge.TextSize = 8
+versionBadge.TextColor3 = rgb(216, 180, 254) -- purple-300/60
 versionBadge.BorderSizePixel = 0
 versionBadge.Parent = header
 
 local versionCorner = Instance.new("UICorner")
-versionCorner.CornerRadius = UDim.new(0, 6)
+versionCorner.CornerRadius = UDim.new(0, 4)
 versionCorner.Parent = versionBadge
 
 -- Status Bar
 local statusBar = Instance.new("Frame")
 statusBar.Name = "StatusBar"
-statusBar.Size = UDim2.new(1, -40, 0, 70)
-statusBar.Position = UDim2.new(0, 20, 0, 120)
-statusBar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900
+statusBar.Size = UDim2.new(1, -20, 0, 45)
+statusBar.Position = UDim2.new(0, 10, 0, 70)
+statusBar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 statusBar.BackgroundTransparency = 0.6
 statusBar.BorderSizePixel = 0
 statusBar.Parent = container
 
 local statusCorner = Instance.new("UICorner")
-statusCorner.CornerRadius = UDim.new(0, 16)
+statusCorner.CornerRadius = UDim.new(0, 12)
 statusCorner.Parent = statusBar
 
 local statusStroke = Instance.new("UIStroke")
-statusStroke.Color = rgb(51, 65, 85) -- slate-700
+statusStroke.Color = rgb(51, 65, 85) -- slate-700/50
 statusStroke.Transparency = 0.5
 statusStroke.Thickness = 1
 statusStroke.Parent = statusBar
@@ -152,20 +146,20 @@ statusStroke.Parent = statusBar
 -- Status indicator
 local statusIndicator = Instance.new("Frame")
 statusIndicator.Name = "StatusIndicator"
-statusIndicator.Size = UDim2.new(0, 150, 0, 40)
-statusIndicator.Position = UDim2.new(0, 20, 0.5, 0)
+statusIndicator.Size = UDim2.new(0, 90, 0, 28)
+statusIndicator.Position = UDim2.new(0, 10, 0.5, 0)
 statusIndicator.AnchorPoint = Vector2.new(0, 0.5)
-statusIndicator.BackgroundColor3 = rgb(51, 65, 85) -- slate-700
+statusIndicator.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 statusIndicator.BackgroundTransparency = 0.7
 statusIndicator.BorderSizePixel = 0
 statusIndicator.Parent = statusBar
 
 local statusIndCorner = Instance.new("UICorner")
-statusIndCorner.CornerRadius = UDim.new(0, 8)
+statusIndCorner.CornerRadius = UDim.new(0, 6)
 statusIndCorner.Parent = statusIndicator
 
 local statusIndStroke = Instance.new("UIStroke")
-statusIndStroke.Color = rgb(71, 85, 105) -- slate-600
+statusIndStroke.Color = rgb(71, 85, 105) -- slate-600/50
 statusIndStroke.Transparency = 0.5
 statusIndStroke.Thickness = 1
 statusIndStroke.Parent = statusIndicator
@@ -173,8 +167,8 @@ statusIndStroke.Parent = statusIndicator
 -- Status dot
 local statusDot = Instance.new("Frame")
 statusDot.Name = "StatusDot"
-statusDot.Size = UDim2.new(0, 8, 0, 8)
-statusDot.Position = UDim2.new(0, 15, 0.5, 0)
+statusDot.Size = UDim2.new(0, 6, 0, 6)
+statusDot.Position = UDim2.new(0, 8, 0.5, 0)
 statusDot.AnchorPoint = Vector2.new(0, 0.5)
 statusDot.BackgroundColor3 = rgb(148, 163, 184) -- slate-400
 statusDot.BorderSizePixel = 0
@@ -187,12 +181,12 @@ statusDotCorner.Parent = statusDot
 -- Status text
 local statusText = Instance.new("TextLabel")
 statusText.Name = "StatusText"
-statusText.Size = UDim2.new(1, -30, 1, 0)
-statusText.Position = UDim2.new(0, 30, 0, 0)
+statusText.Size = UDim2.new(1, -20, 1, 0)
+statusText.Position = UDim2.new(0, 20, 0, 0)
 statusText.BackgroundTransparency = 1
 statusText.Text = "IDLE"
 statusText.Font = Enum.Font.GothamBold
-statusText.TextSize = 14
+statusText.TextSize = 11
 statusText.TextColor3 = rgb(226, 232, 240) -- slate-200
 statusText.TextXAlignment = Enum.TextXAlignment.Left
 statusText.Parent = statusIndicator
@@ -200,12 +194,12 @@ statusText.Parent = statusIndicator
 -- Node count
 local nodeCountLabel = Instance.new("TextLabel")
 nodeCountLabel.Name = "NodeCount"
-nodeCountLabel.Size = UDim2.new(0, 120, 1, 0)
-nodeCountLabel.Position = UDim2.new(0, 190, 0, 0)
+nodeCountLabel.Size = UDim2.new(0, 80, 1, 0)
+nodeCountLabel.Position = UDim2.new(0, 110, 0, 0)
 nodeCountLabel.BackgroundTransparency = 1
 nodeCountLabel.Text = nodeCount .. " nodes"
 nodeCountLabel.Font = Enum.Font.Code
-nodeCountLabel.TextSize = 14
+nodeCountLabel.TextSize = 10
 nodeCountLabel.TextColor3 = rgb(203, 213, 225) -- slate-300
 nodeCountLabel.TextXAlignment = Enum.TextXAlignment.Left
 nodeCountLabel.Parent = statusBar
@@ -213,42 +207,42 @@ nodeCountLabel.Parent = statusBar
 -- Executor badges
 local executorBadge = Instance.new("TextLabel")
 executorBadge.Name = "ExecutorBadge"
-executorBadge.Size = UDim2.new(0, 130, 0, 30)
-executorBadge.Position = UDim2.new(1, -280, 0.5, 0)
+executorBadge.Size = UDim2.new(0, 100, 0, 24)
+executorBadge.Position = UDim2.new(1, -190, 0.5, 0)
 executorBadge.AnchorPoint = Vector2.new(0, 0.5)
-executorBadge.BackgroundColor3 = rgb(51, 65, 85) -- slate-700
+executorBadge.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 executorBadge.BackgroundTransparency = 0.7
 executorBadge.Text = "Delta Executor"
 executorBadge.Font = Enum.Font.Code
-executorBadge.TextSize = 12
+executorBadge.TextSize = 9
 executorBadge.TextColor3 = rgb(34, 211, 238) -- cyan-400
 executorBadge.BorderSizePixel = 0
 executorBadge.Parent = statusBar
 
 local execCorner = Instance.new("UICorner")
-execCorner.CornerRadius = UDim.new(0, 8)
+execCorner.CornerRadius = UDim.new(0, 6)
 execCorner.Parent = executorBadge
 
 local readyBadge = Instance.new("TextLabel")
 readyBadge.Name = "ReadyBadge"
-readyBadge.Size = UDim2.new(0, 80, 0, 30)
-readyBadge.Position = UDim2.new(1, -130, 0.5, 0)
+readyBadge.Size = UDim2.new(0, 60, 0, 24)
+readyBadge.Position = UDim2.new(1, -80, 0.5, 0)
 readyBadge.AnchorPoint = Vector2.new(0, 0.5)
-readyBadge.BackgroundColor3 = rgb(34, 197, 94) -- green-500
+readyBadge.BackgroundColor3 = rgb(34, 197, 94) -- green-500/10
 readyBadge.BackgroundTransparency = 0.9
 readyBadge.Text = "READY"
 readyBadge.Font = Enum.Font.GothamBold
-readyBadge.TextSize = 12
+readyBadge.TextSize = 10
 readyBadge.TextColor3 = rgb(74, 222, 128) -- green-400
 readyBadge.BorderSizePixel = 0
 readyBadge.Parent = statusBar
 
 local readyCorner = Instance.new("UICorner")
-readyCorner.CornerRadius = UDim.new(0, 8)
+readyCorner.CornerRadius = UDim.new(0, 6)
 readyCorner.Parent = readyBadge
 
 local readyStroke = Instance.new("UIStroke")
-readyStroke.Color = rgb(34, 197, 94) -- green-500
+readyStroke.Color = rgb(34, 197, 94) -- green-500/30
 readyStroke.Transparency = 0.7
 readyStroke.Thickness = 1
 readyStroke.Parent = readyBadge
@@ -256,30 +250,30 @@ readyStroke.Parent = readyBadge
 -- Sidebar
 local sidebar = Instance.new("Frame")
 sidebar.Name = "Sidebar"
-sidebar.Size = UDim2.new(0, 250, 0, 500)
-sidebar.Position = UDim2.new(0, 20, 0, 210)
-sidebar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900
+sidebar.Size = UDim2.new(0, 150, 0, 330)
+sidebar.Position = UDim2.new(0, 10, 0, 125)
+sidebar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 sidebar.BackgroundTransparency = 0.6
 sidebar.BorderSizePixel = 0
 sidebar.Parent = container
 
 local sidebarCorner = Instance.new("UICorner")
-sidebarCorner.CornerRadius = UDim.new(0, 16)
+sidebarCorner.CornerRadius = UDim.new(0, 12)
 sidebarCorner.Parent = sidebar
 
 local sidebarStroke = Instance.new("UIStroke")
-sidebarStroke.Color = rgb(51, 65, 85) -- slate-700
+sidebarStroke.Color = rgb(51, 65, 85) -- slate-700/50
 sidebarStroke.Transparency = 0.5
 sidebarStroke.Thickness = 1
 sidebarStroke.Parent = sidebar
 
 -- Navigation buttons
 local navButtons = {
-	{id = "control", label = "Control", yPos = 15},
-	{id = "editor", label = "Editor", yPos = 75},
-	{id = "library", label = "Library", yPos = 135},
-	{id = "automation", label = "Automation", yPos = 195},
-	{id = "settings", label = "Settings", yPos = 255}
+	{id = "control", label = "Control", yPos = 10},
+	{id = "editor", label = "Editor", yPos = 50},
+	{id = "library", label = "Library", yPos = 90},
+	{id = "automation", label = "Automation", yPos = 130},
+	{id = "settings", label = "Settings", yPos = 170}
 }
 
 local function updateNavButtons()
@@ -295,7 +289,7 @@ local function updateNavButtons()
 					gradient.Enabled = true
 				end
 			else
-				btn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700
+				btn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/50
 				btn.BackgroundTransparency = 0.5
 				btn.TextColor3 = rgb(148, 163, 184) -- slate-400
 				local gradient = btn:FindFirstChild("UIGradient")
@@ -310,20 +304,19 @@ end
 for _, btnData in ipairs(navButtons) do
 	local navBtn = Instance.new("TextButton")
 	navBtn.Name = btnData.id .. "Btn"
-	navBtn.Size = UDim2.new(1, -30, 0, 50)
-	navBtn.Position = UDim2.new(0, 15, 0, btnData.yPos)
+	navBtn.Size = UDim2.new(1, -20, 0, 32)
+	navBtn.Position = UDim2.new(0, 10, 0, btnData.yPos)
 	navBtn.BackgroundColor3 = rgb(51, 65, 85)
 	navBtn.BackgroundTransparency = 0.5
-	navBtn.Text = "  " .. btnData.label
+	navBtn.Text = btnData.label
 	navBtn.Font = Enum.Font.GothamBold
-	navBtn.TextSize = 14
+	navBtn.TextSize = 11
 	navBtn.TextColor3 = rgb(148, 163, 184)
-	navBtn.TextXAlignment = Enum.TextXAlignment.Left
 	navBtn.BorderSizePixel = 0
 	navBtn.Parent = sidebar
 	
 	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 12)
+	btnCorner.CornerRadius = UDim.new(0, 8)
 	btnCorner.Parent = navBtn
 	
 	local btnGradient = Instance.new("UIGradient")
@@ -339,7 +332,7 @@ for _, btnData in ipairs(navButtons) do
 		activeTab = btnData.id
 		updateNavButtons()
 		-- Update content panels
-		for _, child in ipairs(mainContent:GetChildren()) do
+		for _, child in pairs(mainContent:GetChildren()) do
 			if child:IsA("Frame") then
 				child.Visible = (child.Name == activeTab .. "Panel")
 			end
@@ -350,68 +343,66 @@ end
 -- Quick Actions
 local quickActionsLabel = Instance.new("TextLabel")
 quickActionsLabel.Name = "QuickActionsLabel"
-quickActionsLabel.Size = UDim2.new(1, -30, 0, 20)
-quickActionsLabel.Position = UDim2.new(0, 15, 0, 330)
+quickActionsLabel.Size = UDim2.new(1, -20, 0, 15)
+quickActionsLabel.Position = UDim2.new(0, 10, 0, 220)
 quickActionsLabel.BackgroundTransparency = 1
 quickActionsLabel.Text = "QUICK ACTIONS"
 quickActionsLabel.Font = Enum.Font.GothamBold
-quickActionsLabel.TextSize = 10
+quickActionsLabel.TextSize = 8
 quickActionsLabel.TextColor3 = rgb(100, 116, 139) -- slate-500
 quickActionsLabel.TextXAlignment = Enum.TextXAlignment.Left
 quickActionsLabel.Parent = sidebar
 
 local calibrateBtn = Instance.new("TextButton")
 calibrateBtn.Name = "CalibrateBtn"
-calibrateBtn.Size = UDim2.new(1, -30, 0, 35)
-calibrateBtn.Position = UDim2.new(0, 15, 0, 360)
-calibrateBtn.BackgroundColor3 = rgb(51, 65, 85)
+calibrateBtn.Size = UDim2.new(1, -20, 0, 28)
+calibrateBtn.Position = UDim2.new(0, 10, 0, 245)
+calibrateBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 calibrateBtn.BackgroundTransparency = 0.7
-calibrateBtn.Text = "  Calibrate"
+calibrateBtn.Text = "Calibrate"
 calibrateBtn.Font = Enum.Font.Gotham
-calibrateBtn.TextSize = 13
-calibrateBtn.TextColor3 = rgb(203, 213, 225)
-calibrateBtn.TextXAlignment = Enum.TextXAlignment.Left
+calibrateBtn.TextSize = 10
+calibrateBtn.TextColor3 = rgb(203, 213, 225) -- slate-300
 calibrateBtn.BorderSizePixel = 0
 calibrateBtn.Parent = sidebar
 
 local calibCorner = Instance.new("UICorner")
-calibCorner.CornerRadius = UDim.new(0, 8)
+calibCorner.CornerRadius = UDim.new(0, 6)
 calibCorner.Parent = calibrateBtn
 
 local loadUrlBtn = Instance.new("TextButton")
 loadUrlBtn.Name = "LoadUrlBtn"
-loadUrlBtn.Size = UDim2.new(1, -30, 0, 35)
-loadUrlBtn.Position = UDim2.new(0, 15, 0, 405)
-loadUrlBtn.BackgroundColor3 = rgb(51, 65, 85)
+loadUrlBtn.Size = UDim2.new(1, -20, 0, 28)
+loadUrlBtn.Position = UDim2.new(0, 10, 0, 280)
+loadUrlBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 loadUrlBtn.BackgroundTransparency = 0.7
-loadUrlBtn.Text = "  Load from URL"
+loadUrlBtn.Text = "Load from URL"
 loadUrlBtn.Font = Enum.Font.Gotham
-loadUrlBtn.TextSize = 13
-loadUrlBtn.TextColor3 = rgb(203, 213, 225)
-loadUrlBtn.TextXAlignment = Enum.TextXAlignment.Left
+loadUrlBtn.TextSize = 10
+loadUrlBtn.TextColor3 = rgb(203, 213, 225) -- slate-300
 loadUrlBtn.BorderSizePixel = 0
 loadUrlBtn.Parent = sidebar
 
 local urlCorner = Instance.new("UICorner")
-urlCorner.CornerRadius = UDim.new(0, 8)
+urlCorner.CornerRadius = UDim.new(0, 6)
 urlCorner.Parent = loadUrlBtn
 
 -- Main Content Area
 local mainContent = Instance.new("Frame")
 mainContent.Name = "MainContent"
-mainContent.Size = UDim2.new(0, 840, 0, 500)
-mainContent.Position = UDim2.new(0, 290, 0, 210)
-mainContent.BackgroundColor3 = rgb(15, 23, 42)
+mainContent.Size = UDim2.new(0, 520, 0, 330)
+mainContent.Position = UDim2.new(0, 170, 0, 125)
+mainContent.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 mainContent.BackgroundTransparency = 0.6
 mainContent.BorderSizePixel = 0
 mainContent.Parent = container
 
 local contentCorner = Instance.new("UICorner")
-contentCorner.CornerRadius = UDim.new(0, 16)
+contentCorner.CornerRadius = UDim.new(0, 12)
 contentCorner.Parent = mainContent
 
 local contentStroke = Instance.new("UIStroke")
-contentStroke.Color = rgb(51, 65, 85)
+contentStroke.Color = rgb(51, 65, 85) -- slate-700/50
 contentStroke.Transparency = 0.5
 contentStroke.Thickness = 1
 contentStroke.Parent = mainContent
@@ -426,12 +417,12 @@ controlPanel.Parent = mainContent
 
 local controlTitle = Instance.new("TextLabel")
 controlTitle.Name = "ControlTitle"
-controlTitle.Size = UDim2.new(1, -40, 0, 40)
-controlTitle.Position = UDim2.new(0, 20, 0, 20)
+controlTitle.Size = UDim2.new(1, -20, 0, 25)
+controlTitle.Position = UDim2.new(0, 10, 0, 10)
 controlTitle.BackgroundTransparency = 1
 controlTitle.Text = "Control Center"
 controlTitle.Font = Enum.Font.GothamBold
-controlTitle.TextSize = 24
+controlTitle.TextSize = 16
 controlTitle.TextColor3 = rgb(255, 255, 255)
 controlTitle.TextXAlignment = Enum.TextXAlignment.Left
 controlTitle.Parent = controlPanel
@@ -439,23 +430,23 @@ controlTitle.Parent = controlPanel
 -- Record Button
 local recordBtn = Instance.new("TextButton")
 recordBtn.Name = "RecordBtn"
-recordBtn.Size = UDim2.new(0, 390, 0, 100)
-recordBtn.Position = UDim2.new(0, 20, 0, 80)
-recordBtn.BackgroundColor3 = rgb(239, 68, 68) -- red-500
+recordBtn.Size = UDim2.new(0, 240, 0, 60)
+recordBtn.Position = UDim2.new(0, 10, 0, 45)
+recordBtn.BackgroundColor3 = rgb(239, 68, 68) -- red-500/20
 recordBtn.BackgroundTransparency = 0.8
 recordBtn.Text = "START RECORDING"
 recordBtn.Font = Enum.Font.GothamBold
-recordBtn.TextSize = 18
+recordBtn.TextSize = 12
 recordBtn.TextColor3 = rgb(252, 165, 165) -- red-300
 recordBtn.BorderSizePixel = 0
 recordBtn.Parent = controlPanel
 
 local recordCorner = Instance.new("UICorner")
-recordCorner.CornerRadius = UDim.new(0, 16)
+recordCorner.CornerRadius = UDim.new(0, 12)
 recordCorner.Parent = recordBtn
 
 local recordStroke = Instance.new("UIStroke")
-recordStroke.Color = rgb(239, 68, 68)
+recordStroke.Color = rgb(239, 68, 68) -- red-500/50
 recordStroke.Transparency = 0.5
 recordStroke.Thickness = 2
 recordStroke.Parent = recordBtn
@@ -463,23 +454,23 @@ recordStroke.Parent = recordBtn
 -- Play Button
 local playBtn = Instance.new("TextButton")
 playBtn.Name = "PlayBtn"
-playBtn.Size = UDim2.new(0, 390, 0, 100)
-playBtn.Position = UDim2.new(0, 430, 0, 80)
-playBtn.BackgroundColor3 = rgb(34, 197, 94) -- green-500
+playBtn.Size = UDim2.new(0, 240, 0, 60)
+playBtn.Position = UDim2.new(0, 265, 0, 45)
+playBtn.BackgroundColor3 = rgb(34, 197, 94) -- green-500/20
 playBtn.BackgroundTransparency = 0.8
 playBtn.Text = "PLAY MACRO"
 playBtn.Font = Enum.Font.GothamBold
-playBtn.TextSize = 18
+playBtn.TextSize = 12
 playBtn.TextColor3 = rgb(134, 239, 172) -- green-300
 playBtn.BorderSizePixel = 0
 playBtn.Parent = controlPanel
 
 local playCorner = Instance.new("UICorner")
-playCorner.CornerRadius = UDim.new(0, 16)
+playCorner.CornerRadius = UDim.new(0, 12)
 playCorner.Parent = playBtn
 
 local playStroke = Instance.new("UIStroke")
-playStroke.Color = rgb(34, 197, 94)
+playStroke.Color = rgb(34, 197, 94) -- green-500/50
 playStroke.Transparency = 0.5
 playStroke.Thickness = 2
 playStroke.Parent = playBtn
@@ -487,13 +478,13 @@ playStroke.Parent = playBtn
 -- Speed Control Label
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Name = "SpeedLabel"
-speedLabel.Size = UDim2.new(1, -40, 0, 20)
-speedLabel.Position = UDim2.new(0, 20, 0, 200)
+speedLabel.Size = UDim2.new(1, -20, 0, 15)
+speedLabel.Position = UDim2.new(0, 10, 0, 120)
 speedLabel.BackgroundTransparency = 1
 speedLabel.Text = "Playback Speed"
 speedLabel.Font = Enum.Font.GothamBold
-speedLabel.TextSize = 14
-speedLabel.TextColor3 = rgb(203, 213, 225)
+speedLabel.TextSize = 11
+speedLabel.TextColor3 = rgb(203, 213, 225) -- slate-300
 speedLabel.TextXAlignment = Enum.TextXAlignment.Left
 speedLabel.Parent = controlPanel
 
@@ -502,38 +493,38 @@ local speeds = {"0.5x", "1.0x", "1.5x", "2.0x"}
 for i, speed in ipairs(speeds) do
 	local speedBtn = Instance.new("TextButton")
 	speedBtn.Name = "Speed" .. speed
-	speedBtn.Size = UDim2.new(0, 190, 0, 45)
-	speedBtn.Position = UDim2.new(0, 20 + (i-1) * 205, 0, 235)
+	speedBtn.Size = UDim2.new(0, 118, 0, 32)
+	speedBtn.Position = UDim2.new(0, 10 + (i-1) * 128, 0, 145)
 	if speed == "1.0x" then
-		speedBtn.BackgroundColor3 = rgb(147, 51, 234)
+		speedBtn.BackgroundColor3 = rgb(147, 51, 234) -- purple-600
 		speedBtn.BackgroundTransparency = 0
 		speedBtn.TextColor3 = rgb(255, 255, 255)
 	else
-		speedBtn.BackgroundColor3 = rgb(51, 65, 85)
+		speedBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 		speedBtn.BackgroundTransparency = 0.7
-		speedBtn.TextColor3 = rgb(203, 213, 225)
+		speedBtn.TextColor3 = rgb(203, 213, 225) -- slate-300
 	end
 	speedBtn.Text = speed
 	speedBtn.Font = Enum.Font.GothamBold
-	speedBtn.TextSize = 16
+	speedBtn.TextSize = 12
 	speedBtn.BorderSizePixel = 0
 	speedBtn.Parent = controlPanel
 	
 	local speedCorner = Instance.new("UICorner")
-	speedCorner.CornerRadius = UDim.new(0, 12)
+	speedCorner.CornerRadius = UDim.new(0, 8)
 	speedCorner.Parent = speedBtn
 	
 	if speed == "1.0x" then
 		local speedGradient = Instance.new("UIGradient")
 		speedGradient.Color = ColorSequence.new{
-			ColorSequenceKeypoint.new(0, rgb(147, 51, 234)),
-			ColorSequenceKeypoint.new(1, rgb(8, 145, 178))
+			ColorSequenceKeypoint.new(0, rgb(147, 51, 234)), -- purple-600
+			ColorSequenceKeypoint.new(1, rgb(8, 145, 178)) -- cyan-600
 		}
 		speedGradient.Rotation = 135
 		speedGradient.Parent = speedBtn
 	else
 		local speedStroke = Instance.new("UIStroke")
-		speedStroke.Color = rgb(71, 85, 105)
+		speedStroke.Color = rgb(71, 85, 105) -- slate-600/50
 		speedStroke.Transparency = 0.5
 		speedStroke.Thickness = 1
 		speedStroke.Parent = speedBtn
@@ -543,46 +534,46 @@ end
 -- Save/Load buttons
 local saveBtn = Instance.new("TextButton")
 saveBtn.Name = "SaveBtn"
-saveBtn.Size = UDim2.new(0, 390, 0, 55)
-saveBtn.Position = UDim2.new(0, 20, 0, 300)
-saveBtn.BackgroundColor3 = rgb(51, 65, 85)
+saveBtn.Size = UDim2.new(0, 240, 0, 38)
+saveBtn.Position = UDim2.new(0, 10, 0, 190)
+saveBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 saveBtn.BackgroundTransparency = 0.7
 saveBtn.Text = "Save Macro"
 saveBtn.Font = Enum.Font.GothamBold
-saveBtn.TextSize = 16
-saveBtn.TextColor3 = rgb(226, 232, 240)
+saveBtn.TextSize = 12
+saveBtn.TextColor3 = rgb(226, 232, 240) -- slate-200
 saveBtn.BorderSizePixel = 0
 saveBtn.Parent = controlPanel
 
 local saveCorner = Instance.new("UICorner")
-saveCorner.CornerRadius = UDim.new(0, 12)
+saveCorner.CornerRadius = UDim.new(0, 8)
 saveCorner.Parent = saveBtn
 
 local saveStroke = Instance.new("UIStroke")
-saveStroke.Color = rgb(71, 85, 105)
+saveStroke.Color = rgb(71, 85, 105) -- slate-600/50
 saveStroke.Transparency = 0.5
 saveStroke.Thickness = 1
 saveStroke.Parent = saveBtn
 
 local loadBtn = Instance.new("TextButton")
 loadBtn.Name = "LoadBtn"
-loadBtn.Size = UDim2.new(0, 390, 0, 55)
-loadBtn.Position = UDim2.new(0, 430, 0, 300)
-loadBtn.BackgroundColor3 = rgb(51, 65, 85)
+loadBtn.Size = UDim2.new(0, 240, 0, 38)
+loadBtn.Position = UDim2.new(0, 265, 0, 190)
+loadBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 loadBtn.BackgroundTransparency = 0.7
 loadBtn.Text = "Load Macro"
 loadBtn.Font = Enum.Font.GothamBold
-loadBtn.TextSize = 16
-loadBtn.TextColor3 = rgb(226, 232, 240)
+loadBtn.TextSize = 12
+loadBtn.TextColor3 = rgb(226, 232, 240) -- slate-200
 loadBtn.BorderSizePixel = 0
 loadBtn.Parent = controlPanel
 
 local loadCorner = Instance.new("UICorner")
-loadCorner.CornerRadius = UDim.new(0, 12)
+loadCorner.CornerRadius = UDim.new(0, 8)
 loadCorner.Parent = loadBtn
 
 local loadStroke = Instance.new("UIStroke")
-loadStroke.Color = rgb(71, 85, 105)
+loadStroke.Color = rgb(71, 85, 105) -- slate-600/50
 loadStroke.Transparency = 0.5
 loadStroke.Thickness = 1
 loadStroke.Parent = loadBtn
@@ -590,32 +581,32 @@ loadStroke.Parent = loadBtn
 -- Advanced Options
 local advancedBox = Instance.new("Frame")
 advancedBox.Name = "AdvancedBox"
-advancedBox.Size = UDim2.new(1, -40, 0, 120)
-advancedBox.Position = UDim2.new(0, 20, 0, 370)
-advancedBox.BackgroundColor3 = rgb(30, 41, 59) -- slate-800
+advancedBox.Size = UDim2.new(1, -20, 0, 85)
+advancedBox.Position = UDim2.new(0, 10, 0, 235)
+advancedBox.BackgroundColor3 = rgb(30, 41, 59) -- slate-800/30
 advancedBox.BackgroundTransparency = 0.7
 advancedBox.BorderSizePixel = 0
 advancedBox.Parent = controlPanel
 
 local advCorner = Instance.new("UICorner")
-advCorner.CornerRadius = UDim.new(0, 12)
+advCorner.CornerRadius = UDim.new(0, 8)
 advCorner.Parent = advancedBox
 
 local advStroke = Instance.new("UIStroke")
-advStroke.Color = rgb(51, 65, 85)
+advStroke.Color = rgb(51, 65, 85) -- slate-700/50
 advStroke.Transparency = 0.5
 advStroke.Thickness = 1
 advStroke.Parent = advancedBox
 
 local advLabel = Instance.new("TextLabel")
 advLabel.Name = "AdvLabel"
-advLabel.Size = UDim2.new(1, -20, 0, 20)
-advLabel.Position = UDim2.new(0, 10, 0, 10)
+advLabel.Size = UDim2.new(1, -15, 0, 15)
+advLabel.Position = UDim2.new(0, 8, 0, 5)
 advLabel.BackgroundTransparency = 1
 advLabel.Text = "ADVANCED OPTIONS"
 advLabel.Font = Enum.Font.GothamBold
-advLabel.TextSize = 10
-advLabel.TextColor3 = rgb(148, 163, 184)
+advLabel.TextSize = 8
+advLabel.TextColor3 = rgb(148, 163, 184) -- slate-400
 advLabel.TextXAlignment = Enum.TextXAlignment.Left
 advLabel.Parent = advancedBox
 
@@ -624,23 +615,23 @@ local toggles = {"Loop Playback", "Click Recovery", "3D Path Visualization"}
 for i, toggleName in ipairs(toggles) do
 	local toggleLabel = Instance.new("TextLabel")
 	toggleLabel.Name = toggleName:gsub(" ", "")
-	toggleLabel.Size = UDim2.new(1, -70, 0, 20)
-	toggleLabel.Position = UDim2.new(0, 10, 0, 25 + (i-1) * 30)
+	toggleLabel.Size = UDim2.new(1, -50, 0, 15)
+	toggleLabel.Position = UDim2.new(0, 8, 0, 18 + (i-1) * 22)
 	toggleLabel.BackgroundTransparency = 1
 	toggleLabel.Text = toggleName
 	toggleLabel.Font = Enum.Font.Gotham
-	toggleLabel.TextSize = 13
-	toggleLabel.TextColor3 = rgb(203, 213, 225)
+	toggleLabel.TextSize = 10
+	toggleLabel.TextColor3 = rgb(203, 213, 225) -- slate-300
 	toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	toggleLabel.Parent = advancedBox
 	
 	local toggleSwitch = Instance.new("Frame")
 	toggleSwitch.Name = toggleName:gsub(" ", "") .. "Switch"
-	toggleSwitch.Size = UDim2.new(0, 44, 0, 24)
-	toggleSwitch.Position = UDim2.new(1, -54, 0, 25 + (i-1) * 30)
-	toggleSwitch.BackgroundColor3 = rgb(51, 65, 85)
+	toggleSwitch.Size = UDim2.new(0, 35, 0, 18)
+	toggleSwitch.Position = UDim2.new(1, -43, 0, 18 + (i-1) * 22)
+	toggleSwitch.BackgroundColor3 = rgb(51, 65, 85) -- slate-700
 	if i == 2 then
-		toggleSwitch.BackgroundColor3 = rgb(147, 51, 234)
+		toggleSwitch.BackgroundColor3 = rgb(147, 51, 234) -- purple-600
 	end
 	toggleSwitch.BorderSizePixel = 0
 	toggleSwitch.Parent = advancedBox
@@ -649,13 +640,23 @@ for i, toggleName in ipairs(toggles) do
 	switchCorner.CornerRadius = UDim.new(1, 0)
 	switchCorner.Parent = toggleSwitch
 	
+	if i == 2 then
+		local switchGradient = Instance.new("UIGradient")
+		switchGradient.Color = ColorSequence.new{
+			ColorSequenceKeypoint.new(0, rgb(147, 51, 234)), -- purple-600
+			ColorSequenceKeypoint.new(1, rgb(8, 145, 178)) -- cyan-600
+		}
+		switchGradient.Rotation = 90
+		switchGradient.Parent = toggleSwitch
+	end
+	
 	local switchKnob = Instance.new("Frame")
 	switchKnob.Name = "Knob"
-	switchKnob.Size = UDim2.new(0, 20, 0, 20)
+	switchKnob.Size = UDim2.new(0, 16, 0, 16)
 	if i == 2 then
-		switchKnob.Position = UDim2.new(0, 22, 0, 2)
+		switchKnob.Position = UDim2.new(0, 18, 0, 1)
 	else
-		switchKnob.Position = UDim2.new(0, 2, 0, 2)
+		switchKnob.Position = UDim2.new(0, 1, 0, 1)
 	end
 	switchKnob.BackgroundColor3 = rgb(255, 255, 255)
 	switchKnob.BorderSizePixel = 0
@@ -675,35 +676,41 @@ editorPanel.Visible = false
 editorPanel.Parent = mainContent
 
 local editorTitle = Instance.new("TextLabel")
-editorTitle.Size = UDim2.new(1, -40, 0, 40)
-editorTitle.Position = UDim2.new(0, 20, 0, 20)
+editorTitle.Size = UDim2.new(1, -20, 0, 25)
+editorTitle.Position = UDim2.new(0, 10, 0, 10)
 editorTitle.BackgroundTransparency = 1
 editorTitle.Text = "Macro Editor"
 editorTitle.Font = Enum.Font.GothamBold
-editorTitle.TextSize = 24
+editorTitle.TextSize = 16
 editorTitle.TextColor3 = rgb(255, 255, 255)
 editorTitle.TextXAlignment = Enum.TextXAlignment.Left
 editorTitle.Parent = editorPanel
 
 local editorPlaceholder = Instance.new("Frame")
-editorPlaceholder.Size = UDim2.new(1, -40, 0, 350)
-editorPlaceholder.Position = UDim2.new(0, 20, 0, 80)
-editorPlaceholder.BackgroundColor3 = rgb(30, 41, 59)
+editorPlaceholder.Size = UDim2.new(1, -20, 0, 250)
+editorPlaceholder.Position = UDim2.new(0, 10, 0, 50)
+editorPlaceholder.BackgroundColor3 = rgb(30, 41, 59) -- slate-800/50
 editorPlaceholder.BackgroundTransparency = 0.5
 editorPlaceholder.BorderSizePixel = 0
 editorPlaceholder.Parent = editorPanel
 
 local editorCorner = Instance.new("UICorner")
-editorCorner.CornerRadius = UDim.new(0, 12)
+editorCorner.CornerRadius = UDim.new(0, 8)
 editorCorner.Parent = editorPlaceholder
+
+local editorStroke = Instance.new("UIStroke")
+editorStroke.Color = rgb(51, 65, 85) -- slate-700/50
+editorStroke.Transparency = 0.5
+editorStroke.Thickness = 1
+editorStroke.Parent = editorPlaceholder
 
 local editorText = Instance.new("TextLabel")
 editorText.Size = UDim2.new(1, 0, 1, 0)
 editorText.BackgroundTransparency = 1
 editorText.Text = "Node editor interface here"
 editorText.Font = Enum.Font.Gotham
-editorText.TextSize = 16
-editorText.TextColor3 = rgb(148, 163, 184)
+editorText.TextSize = 12
+editorText.TextColor3 = rgb(148, 163, 184) -- slate-400
 editorText.Parent = editorPlaceholder
 
 -- Library Panel
@@ -715,12 +722,12 @@ libraryPanel.Visible = false
 libraryPanel.Parent = mainContent
 
 local libraryTitle = Instance.new("TextLabel")
-libraryTitle.Size = UDim2.new(1, -40, 0, 40)
-libraryTitle.Position = UDim2.new(0, 20, 0, 20)
+libraryTitle.Size = UDim2.new(1, -20, 0, 25)
+libraryTitle.Position = UDim2.new(0, 10, 0, 10)
 libraryTitle.BackgroundTransparency = 1
 libraryTitle.Text = "Macro Library"
 libraryTitle.Font = Enum.Font.GothamBold
-libraryTitle.TextSize = 24
+libraryTitle.TextSize = 16
 libraryTitle.TextColor3 = rgb(255, 255, 255)
 libraryTitle.TextXAlignment = Enum.TextXAlignment.Left
 libraryTitle.Parent = libraryPanel
@@ -732,42 +739,42 @@ for i, macroName in ipairs(macros) do
 	
 	local macroCard = Instance.new("Frame")
 	macroCard.Name = macroName:gsub(" ", "")
-	macroCard.Size = UDim2.new(0, 390, 0, 110)
-	macroCard.Position = UDim2.new(0, 20 + col * 410, 0, 80 + row * 130)
-	macroCard.BackgroundColor3 = rgb(30, 41, 59)
+	macroCard.Size = UDim2.new(0, 240, 0, 75)
+	macroCard.Position = UDim2.new(0, 10 + col * 255, 0, 50 + row * 90)
+	macroCard.BackgroundColor3 = rgb(30, 41, 59) -- slate-800/30
 	macroCard.BackgroundTransparency = 0.7
 	macroCard.BorderSizePixel = 0
 	macroCard.Parent = libraryPanel
 	
 	local macroCorner = Instance.new("UICorner")
-	macroCorner.CornerRadius = UDim.new(0, 12)
+	macroCorner.CornerRadius = UDim.new(0, 8)
 	macroCorner.Parent = macroCard
 	
 	local macroStroke = Instance.new("UIStroke")
-	macroStroke.Color = rgb(51, 65, 85)
+	macroStroke.Color = rgb(51, 65, 85) -- slate-700/50
 	macroStroke.Transparency = 0.5
 	macroStroke.Thickness = 1
 	macroStroke.Parent = macroCard
 	
 	local macroTitle = Instance.new("TextLabel")
-	macroTitle.Size = UDim2.new(1, -20, 0, 25)
-	macroTitle.Position = UDim2.new(0, 10, 0, 70)
+	macroTitle.Size = UDim2.new(1, -15, 0, 20)
+	macroTitle.Position = UDim2.new(0, 8, 0, 45)
 	macroTitle.BackgroundTransparency = 1
 	macroTitle.Text = macroName
 	macroTitle.Font = Enum.Font.GothamBold
-	macroTitle.TextSize = 16
+	macroTitle.TextSize = 12
 	macroTitle.TextColor3 = rgb(255, 255, 255)
 	macroTitle.TextXAlignment = Enum.TextXAlignment.Left
 	macroTitle.Parent = macroCard
 	
 	local macroInfo = Instance.new("TextLabel")
-	macroInfo.Size = UDim2.new(1, -20, 0, 15)
-	macroInfo.Position = UDim2.new(0, 10, 0, 92)
+	macroInfo.Size = UDim2.new(1, -15, 0, 12)
+	macroInfo.Position = UDim2.new(0, 8, 0, 62)
 	macroInfo.BackgroundTransparency = 1
 	macroInfo.Text = "Last modified: 2 hours ago"
 	macroInfo.Font = Enum.Font.Gotham
-	macroInfo.TextSize = 11
-	macroInfo.TextColor3 = rgb(148, 163, 184)
+	macroInfo.TextSize = 9
+	macroInfo.TextColor3 = rgb(148, 163, 184) -- slate-400
 	macroInfo.TextXAlignment = Enum.TextXAlignment.Left
 	macroInfo.Parent = macroCard
 end
@@ -781,35 +788,35 @@ automationPanel.Visible = false
 automationPanel.Parent = mainContent
 
 local autoTitle = Instance.new("TextLabel")
-autoTitle.Size = UDim2.new(0, 400, 0, 40)
-autoTitle.Position = UDim2.new(0, 20, 0, 20)
+autoTitle.Size = UDim2.new(0, 250, 0, 25)
+autoTitle.Position = UDim2.new(0, 10, 0, 10)
 autoTitle.BackgroundTransparency = 1
 autoTitle.Text = "Automation Rules"
 autoTitle.Font = Enum.Font.GothamBold
-autoTitle.TextSize = 24
+autoTitle.TextSize = 16
 autoTitle.TextColor3 = rgb(255, 255, 255)
 autoTitle.TextXAlignment = Enum.TextXAlignment.Left
 autoTitle.Parent = automationPanel
 
 local newRuleBtn = Instance.new("TextButton")
-newRuleBtn.Size = UDim2.new(0, 120, 0, 40)
-newRuleBtn.Position = UDim2.new(1, -140, 0, 20)
-newRuleBtn.BackgroundColor3 = rgb(147, 51, 234)
+newRuleBtn.Size = UDim2.new(0, 90, 0, 28)
+newRuleBtn.Position = UDim2.new(1, -100, 0, 10)
+newRuleBtn.BackgroundColor3 = rgb(147, 51, 234) -- purple-600
 newRuleBtn.Text = "+ New Rule"
 newRuleBtn.Font = Enum.Font.GothamBold
-newRuleBtn.TextSize = 14
+newRuleBtn.TextSize = 11
 newRuleBtn.TextColor3 = rgb(255, 255, 255)
 newRuleBtn.BorderSizePixel = 0
 newRuleBtn.Parent = automationPanel
 
 local newRuleCorner = Instance.new("UICorner")
-newRuleCorner.CornerRadius = UDim.new(0, 8)
+newRuleCorner.CornerRadius = UDim.new(0, 6)
 newRuleCorner.Parent = newRuleBtn
 
 local newRuleGradient = Instance.new("UIGradient")
 newRuleGradient.Color = ColorSequence.new{
-	ColorSequenceKeypoint.new(0, rgb(147, 51, 234)),
-	ColorSequenceKeypoint.new(1, rgb(8, 145, 178))
+	ColorSequenceKeypoint.new(0, rgb(147, 51, 234)), -- purple-600
+	ColorSequenceKeypoint.new(1, rgb(8, 145, 178)) -- cyan-600
 }
 newRuleGradient.Rotation = 90
 newRuleGradient.Parent = newRuleBtn
@@ -823,12 +830,12 @@ settingsPanel.Visible = false
 settingsPanel.Parent = mainContent
 
 local settingsTitle = Instance.new("TextLabel")
-settingsTitle.Size = UDim2.new(1, -40, 0, 40)
-settingsTitle.Position = UDim2.new(0, 20, 0, 20)
+settingsTitle.Size = UDim2.new(1, -20, 0, 25)
+settingsTitle.Position = UDim2.new(0, 10, 0, 10)
 settingsTitle.BackgroundTransparency = 1
 settingsTitle.Text = "Settings"
 settingsTitle.Font = Enum.Font.GothamBold
-settingsTitle.TextSize = 24
+settingsTitle.TextSize = 16
 settingsTitle.TextColor3 = rgb(255, 255, 255)
 settingsTitle.TextXAlignment = Enum.TextXAlignment.Left
 settingsTitle.Parent = settingsPanel
@@ -836,37 +843,49 @@ settingsTitle.Parent = settingsPanel
 -- Footer
 local footer = Instance.new("TextLabel")
 footer.Name = "Footer"
-footer.Size = UDim2.new(1, 0, 0, 30)
-footer.Position = UDim2.new(0, 0, 1, -50)
+footer.Size = UDim2.new(1, 0, 0, 20)
+footer.Position = UDim2.new(0, 0, 1, -30)
 footer.BackgroundTransparency = 1
 footer.Text = "Axiora v6.0 Delta-Stable • Input: Idle • Uptime: 2h 47m"
 footer.Font = Enum.Font.Code
-footer.TextSize = 11
-footer.TextColor3 = rgb(100, 116, 139)
+footer.TextSize = 9
+footer.TextColor3 = rgb(100, 116, 139) -- slate-500
 footer.Parent = container
 
 -- Button Functionality
 local function updateStatus()
 	if isRecording then
 		statusText.Text = "RECORDING"
-		statusIndicator.BackgroundColor3 = rgb(239, 68, 68)
+		statusIndicator.BackgroundColor3 = rgb(239, 68, 68) -- red-500/20
 		statusIndicator.BackgroundTransparency = 0.8
-		statusDot.BackgroundColor3 = rgb(248, 113, 113)
+		statusDot.BackgroundColor3 = rgb(248, 113, 113) -- red-400
 		local dotPulse = TweenService:Create(statusDot, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {BackgroundTransparency = 0.5})
 		dotPulse:Play()
+		local indStroke = statusIndicator:FindFirstChild("UIStroke")
+		if indStroke then
+			indStroke.Color = rgb(239, 68, 68) -- red-500/50
+		end
 	elseif isPlaying then
 		statusText.Text = "PLAYING"
-		statusIndicator.BackgroundColor3 = rgb(34, 197, 94)
+		statusIndicator.BackgroundColor3 = rgb(34, 197, 94) -- green-500/20
 		statusIndicator.BackgroundTransparency = 0.8
-		statusDot.BackgroundColor3 = rgb(74, 222, 128)
+		statusDot.BackgroundColor3 = rgb(74, 222, 128) -- green-400
 		local dotPulse = TweenService:Create(statusDot, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {BackgroundTransparency = 0.5})
 		dotPulse:Play()
+		local indStroke = statusIndicator:FindFirstChild("UIStroke")
+		if indStroke then
+			indStroke.Color = rgb(34, 197, 94) -- green-500/50
+		end
 	else
 		statusText.Text = "IDLE"
-		statusIndicator.BackgroundColor3 = rgb(51, 65, 85)
+		statusIndicator.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 		statusIndicator.BackgroundTransparency = 0.7
-		statusDot.BackgroundColor3 = rgb(148, 163, 184)
+		statusDot.BackgroundColor3 = rgb(148, 163, 184) -- slate-400
 		statusDot.BackgroundTransparency = 0
+		local indStroke = statusIndicator:FindFirstChild("UIStroke")
+		if indStroke then
+			indStroke.Color = rgb(71, 85, 105) -- slate-600/50
+		end
 	end
 end
 
@@ -875,11 +894,11 @@ recordBtn.MouseButton1Click:Connect(function()
 	if isRecording then
 		isPlaying = false
 		recordBtn.Text = "STOP RECORDING"
-		recordBtn.BackgroundColor3 = rgb(220, 38, 38)
+		recordBtn.BackgroundColor3 = rgb(220, 38, 38) -- red-600
 		recordBtn.BackgroundTransparency = 0
 	else
 		recordBtn.Text = "START RECORDING"
-		recordBtn.BackgroundColor3 = rgb(239, 68, 68)
+		recordBtn.BackgroundColor3 = rgb(239, 68, 68) -- red-500/20
 		recordBtn.BackgroundTransparency = 0.8
 	end
 	updateStatus()
@@ -890,14 +909,14 @@ playBtn.MouseButton1Click:Connect(function()
 	if isPlaying then
 		isRecording = false
 		recordBtn.Text = "START RECORDING"
-		recordBtn.BackgroundColor3 = rgb(239, 68, 68)
+		recordBtn.BackgroundColor3 = rgb(239, 68, 68) -- red-500/20
 		recordBtn.BackgroundTransparency = 0.8
 		playBtn.Text = "STOP PLAYBACK"
-		playBtn.BackgroundColor3 = rgb(21, 128, 61)
+		playBtn.BackgroundColor3 = rgb(21, 128, 61) -- green-600
 		playBtn.BackgroundTransparency = 0
 	else
 		playBtn.Text = "PLAY MACRO"
-		playBtn.BackgroundColor3 = rgb(34, 197, 94)
+		playBtn.BackgroundColor3 = rgb(34, 197, 94) -- green-500/20
 		playBtn.BackgroundTransparency = 0.8
 	end
 	updateStatus()
