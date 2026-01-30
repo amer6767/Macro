@@ -164,6 +164,7 @@ Axiora.State = {
     Connections = {},
     Threads = {},
     SecurityConnections = {},
+    LoopCount = 0,
     InitTime = os.clock()
 }
 
@@ -1417,7 +1418,9 @@ function Axiora.Play(loop)
                 
                 -- Wait for timestamp
                 local now = os.clock() - startTime
-                local targetTime = (node.d or 0) / Axiora.Settings.TimeScale / Axiora.Playback.Speed
+                local safeTimeScale = math.max(0.01, Axiora.Settings.TimeScale)
+                local safeSpeed = math.max(0.01, Axiora.Playback.Speed)
+                local targetTime = (node.d or 0) / safeTimeScale / safeSpeed
                 
                 if now < targetTime then
                     task.wait(targetTime - now)
@@ -2160,6 +2163,16 @@ Axiora.Files = {
     SettingsFile = "Axiora/settings.json"
 }
 
+
+
+-- Security: Prevent directory traversal and illegal characters
+function Axiora.Files.Sanitize(path)
+    if not path then return "" end
+    -- Allow alphanumeric, hyphens, underscores, and spaces
+    -- Remove slashes, backslashes, dots (to prevent ../)
+    return path:gsub("[^%w%-_%s]", "")
+end
+
 function Axiora.Files.EnsureFolder(path)
     if not Axiora.Capabilities.MakeFolder then return false end
     
@@ -2191,7 +2204,10 @@ function Axiora.Save(name)
     
     Axiora.Files.EnsureFolder(Axiora.Files.SaveFolder)
     
-    name = name or ("macro_" .. os.time())
+    -- Sanitize name
+    name = Axiora.Files.Sanitize(name or ("macro_" .. os.time()))
+    if name == "" then name = "unnamed_macro" end
+    
     local filename = Axiora.Files.SaveFolder .. "/" .. name .. ".axr"
     
     local data = {
@@ -2205,6 +2221,9 @@ function Axiora.Save(name)
     
     local success, err = pcall(function()
         local json = HttpService:JSONEncode(data)
+        if #json > 1024 * 1024 then
+            error("File too large (>1MB) - Reduce recording duration")
+        end
         writefile(filename, json)
     end)
     
@@ -2223,6 +2242,8 @@ function Axiora.Load(name)
         return false
     end
     
+    -- Sanitize name
+    name = Axiora.Files.Sanitize(name)
     local filename = Axiora.Files.SaveFolder .. "/" .. name .. ".axr"
     
     local success, data = pcall(function()
@@ -3865,6 +3886,13 @@ end
 -- Main entry point for calibration
 function Axiora.Calibration.StartInteractiveCalibration()
     if Axiora.Calibration.IsCalibrating then return end
+    
+    -- Race condition fix: Ensure UI exists
+    if not Axiora.UI.ScreenGui then 
+        Axiora.Visuals.Notify("Calibration", "UI not ready - Please wait...", 2, "warning")
+        return 
+    end
+    
     Axiora.Calibration.IsCalibrating = true
     
     Axiora.Math.WaitForInit(2)
@@ -4169,7 +4197,7 @@ end
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- SECTION 18.5: AUTOMATION ENGINE (Visual Scripting)
+-- SECTION 19: AUTOMATION ENGINE (Visual Scripting)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 Axiora.Automation = {
@@ -4748,6 +4776,128 @@ function Axiora.Automation.StopEvaluator()
     
     -- Reset debounce timers
     Axiora.Automation._debounceTimers = {}
+end
+
+function Axiora.Automation.ShowRuleCreationModal(parent, onCreated)
+    local theme = Axiora.UI.Theme or Axiora.Visuals.GetTheme()
+    
+    local modal = Instance.new("Frame")
+    modal.Name = "RuleCreationModal"
+    modal.BackgroundColor3 = Color3.new(0,0,0)
+    modal.BackgroundTransparency = 0.5
+    modal.Size = UDim2.new(1, 0, 1, 0)
+    modal.ZIndex = 100
+    modal.Parent = parent
+    
+    local panel = Axiora.UI.Primitives.CreateHoloPanel(modal, UDim2.new(0, 300, 0, 380), UDim2.new(0.5, 0, 0.5, 0))
+    panel.AnchorPoint = Vector2.new(0.5, 0.5)
+    
+    -- Title
+    Axiora.UI.Primitives.CreateNeonText(panel, "CREATE NEW RULE", 18, theme.Success).Position = UDim2.new(0, 20, 0, 15)
+    
+    -- Inputs Container
+    local container = Instance.new("ScrollingFrame")
+    container.BackgroundTransparency = 1
+    container.Size = UDim2.new(1, -40, 0, 260)
+    container.Position = UDim2.new(0, 20, 0, 50)
+    container.CanvasSize = UDim2.new(0, 0, 0, 400)
+    container.ScrollBarThickness = 2
+    container.Parent = panel
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 10)
+    layout.Parent = container
+    
+    -- Field Helper
+    local function createField(label, placeholder)
+        local f = Instance.new("Frame")
+        f.BackgroundTransparency = 1
+        f.Size = UDim2.new(1, 0, 0, 50)
+        f.Parent = container
+        
+        local l = Instance.new("TextLabel")
+        l.Text = label
+        l.TextColor3 = theme.TextDim
+        l.Font = Enum.Font.GothamBold
+        l.TextSize = 10
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.Size = UDim2.new(1, 0, 0, 20)
+        l.BackgroundTransparency = 1
+        l.Parent = f
+        
+        local box = Instance.new("TextBox")
+        box.BackgroundColor3 = theme.Deep
+        box.BackgroundTransparency = 0.5
+        box.Size = UDim2.new(1, 0, 0, 30)
+        box.Position = UDim2.new(0, 0, 0, 20)
+        box.Text = ""
+        box.PlaceholderText = placeholder
+        box.TextColor3 = theme.Text
+        box.Font = Enum.Font.Gotham
+        box.TextSize = 12
+        box.Parent = f
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+        
+        return box
+    end
+    
+    -- Fields
+    local triggerType = createField("TRIGGER TYPE", "chat / key / time / idle")
+    local triggerValue = createField("TRIGGER VALUE", "Exact text or KeyCode name")
+    
+    local actionType = createField("ACTION TYPE", "playMacro / stopMacro / jump / notify")
+    local actionValue = createField("ACTION VALUE", "Macro Name or Message")
+    
+    -- Buttons
+    local btnContainer = Instance.new("Frame")
+    btnContainer.BackgroundTransparency = 1
+    btnContainer.Size = UDim2.new(1, -40, 0, 40)
+    btnContainer.Position = UDim2.new(0, 20, 1, -50)
+    btnContainer.Parent = panel
+    
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Text = "CANCEL"
+    cancelBtn.TextColor3 = theme.TextDim
+    cancelBtn.BackgroundColor3 = theme.Surface
+    cancelBtn.Size = UDim2.new(0.4, 0, 1, 0)
+    cancelBtn.Parent = btnContainer
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+    
+    local createBtn = Instance.new("TextButton")
+    createBtn.Text = "CREATE RULE"
+    createBtn.TextColor3 = theme.Deep
+    createBtn.BackgroundColor3 = theme.Success
+    createBtn.Size = UDim2.new(0.55, 0, 1, 0)
+    createBtn.Position = UDim2.new(0.45, 0, 0, 0)
+    createBtn.Parent = btnContainer
+    Instance.new("UICorner", createBtn).CornerRadius = UDim.new(0, 6)
+    
+    cancelBtn.MouseButton1Click:Connect(function() modal:Destroy() end)
+    
+    createBtn.MouseButton1Click:Connect(function()
+        local tType = triggerType.Text:lower()
+        local aType = actionType.Text
+        
+        if Axiora.Automation.Triggers[tType] and Axiora.Automation.Actions[aType] then
+            local rule = {
+                id = HttpService:GenerateGUID(false),
+                enabled = true,
+                mode = Axiora.Automation.MODE_PLAYBACK,
+                trigger = { type = tType, value = triggerValue.Text },
+                condition = { type = "none" },
+                action = { type = aType, name = actionValue.Text, message = actionValue.Text }
+            }
+            
+            table.insert(Axiora.Automation.Rules, rule)
+            Axiora.Automation.SaveRules()
+            
+            if onCreated then onCreated() end
+            modal:Destroy()
+            Axiora.Visuals.Notify("Automation", "Rule Created!", 2, "success")
+        else
+            Axiora.Visuals.Notify("Error", "Invalid Trigger or Action Type", 3, "error")
+        end
+    end)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -5580,24 +5730,37 @@ function Axiora.UI.BuildUtilities(parent)
     mLayout.Parent = markerList
     
     local marks = Axiora.MarkedPositions or {}
-    if #marks == 0 then
+    local markCount = 0
+    for _ in pairs(marks) do markCount = markCount + 1 end
+
+    if markCount == 0 then
         Axiora.UI.Primitives.CreateNeonText(markerList, "No marks saved yet", 12, theme.Tertiary)
     else
-        for i, mark in ipairs(marks) do
-            local item = Instance.new("Frame")
-            item.BackgroundColor3 = theme.Surface
-            item.BackgroundTransparency = 0.4
-            item.Size = UDim2.new(1, 0, 0, 40)
-            item.Parent = markerList
-            Instance.new("UICorner", item).CornerRadius = UDim.new(0, 6)
+        -- Convert to array for sorting
+        local sortedMarks = {}
+        for name, data in pairs(marks) do
+            table.insert(sortedMarks, {Name = name, Data = data})
+        end
+        table.sort(sortedMarks, function(a,b) return a.Name < b.Name end)
+
+        for i, item in ipairs(sortedMarks) do
+            local mark = item.Data
+            local markName = item.Name
             
-            local name = Axiora.UI.Primitives.CreateNeonText(item, mark.Name or ("Mark #" .. i), 12, theme.Primary)
-            name.Position = UDim2.new(0, 10, 0.2, 0)
+            local frame = Instance.new("Frame")
+            frame.BackgroundColor3 = theme.Surface
+            frame.BackgroundTransparency = 0.4
+            frame.Size = UDim2.new(1, 0, 0, 40)
+            frame.Parent = markerList
+            Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
             
-            local pos = Axiora.Math.DeserializeVec(mark.Position)
+            local nameLabel = Axiora.UI.Primitives.CreateNeonText(frame, markName, 12, theme.Primary)
+            nameLabel.Position = UDim2.new(0, 10, 0.2, 0)
+            
+            local pos = Vector3.new(mark.x or 0, mark.y or 0, mark.z or 0)
             local dist = "N/A"
             local LP = getLocalPlayer()
-            if LP and LP.Character and LP.Character.PrimaryPart and pos then
+            if LP and LP.Character and LP.Character.PrimaryPart then
                 dist = math.floor((LP.Character.PrimaryPart.Position - pos).Magnitude) .. "m"
             end
             
@@ -5609,7 +5772,17 @@ function Axiora.UI.BuildUtilities(parent)
             distLabel.TextColor3 = theme.Idle
             distLabel.Font = Enum.Font.Gotham
             distLabel.TextSize = 11
-            distLabel.Parent = item
+            distLabel.Parent = frame
+            
+            -- Teleport action on click
+            local btn = Instance.new("TextButton")
+            btn.BackgroundTransparency = 1
+            btn.Size = UDim2.new(1, 0, 1, 0)
+            btn.Text = ""
+            btn.Parent = frame
+            btn.MouseButton1Click:Connect(function()
+                Axiora.TeleportToMark(markName)
+            end)
         end
     end
     
@@ -6330,8 +6503,7 @@ function Axiora.UI.Create()
     end
     
     Axiora.UI.ScreenGui = sg
-    
-    -- ═══════════════════════════════════════════════════════════════════════
+    Axiora.UI.Theme = theme -- Expose theme globally for builders
     -- FLOATING TOGGLE BUTTON (Always visible, larger on mobile)
     -- ═══════════════════════════════════════════════════════════════════════
     
@@ -6788,30 +6960,8 @@ function Axiora.Export(name)
     return json
 end
 
-function Axiora.UI.TogglePanel()
-    if Axiora.UI.MainFrame then
-        Axiora.UI.IsOpen = not Axiora.UI.IsOpen
-        
-        if Axiora.UI.IsOpen then
-            Axiora.UI.MainFrame.Visible = true
-            Axiora.UI.MainFrame.Position = UDim2.new(0.5, 0, 0.6, 0)
-            TweenService:Create(Axiora.UI.MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Position = UDim2.new(0.5, 0, 0.5, 0)
-            }):Play()
-        else
-            TweenService:Create(Axiora.UI.MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-                Position = UDim2.new(0.5, 0, 0.6, 0)
-            }):Play()
-            task.delay(0.2, function()
-                if not Axiora.UI.IsOpen then
-                    Axiora.UI.MainFrame.Visible = false
-                end
-            end)
-        end
-    else
-        Axiora.UI.Create()
-    end
-end
+
+
 
 function Axiora.UI.Toggle()
     Axiora.UI.TogglePanel()
@@ -7651,8 +7801,8 @@ end
 
 Axiora.Pathfinding = {
     -- FIX: Increased thresholds to reduce false positives during slow movement/cutscenes
-    StuckThreshold = 1.5,       -- Distance threshold for stuck detection (was 0.5, too aggressive)
-    StuckCheckInterval = 1.2,   -- Time between stuck checks (was 0.8)
+    StuckThreshold = 0.5,       -- Relaxed from 1.5 to 0.5 (smaller move required to be valid)
+    StuckCheckInterval = 2.0,   -- Time between stuck checks (slower check)
     MaxStuckRecoveries = 5,     -- Max recovery attempts before giving up
     WaypointTolerance = 3.0,    -- Arrival tolerance in studs
     DynamicObstacles = true,    -- Track moving obstacles
@@ -9071,8 +9221,30 @@ function Axiora.Calibration.PerformTestClick(relX, relY)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- SECTION 20: INITIALIZATION & EXPORTS
+-- SECTION 32: MAIN INITIALIZATION
 -- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.RefreshScripts()
+    if Axiora.UI.MainPanel then
+        local container = Axiora.UI.MainPanel:FindFirstChild("ContentContainer")
+        local tab = container and container:FindFirstChild("Scripts")
+        if tab then
+            tab:ClearAllChildren()
+            Axiora.UI.BuildScripts(tab)
+        end
+    end
+end
+
+function Axiora.UI.RefreshLibrary()
+    if Axiora.UI.MainPanel then
+        local container = Axiora.UI.MainPanel:FindFirstChild("ContentContainer")
+        local tab = container and container:FindFirstChild("Files")
+        if tab then
+            tab:ClearAllChildren()
+            Axiora.UI.BuildLibrary(tab)
+        end
+    end
+end
 
 function Axiora.Init()
     -- Mark as loaded
