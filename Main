@@ -7157,9 +7157,7 @@ end
 
 
 
-function Axiora.UI.Toggle()
-    Axiora.UI.TogglePanel()
-end
+
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- QUICK LOAD PICKER UI
@@ -9392,6 +9390,106 @@ end
 -- Extend existing calibration with Y-axis support
 Axiora.Calibration.DPIScale = 1.0
 Axiora.Calibration.TestClickEnabled = true
+
+-- DPI detection (estimate based on screen size)
+-- Interactive calibration for X/Y offsets
+function Axiora.Calibration.StartInteractiveCalibration()
+    -- Hide main panel if open
+    if Axiora.UI.ScreenGui and Axiora.UI.MainPanel and Axiora.UI.MainPanel.Visible then
+        Axiora.UI.TogglePanel()
+    end
+    
+    local theme = Axiora.UI.Theme or {Primary = Color3.fromRGB(0, 255, 100)}
+    
+    -- Create overlay
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "CalibrationOverlay"
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder = 10000
+    if getLocalPlayer() and getLocalPlayer().PlayerGui then
+        sg.Parent = getLocalPlayer().PlayerGui
+    else
+        pcall(function() sg.Parent = game:GetService("CoreGui") end)
+    end
+    
+    local bg = Instance.new("Frame")
+    bg.BackgroundColor3 = Color3.new(0,0,0)
+    bg.BackgroundTransparency = 0.3
+    bg.Size = UDim2.new(1,0,1,0)
+    bg.Parent = sg
+    
+    local msg = Instance.new("TextLabel")
+    msg.Text = "CLICK THE CENTER OF THE TARGET"
+    msg.Size = UDim2.new(1,0,0,50)
+    msg.Position = UDim2.new(0,0,0,100)
+    msg.BackgroundTransparency = 1
+    msg.TextColor3 = Color3.new(1,1,1)
+    msg.Font = Enum.Font.GothamBold
+    msg.TextSize = 24
+    msg.Parent = bg
+    
+    -- Spawn target at known location (center of screen)
+    local vp = workspace.CurrentCamera.ViewportSize
+    local targetX, targetY = vp.X / 2, vp.Y / 2
+    
+    local target = Instance.new("ImageButton")
+    target.BackgroundColor3 = theme.Primary
+    target.BackgroundTransparency = 0.5
+    target.Size = UDim2.new(0, 40, 0, 40)
+    target.Position = UDim2.fromOffset(targetX - 20, targetY - 20)
+    target.Parent = bg
+    Instance.new("UICorner", target).CornerRadius = UDim.new(1,0)
+    
+    local crosshair = Instance.new("TextLabel")
+    crosshair.BackgroundTransparency = 1
+    crosshair.Size = UDim2.new(1,0,1,0)
+    crosshair.Text = "+"
+    crosshair.TextColor3 = Color3.new(1,1,1)
+    crosshair.TextSize = 24
+    crosshair.Parent = target
+    
+    target.MouseButton1Click:Connect(function()
+        local mouse = UserInputService:GetMouseLocation()
+        
+        -- Calculate difference between where we put the button and where the mouse reported being
+        -- Ideally they are identical. If mouse reports (500, 500) but button is at (500, 500), offset is 0.
+        -- If mouse reports (500, 536) [topbar offset?] but button is visual at 500,500...
+        
+        local offsetX = mouse.X - targetX
+        local offsetY = mouse.Y - targetY
+        
+        -- Save settings
+        Axiora.Settings.XOffset = math.floor(offsetX)
+        Axiora.Settings.YOffset = math.floor(offsetY)
+        
+        if Axiora.Save then Axiora.Save() end
+        
+        if Axiora.Visuals and Axiora.Visuals.Notify then
+            Axiora.Visuals.Notify("Calibration", 
+                string.format("Offsets saved: X=%d, Y=%d", offsetX, offsetY), 
+                3, "success")
+        end
+        
+        sg:Destroy()
+        task.wait(0.5)
+        -- Reopen panel
+        if Axiora.UI.TogglePanel then Axiora.UI.TogglePanel() end
+    end)
+    
+    -- Cancel button
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Text = "CANCEL"
+    cancelBtn.Size = UDim2.new(0, 100, 0, 40)
+    cancelBtn.Position = UDim2.new(0.5, -50, 0.8, 0)
+    cancelBtn.BackgroundColor3 = theme.Primary
+    cancelBtn.Parent = bg
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0,8)
+    
+    cancelBtn.MouseButton1Click:Connect(function()
+        sg:Destroy()
+        if Axiora.UI.TogglePanel then Axiora.UI.TogglePanel() end
+    end)
+end
 
 -- DPI detection (estimate based on screen size)
 function Axiora.Calibration.DetectDPI()
