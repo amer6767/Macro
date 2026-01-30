@@ -3931,7 +3931,7 @@ function Axiora.Calibration.StartPhase2()
     panel.Name = "CalibrationPhase2"
     panel.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
     panel.BackgroundTransparency = 0.02
-    panel.Size = UDim2.new(0, 320, 0, 200)
+    panel.Size = UDim2.new(0, 320, 0, 245)
     panel.Position = UDim2.fromScale(0.5, 0.5)
     panel.AnchorPoint = Vector2.new(0.5, 0.5)
     panel.BorderSizePixel = 0
@@ -4116,12 +4116,139 @@ function Axiora.Calibration.StartPhase2()
         end
     end)
     
-    -- Save button
+    -- ═══════════════════════════════════════════════════════════════════════════════
+    -- TEST CLICK WITH VISUAL CROSSHAIR
+    -- ═══════════════════════════════════════════════════════════════════════════════
+    
+    -- Create crosshair indicator (shows where clicks will land)
+    local crosshair = Instance.new("Frame")
+    crosshair.Name = "CalibrationCrosshair"
+    crosshair.BackgroundTransparency = 1
+    crosshair.Size = UDim2.new(0, 60, 0, 60)
+    crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+    crosshair.ZIndex = 999
+    crosshair.Parent = Axiora.Calibration.Phase2UI
+    
+    -- Vertical line
+    local vLine = Instance.new("Frame")
+    vLine.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    vLine.BorderSizePixel = 0
+    vLine.Size = UDim2.new(0, 2, 1, 0)
+    vLine.Position = UDim2.new(0.5, -1, 0, 0)
+    vLine.ZIndex = 999
+    vLine.Parent = crosshair
+    
+    -- Horizontal line
+    local hLine = Instance.new("Frame")
+    hLine.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    hLine.BorderSizePixel = 0
+    hLine.Size = UDim2.new(1, 0, 0, 2)
+    hLine.Position = UDim2.new(0, 0, 0.5, -1)
+    hLine.ZIndex = 999
+    hLine.Parent = crosshair
+    
+    -- Center dot
+    local centerDot = Instance.new("Frame")
+    centerDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    centerDot.BorderSizePixel = 0
+    centerDot.Size = UDim2.new(0, 12, 0, 12)
+    centerDot.Position = UDim2.new(0.5, -6, 0.5, -6)
+    centerDot.ZIndex = 1000
+    centerDot.Parent = crosshair
+    Instance.new("UICorner", centerDot).CornerRadius = UDim.new(1, 0)
+    
+    -- Crosshair label
+    local crosshairLabel = Instance.new("TextLabel")
+    crosshairLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    crosshairLabel.BackgroundTransparency = 0.4
+    crosshairLabel.Size = UDim2.new(0, 120, 0, 24)
+    crosshairLabel.Position = UDim2.new(0.5, -60, 1, 5)
+    crosshairLabel.Text = "CLICK HERE"
+    crosshairLabel.TextColor3 = Color3.new(1, 1, 1)
+    crosshairLabel.Font = Enum.Font.GothamBold
+    crosshairLabel.TextSize = 12
+    crosshairLabel.ZIndex = 1000
+    crosshairLabel.Parent = crosshair
+    Instance.new("UICorner", crosshairLabel).CornerRadius = UDim.new(0, 6)
+    
+    -- Function to update crosshair position with current offset
+    local function updateCrosshair()
+        local screenCenter = Vector2.new(
+            Axiora.Math.Screen.Viewport.X / 2,
+            Axiora.Math.Screen.Viewport.Y / 2
+        )
+        local xOffset = Axiora.Calibration.CurrentOffset.X
+        crosshair.Position = UDim2.new(0, screenCenter.X + xOffset, 0, screenCenter.Y)
+    end
+    
+    -- Extended updateSlider to also update crosshair
+    local originalUpdateSlider = updateSlider
+    updateSlider = function()
+        originalUpdateSlider()
+        updateCrosshair()
+    end
+    
+    -- Test Click Button
+    local testBtn = Instance.new("TextButton")
+    testBtn.BackgroundColor3 = Color3.fromRGB(255, 180, 50)
+    testBtn.BackgroundTransparency = 0.1
+    testBtn.Size = UDim2.new(1, -40, 0, 40)
+    testBtn.Position = UDim2.new(0, 20, 0, 125)
+    testBtn.Text = "🎯 TEST CLICK AT CROSSHAIR"
+    testBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
+    testBtn.Font = Enum.Font.GothamBold
+    testBtn.TextSize = 13
+    testBtn.BorderSizePixel = 0
+    testBtn.ZIndex = 1002
+    testBtn.Parent = panel
+    Instance.new("UICorner", testBtn).CornerRadius = UDim.new(0, 10)
+    
+    testBtn.MouseButton1Click:Connect(function()
+        -- Get absolute click position with current offset
+        local absPos = Axiora.Math.GetAbsoluteInput(0.5, 0.5)
+        
+        -- Visual pulse on crosshair
+        local pulse = TweenService:Create(centerDot, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 24, 0, 24),
+            Position = UDim2.new(0.5, -12, 0.5, -12)
+        })
+        pulse:Play()
+        pulse.Completed:Wait()
+        
+        -- Perform the click
+        Axiora.Input.Click(absPos.X, absPos.Y)
+        
+        -- Create ripple effect at click position
+        if Axiora.Visuals and Axiora.Visuals.Ripple then
+            pcall(function()
+                Axiora.Visuals.Ripple(absPos.X, absPos.Y)
+            end)
+        end
+        
+        -- Shrink back
+        TweenService:Create(centerDot, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 12, 0, 12),
+            Position = UDim2.new(0.5, -6, 0.5, -6)
+        }):Play()
+        
+        -- Flash green if successful
+        centerDot.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+        task.delay(0.3, function()
+            centerDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+        end)
+        
+        Axiora.Visuals.Notify("Test Click", 
+            string.format("Clicked at (%d, %d)", math.floor(absPos.X), math.floor(absPos.Y)), 
+            2, "info")
+    end)
+    
+    -- Save button (moved down to make room)
     local saveBtn = Instance.new("TextButton")
     saveBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
     saveBtn.BackgroundTransparency = 0.1
     saveBtn.Size = UDim2.new(1, -40, 0, 44)
-    saveBtn.Position = UDim2.new(0, 20, 0, 130)
+    saveBtn.Position = UDim2.new(0, 20, 0, 175)
     saveBtn.Text = "✓ SAVE & CONTINUE"
     saveBtn.TextColor3 = Color3.new(1, 1, 1)
     saveBtn.Font = Enum.Font.GothamBlack
@@ -4133,11 +4260,13 @@ function Axiora.Calibration.StartPhase2()
     
     saveBtn.MouseButton1Click:Connect(function()
         keyConn:Disconnect()
+        crosshair:Destroy()  -- Clean up crosshair
         Axiora.Calibration.SaveCalibrationData()
     end)
     
     -- Initial update
     updateSlider()
+    updateCrosshair()
 end
 
 -- Adjust offset (kept for compatibility)
@@ -5416,7 +5545,8 @@ function Axiora.UI.OpenHub()
         {Id = 1, Icon = "📊", Name = "Home"},
         {Id = 2, Icon = "✏️", Name = "Editor"},
         {Id = 3, Icon = "📁", Name = "Files"},
-        {Id = 4, Icon = "🔧", Name = "Tools"}
+        {Id = 4, Icon = "🔧", Name = "Tools"},
+        {Id = 5, Icon = "⚙️", Name = "Scripts"}
     }
     
     for _, tab in ipairs(tabs) do
@@ -5498,6 +5628,8 @@ function Axiora.UI.SwitchTab(tabId)
         Axiora.UI.BuildLibrary(Axiora.UI.ContentArea)
     elseif tabId == 4 then
         Axiora.UI.BuildUtilities(Axiora.UI.ContentArea)
+    elseif tabId == 5 then
+        Axiora.UI.BuildScripts(Axiora.UI.ContentArea)
     end
 end
 
@@ -5863,6 +5995,220 @@ function Axiora.UI.BuildLibrary(parent)
             Axiora.UI.CloseHub() -- Auto close on load
         end)
     end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 5: SCRIPTS (Automation Rules + URL Loader)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function Axiora.UI.BuildScripts(parent)
+    local theme = Axiora.UI.Theme
+    
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.BackgroundTransparency = 1
+    scroll.Size = UDim2.new(1, -20, 1, -10)
+    scroll.Position = UDim2.new(0, 10, 0, 5)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 600)
+    scroll.ScrollBarThickness = 2
+    scroll.Parent = parent
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 10)
+    layout.Parent = scroll
+    
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- SECTION 1: URL LOADER
+    -- ═══════════════════════════════════════════════════════════════════════
+    
+    local urlSection = Instance.new("Frame")
+    urlSection.BackgroundColor3 = theme.Surface
+    urlSection.BackgroundTransparency = 0.3
+    urlSection.Size = UDim2.new(1, 0, 0, 100)
+    urlSection.Parent = scroll
+    Instance.new("UICorner", urlSection).CornerRadius = UDim.new(0, 10)
+    
+    local urlTitle = Axiora.UI.Primitives.CreateNeonText(urlSection, "🌐 LOAD FROM URL", 14, theme.Idle)
+    urlTitle.Position = UDim2.new(0, 10, 0, 8)
+    
+    -- URL Input Box
+    local urlInput = Instance.new("TextBox")
+    urlInput.BackgroundColor3 = theme.Deep
+    urlInput.BackgroundTransparency = 0.3
+    urlInput.Size = UDim2.new(1, -20, 0, 35)
+    urlInput.Position = UDim2.new(0, 10, 0, 35)
+    urlInput.PlaceholderText = "Enter macro URL (pastebin, github raw, etc.)"
+    urlInput.PlaceholderColor3 = theme.Tertiary
+    urlInput.Text = ""
+    urlInput.TextColor3 = theme.Primary
+    urlInput.Font = Enum.Font.Gotham
+    urlInput.TextSize = 12
+    urlInput.ClearTextOnFocus = false
+    urlInput.Parent = urlSection
+    Instance.new("UICorner", urlInput).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIPadding", urlInput).PaddingLeft = UDim.new(0, 10)
+    
+    -- Load URL Button
+    local loadUrlBtn = Instance.new("TextButton")
+    loadUrlBtn.BackgroundColor3 = theme.Playing
+    loadUrlBtn.Size = UDim2.new(1, -20, 0, 30)
+    loadUrlBtn.Position = UDim2.new(0, 10, 0, 75)
+    loadUrlBtn.Text = "⬇️ LOAD FROM URL"
+    loadUrlBtn.TextColor3 = Color3.new(1, 1, 1)
+    loadUrlBtn.Font = Enum.Font.GothamBold
+    loadUrlBtn.TextSize = 12
+    loadUrlBtn.Parent = urlSection
+    Instance.new("UICorner", loadUrlBtn).CornerRadius = UDim.new(0, 6)
+    
+    loadUrlBtn.MouseButton1Click:Connect(function()
+        local url = urlInput.Text
+        if url == "" or not url:match("^https?://") then
+            Axiora.Visuals.Notify("URL Loader", "Please enter a valid URL", 2, "error")
+            return
+        end
+        
+        loadUrlBtn.Text = "⏳ LOADING..."
+        
+        task.spawn(function()
+            local success, result = pcall(function()
+                return game:HttpGet(url)
+            end)
+            
+            if success and result then
+                local decoded = pcall(function()
+                    local data = HttpService:JSONDecode(result)
+                    if data and (data.buffer or data.b) then
+                        Axiora.State.Buffer = data.buffer or data.b
+                        Axiora.Visuals.Notify("URL Loader", "Loaded " .. #Axiora.State.Buffer .. " nodes!", 3, "success")
+                        return true
+                    end
+                end)
+                
+                if not decoded then
+                    Axiora.Visuals.Notify("URL Loader", "Invalid macro format", 2, "error")
+                end
+            else
+                Axiora.Visuals.Notify("URL Loader", "Failed to fetch URL", 2, "error")
+            end
+            
+            loadUrlBtn.Text = "⬇️ LOAD FROM URL"
+        end)
+    end)
+    
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- SECTION 2: AUTOMATION RULES
+    -- ═══════════════════════════════════════════════════════════════════════
+    
+    local rulesSection = Instance.new("Frame")
+    rulesSection.BackgroundTransparency = 1
+    rulesSection.Size = UDim2.new(1, 0, 0, 40)
+    rulesSection.Parent = scroll
+    
+    local rulesTitle = Axiora.UI.Primitives.CreateNeonText(rulesSection, "⚡ AUTOMATION RULES", 14, theme.Idle)
+    rulesTitle.Position = UDim2.new(0, 0, 0.3, 0)
+    
+    -- Add Rule Button
+    local addRuleBtn = Instance.new("TextButton")
+    addRuleBtn.BackgroundColor3 = theme.Success
+    addRuleBtn.Size = UDim2.new(0, 80, 0, 28)
+    addRuleBtn.Position = UDim2.new(1, -85, 0.5, 0)
+    addRuleBtn.AnchorPoint = Vector2.new(0, 0.5)
+    addRuleBtn.Text = "+ NEW"
+    addRuleBtn.TextColor3 = Color3.new(1, 1, 1)
+    addRuleBtn.Font = Enum.Font.GothamBold
+    addRuleBtn.TextSize = 11
+    addRuleBtn.Parent = rulesSection
+    Instance.new("UICorner", addRuleBtn).CornerRadius = UDim.new(0, 6)
+    
+    addRuleBtn.MouseButton1Click:Connect(function()
+        if Axiora.Automation and Axiora.Automation.ShowRuleCreationModal then
+            Axiora.Automation.ShowRuleCreationModal(Axiora.UI.ScreenGui, function()
+                -- Refresh the list after creation
+                Axiora.UI.SwitchTab(5)
+            end)
+        else
+            Axiora.Visuals.Notify("Scripts", "Rule creation modal not available", 2, "warning")
+        end
+    end)
+    
+    -- List existing rules
+    local rules = Axiora.Automation and Axiora.Automation.Rules or {}
+    
+    if #rules == 0 then
+        local emptyLabel = Axiora.UI.Primitives.CreateNeonText(scroll, "No automation rules yet. Tap + NEW to create one!", 12, theme.Tertiary)
+        emptyLabel.Size = UDim2.new(1, 0, 0, 40)
+        emptyLabel.TextWrapped = true
+    else
+        for i, rule in ipairs(rules) do
+            local ruleCard = Instance.new("Frame")
+            ruleCard.BackgroundColor3 = theme.Surface
+            ruleCard.BackgroundTransparency = 0.2
+            ruleCard.Size = UDim2.new(1, 0, 0, 60)
+            ruleCard.Parent = scroll
+            Instance.new("UICorner", ruleCard).CornerRadius = UDim.new(0, 8)
+            
+            -- Rule name/trigger
+            local ruleName = Axiora.UI.Primitives.CreateNeonText(ruleCard, 
+                (rule.trigger and rule.trigger.type or "Unknown") .. " → " .. (rule.action and rule.action.type or "Unknown"), 
+                12, theme.Primary)
+            ruleName.Position = UDim2.new(0, 10, 0, 10)
+            ruleName.Size = UDim2.new(0.7, 0, 0, 20)
+            ruleName.TextXAlignment = Enum.TextXAlignment.Left
+            
+            -- Mode label
+            local modeLabel = Axiora.UI.Primitives.CreateNeonText(ruleCard, 
+                rule.mode or "always", 
+                10, rule.enabled and theme.Success or theme.Tertiary)
+            modeLabel.Position = UDim2.new(0, 10, 0, 32)
+            modeLabel.Size = UDim2.new(0.5, 0, 0, 16)
+            modeLabel.TextXAlignment = Enum.TextXAlignment.Left
+            
+            -- Toggle button
+            local toggleBtn = Instance.new("TextButton")
+            toggleBtn.BackgroundColor3 = rule.enabled and theme.Success or theme.Error
+            toggleBtn.Size = UDim2.new(0, 50, 0, 24)
+            toggleBtn.Position = UDim2.new(1, -110, 0.5, 0)
+            toggleBtn.AnchorPoint = Vector2.new(0, 0.5)
+            toggleBtn.Text = rule.enabled and "ON" or "OFF"
+            toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+            toggleBtn.Font = Enum.Font.GothamBold
+            toggleBtn.TextSize = 10
+            toggleBtn.Parent = ruleCard
+            Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 4)
+            
+            toggleBtn.MouseButton1Click:Connect(function()
+                if Axiora.Automation.ToggleRule then
+                    local newState = Axiora.Automation.ToggleRule(rule.id)
+                    toggleBtn.BackgroundColor3 = newState and theme.Success or theme.Error
+                    toggleBtn.Text = newState and "ON" or "OFF"
+                end
+            end)
+            
+            -- Delete button
+            local deleteBtn = Instance.new("TextButton")
+            deleteBtn.BackgroundColor3 = theme.Error
+            deleteBtn.BackgroundTransparency = 0.5
+            deleteBtn.Size = UDim2.new(0, 40, 0, 24)
+            deleteBtn.Position = UDim2.new(1, -50, 0.5, 0)
+            deleteBtn.AnchorPoint = Vector2.new(0, 0.5)
+            deleteBtn.Text = "🗑️"
+            deleteBtn.TextSize = 14
+            deleteBtn.Parent = ruleCard
+            Instance.new("UICorner", deleteBtn).CornerRadius = UDim.new(0, 4)
+            
+            deleteBtn.MouseButton1Click:Connect(function()
+                if Axiora.Automation.DeleteRule then
+                    Axiora.Automation.DeleteRule(rule.id)
+                    ruleCard:Destroy()
+                    Axiora.Visuals.Notify("Scripts", "Rule deleted", 2, "info")
+                end
+            end)
+        end
+    end
+    
+    -- Update canvas size
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+    end)
 end
 
 function Axiora.UI.CloseHub()
