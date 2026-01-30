@@ -5134,6 +5134,7 @@ Axiora.UI = {
         -- Primary colors
         Primary = Color3.fromRGB(60, 180, 255),
         Secondary = Color3.fromRGB(100, 100, 140),
+        Tertiary = Color3.fromRGB(80, 80, 100), -- Fix: Added missing Tertiary color
         
         -- Node Types
         Movement = Color3.fromRGB(80, 150, 255), -- Blue
@@ -6427,28 +6428,28 @@ function Axiora.UI.BuildCommandCenter(parent)
     recordBtn.Name = "RecordToggle"
     recordBtn.BackgroundColor3 = theme.Error
     recordBtn.BackgroundTransparency = 0.15
-    recordBtn.Size = UDim2.new(0.48, 0, 0, 50)
+    recordBtn.Size = UDim2.new(0.48, 0, 0, 40) -- Reduced from 50
     recordBtn.Position = UDim2.new(0, 0, 0, 0)
     recordBtn.Text = ""
     recordBtn.AutoButtonColor = false
     recordBtn.BorderSizePixel = 0
     recordBtn.Parent = controlsTab
-    Instance.new("UICorner", recordBtn).CornerRadius = UDim.new(0, 10)
+    Instance.new("UICorner", recordBtn).CornerRadius = UDim.new(0, 8) -- Reduced from 10
     
     local recordIcon = Instance.new("TextLabel")
     recordIcon.BackgroundTransparency = 1
-    recordIcon.Size = UDim2.new(1, 0, 0, 24)
-    recordIcon.Position = UDim2.new(0, 0, 0, 6)
+    recordIcon.Size = UDim2.new(1, 0, 0, 20) -- Reduced from 24
+    recordIcon.Position = UDim2.new(0, 0, 0, 4) -- Adjusted from 6
     recordIcon.Text = "⏺"
     recordIcon.TextColor3 = Color3.new(1, 1, 1)
     recordIcon.Font = Enum.Font.GothamBold
-    recordIcon.TextSize = 18
+    recordIcon.TextSize = 16 -- Reduced from 18
     recordIcon.Parent = recordBtn
     
     local recordLabel = Instance.new("TextLabel")
     recordLabel.BackgroundTransparency = 1
-    recordLabel.Size = UDim2.new(1, 0, 0, 16)
-    recordLabel.Position = UDim2.new(0, 0, 1, -20)
+    recordLabel.Size = UDim2.new(1, 0, 0, 14) -- Reduced from 16
+    recordLabel.Position = UDim2.new(0, 0, 1, -18) -- Adjusted from -20
     recordLabel.Text = "RECORD"
     recordLabel.TextColor3 = Color3.new(1, 1, 1)
     recordLabel.Font = Enum.Font.GothamBold
@@ -6506,92 +6507,75 @@ function Axiora.UI.BuildCommandCenter(parent)
         end
     end)
     
-    -- Speed Section
+    -- 2. Speed Control (Compacted)
     local speedLabel = Instance.new("TextLabel")
     speedLabel.BackgroundTransparency = 1
-    speedLabel.Size = UDim2.new(1, 0, 0, 18)
-    speedLabel.Position = UDim2.new(0, 0, 0, 58)
-    speedLabel.Text = "SPEED"
+    speedLabel.Size = UDim2.new(1, 0, 0, 14)
+    speedLabel.Position = UDim2.new(0, 0, 0, 46) -- Moved up from 58
+    speedLabel.Text = "PLAYBACK SPEED"
     speedLabel.TextColor3 = theme.TextDim
     speedLabel.Font = Enum.Font.GothamBold
-    speedLabel.TextSize = 9
+    speedLabel.TextSize = 9 -- Reduced from 10
     speedLabel.TextXAlignment = Enum.TextXAlignment.Left
     speedLabel.Parent = controlsTab
     
-    local speedBtns = {}
-    local presets = {"0.5x", "1x", "1.5x", "2x"}
-    local presetKeys = {"careful", "normal", "fast", "turbo"}
+    local speedContainer = Instance.new("Frame")
+    speedContainer.BackgroundTransparency = 1
+    speedContainer.Size = UDim2.new(1, 0, 0, 24) -- Reduced height
+    speedContainer.Position = UDim2.new(0, 0, 0, 62) -- Moved up from 78
+    speedContainer.Parent = controlsTab
     
-    for i, label in ipairs(presets) do
-        local speedBtn = Instance.new("TextButton")
-        speedBtn.BackgroundColor3 = i == 2 and theme.Primary or theme.Surface
-        speedBtn.BackgroundTransparency = i == 2 and 0.3 or 0.6
-        speedBtn.Size = UDim2.new(0.23, 0, 0, 26)
-        speedBtn.Position = UDim2.new((i-1) * 0.25, (i-1) * 2, 0, 78)
-        speedBtn.Text = label
-        speedBtn.TextColor3 = theme.Text
-        speedBtn.Font = Enum.Font.GothamBold
-        speedBtn.TextSize = 10
-        speedBtn.AutoButtonColor = false
-        speedBtn.BorderSizePixel = 0
-        speedBtn.Parent = controlsTab
-        Instance.new("UICorner", speedBtn).CornerRadius = UDim.new(0, 5)
-        speedBtns[i] = speedBtn
+    local speedLayout = Instance.new("UIListLayout")
+    speedLayout.FillDirection = Enum.FillDirection.Horizontal
+    speedLayout.Padding = UDim.new(0, 5)
+    speedLayout.Parent = speedContainer
+    
+    local speeds = {"0.5x", "1x", "1.5x", "2x"}
+    for _, spd in ipairs(speeds) do
+        local btn = Instance.new("TextButton")
+        btn.Name = "Speed_" .. spd
+        btn.BackgroundColor3 = Axiora.UI.CurrentSpeed == tonumber(spd:sub(1, -2)) and theme.Primary or theme.Surface
+        btn.BackgroundTransparency = 0.2
+        btn.Size = UDim2.new(0.23, 0, 1, 0)
+        btn.Text = spd
+        btn.TextColor3 = theme.Text
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 10
+        btn.AutoButtonColor = false
+        btn.Parent = speedContainer
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
         
-        speedBtn.MouseButton1Click:Connect(function()
-            Axiora.UI.SetSpeed(presetKeys[i])
-            for j, btn in ipairs(speedBtns) do
-                TweenService:Create(btn, TweenInfo.new(0.15), {
-                    BackgroundColor3 = j == i and theme.Primary or theme.Surface,
-                    BackgroundTransparency = j == i and 0.3 or 0.6
-                }):Play()
+        btn.MouseButton1Click:Connect(function()
+            local val = tonumber(spd:sub(1, -2))
+            Axiora.SetSpeed(val)
+            -- Update visuals
+            for _, child in ipairs(speedContainer:GetChildren()) do
+                if child:IsA("TextButton") then
+                    child.BackgroundColor3 = theme.Surface
+                end
             end
+            btn.BackgroundColor3 = theme.Primary
         end)
     end
     
-
-    
-    -- 3D Viz Toggle (Small button next to speed?)
+    -- 3. Load/Save/Viz (Compacted)
     local vizBtn = Instance.new("TextButton")
-    vizBtn.BackgroundColor3 = theme.Surface
-    vizBtn.BackgroundTransparency = 0.5
-    vizBtn.Size = UDim2.new(1, 0, 0, 18)
-    vizBtn.Position = UDim2.new(0, 0, 0, 108)  -- Adjusted layout
-    vizBtn.Text = "👁️ 3D VISUALIZATION: OFF"
-    vizBtn.TextColor3 = theme.TextDim
-    vizBtn.Font = Enum.Font.GothamBold
-    vizBtn.TextSize = 9
-    vizBtn.Parent = controlsTab
-    Instance.new("UICorner", vizBtn).CornerRadius = UDim.new(0, 4)
+    vizBtn.BackgroundColor3 = theme.Secondary
+    vizBtn.BackgroundTransparency = 0.4
+    vizBtn.Size = UDim2.new(1, 0, 0, 24) -- Reduced overlap usage
+    vizBtn.Position = UDim2.new(0, 0, 0, 96) -- Moved up from 108/130 to be a single row? 
+    -- Actually, let's keep Save/Load side-by-side
     
-    vizBtn.MouseButton1Click:Connect(function()
-        if Axiora.Visualization3D.Enabled then
-             Axiora.Visualization3D.Enabled = false
-             Axiora.Visualization3D.Clear()
-             vizBtn.Text = "👁️ 3D VISUALIZATION: OFF"
-             vizBtn.TextColor3 = theme.TextDim
-             vizBtn.BackgroundColor3 = theme.Surface
-        else
-             Axiora.Visualization3D.Enabled = true
-             Axiora.Visualization3D.Init()
-             vizBtn.Text = "👁️ 3D VISUALIZATION: ON"
-             vizBtn.TextColor3 = theme.Success
-             vizBtn.BackgroundColor3 = theme.Deep
-        end
-    end)
-    
-    -- Quick Actions Row (Shifted down)
     local saveBtn = Instance.new("TextButton")
     saveBtn.BackgroundColor3 = theme.Info
     saveBtn.BackgroundTransparency = 0.4
     saveBtn.Size = UDim2.new(0.48, 0, 0, 32)
-    saveBtn.Position = UDim2.new(0, 0, 0, 130) -- Shifted down from 112
+    saveBtn.Position = UDim2.new(0, 0, 0, 96) -- Moved up from 130
     saveBtn.Text = "💾 SAVE"
     saveBtn.TextColor3 = theme.Text
     saveBtn.Font = Enum.Font.GothamBold
     saveBtn.TextSize = 10
     saveBtn.AutoButtonColor = false
-    saveBtn.BorderSizePixel = 0
     saveBtn.Parent = controlsTab
     Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 6)
     saveBtn.MouseButton1Click:Connect(function() Axiora.Save() end)
@@ -6600,13 +6584,12 @@ function Axiora.UI.BuildCommandCenter(parent)
     loadBtn.BackgroundColor3 = theme.Info
     loadBtn.BackgroundTransparency = 0.4
     loadBtn.Size = UDim2.new(0.48, 0, 0, 32)
-    loadBtn.Position = UDim2.new(0.52, 0, 0, 130)  -- Shifted down to match Save btn
+    loadBtn.Position = UDim2.new(0.52, 0, 0, 96) -- Moved up from 130
     loadBtn.Text = "📂 LOAD"
     loadBtn.TextColor3 = theme.Text
     loadBtn.Font = Enum.Font.GothamBold
     loadBtn.TextSize = 10
     loadBtn.AutoButtonColor = false
-    loadBtn.BorderSizePixel = 0
     loadBtn.Parent = controlsTab
     Instance.new("UICorner", loadBtn).CornerRadius = UDim.new(0, 6)
     loadBtn.MouseButton1Click:Connect(function() Axiora.UI.ShowLoadPicker() end)
@@ -6615,14 +6598,13 @@ function Axiora.UI.BuildCommandCenter(parent)
     local calibrateBtn = Instance.new("TextButton")
     calibrateBtn.BackgroundColor3 = theme.Warning or Color3.fromRGB(255, 180, 50)
     calibrateBtn.BackgroundTransparency = 0.4
-    calibrateBtn.Size = UDim2.new(1, 0, 0, 28)
-    calibrateBtn.Position = UDim2.new(0, 0, 0, 148)
-    calibrateBtn.Text = "🎯 CALIBRATE X OFFSET"
+    calibrateBtn.Size = UDim2.new(1, 0, 0, 26) -- Reduced height
+    calibrateBtn.Position = UDim2.new(0, 0, 0, 136) -- Moved up from 170
+    calibrateBtn.Text = "🎯 CALIBRATE X RESET"
     calibrateBtn.TextColor3 = theme.Text
     calibrateBtn.Font = Enum.Font.GothamBold
     calibrateBtn.TextSize = 10
     calibrateBtn.AutoButtonColor = false
-    calibrateBtn.BorderSizePixel = 0
     calibrateBtn.Parent = controlsTab
     Instance.new("UICorner", calibrateBtn).CornerRadius = UDim.new(0, 6)
     calibrateBtn.MouseButton1Click:Connect(function() 
@@ -6635,14 +6617,13 @@ function Axiora.UI.BuildCommandCenter(parent)
         mobCalBtn.Name = "MobileCalibrate"
         mobCalBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
         mobCalBtn.BackgroundTransparency = 0.4
-        mobCalBtn.Size = UDim2.new(1, 0, 0, 28)
-        mobCalBtn.Position = UDim2.new(0, 0, 0, 180)
+        mobCalBtn.Size = UDim2.new(1, 0, 0, 26) -- Reduced height
+        mobCalBtn.Position = UDim2.new(0, 0, 0, 168) -- Moved up from 205
         mobCalBtn.Text = "📱 FULL CALIBRATION"
         mobCalBtn.TextColor3 = theme.Text
         mobCalBtn.Font = Enum.Font.GothamBold
         mobCalBtn.TextSize = 10
         mobCalBtn.AutoButtonColor = false
-        mobCalBtn.BorderSizePixel = 0
         mobCalBtn.Parent = controlsTab
         Instance.new("UICorner", mobCalBtn).CornerRadius = UDim.new(0, 6)
         
