@@ -4186,6 +4186,11 @@ Axiora.Automation = {
     LastChat = {message = "", sender = "", time = 0},
     EvaluatorThread = nil,
     
+    -- Debounce and connection tracking
+    _debounceTimers = {},
+    _connections = {},
+    DebounceDuration = 0.5,
+    
     -- Rule modes
     MODE_PLAYBACK = "playback",
     MODE_ALWAYS = "always",
@@ -4640,6 +4645,28 @@ function Axiora.Automation.EvaluateRule(rule)
         return false
     end
     
+    -- Debounce check (prevent rapid re-triggering)
+    local now = os.clock()
+    local debounceDuration = rule.debounce or Axiora.Automation.DebounceDuration or 0.5
+    local lastFire = Axiora.Automation._debounceTimers[rule.id] or 0
+    if now - lastFire < debounceDuration then
+        return false
+    end
+    
+    -- Dependency check (rule only runs if dependent rule has fired)
+    if rule.dependsOn then
+        local depFired = false
+        for _, r in ipairs(Axiora.Automation.Rules) do
+            if r.id == rule.dependsOn and (r.triggerCount or 0) > 0 then
+                depFired = true
+                break
+            end
+        end
+        if not depFired then
+            return false
+        end
+    end
+    
     -- Check trigger
     local triggerFunc = Axiora.Automation.Triggers[rule.trigger.type]
     if not triggerFunc then return false end
@@ -4652,6 +4679,8 @@ function Axiora.Automation.EvaluateRule(rule)
     -- Execute action
     local actionFunc = Axiora.Automation.Actions[rule.action.type]
     if actionFunc then
+        -- Update debounce timer
+        Axiora.Automation._debounceTimers[rule.id] = now
         rule.triggerCount = (rule.triggerCount or 0) + 1
         task.spawn(function()
             actionFunc(rule.action)
@@ -4667,25 +4696,31 @@ function Axiora.Automation.StartEvaluator()
     Axiora.Automation.Running = true
     Axiora.Automation._lastPlayerCount = #Players:GetPlayers()
     
+    -- Clear previous connections and reset state
+    Axiora.Automation._connections = {}
+    Axiora.Automation._debounceTimers = {}
+    
     -- Chat listener
     pcall(function()
         local chatService = game:GetService("TextChatService")
-        chatService.MessageReceived:Connect(function(msg)
+        local chatConn = chatService.MessageReceived:Connect(function(msg)
             Axiora.Automation.LastChat = {
                 message = msg.Text or "",
                 sender = msg.TextSource and msg.TextSource.Name or "Unknown",
                 time = os.clock()
             }
         end)
+        table.insert(Axiora.Automation._connections, chatConn)
     end)
     
     -- Key press listener (for keyPressed trigger)
     pcall(function()
-        UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if input.UserInputType == Enum.UserInputType.Keyboard then
                 Axiora.Automation._lastKeyPressed = input.KeyCode.Name
             end
         end)
+        table.insert(Axiora.Automation._connections, keyConn)
     end)
     
     -- Main evaluator loop
@@ -4710,6 +4745,15 @@ end
 
 function Axiora.Automation.StopEvaluator()
     Axiora.Automation.Running = false
+    
+    -- Clean up all connections to prevent memory leaks
+    for _, conn in ipairs(Axiora.Automation._connections or {}) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Axiora.Automation._connections = {}
+    
+    -- Reset debounce timers
+    Axiora.Automation._debounceTimers = {}
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -7486,6 +7530,1415 @@ function Axiora.UI.Destroy()
         Axiora.UI.ToggleButton = nil
         Axiora.UI.IsOpen = false
     end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 21: ENHANCED PATHFINDING SYSTEM
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Pathfinding = {
+    StuckThreshold = 0.5,       -- Distance threshold for stuck detection
+    StuckCheckInterval = 0.8,   -- Time between stuck checks (was too aggressive at 0.3)
+    MaxStuckRecoveries = 5,     -- Max recovery attempts before giving up
+    WaypointTolerance = 3.0,    -- Arrival tolerance in studs
+    DynamicObstacles = true,    -- Track moving obstacles
+    PathSmoothingEnabled = true,
+    
+    -- Internal state
+    _lastPosition = nil,
+    _lastCheckTime = 0,
+    _stuckCount = 0,
+    _recoveryIndex = 1
+}
+
+-- Check if character is stuck with hysteresis to prevent false positives
+function Axiora.Pathfinding.IsStuck(currentPos)
+    local now = os.clock()
+    
+    if now - Axiora.Pathfinding._lastCheckTime < Axiora.Pathfinding.StuckCheckInterval then
+        return false
+    end
+    
+    Axiora.Pathfinding._lastCheckTime = now
+    
+    if not Axiora.Pathfinding._lastPosition then
+        Axiora.Pathfinding._lastPosition = currentPos
+        return false
+    end
+    
+    local distance = (currentPos - Axiora.Pathfinding._lastPosition).Magnitude
+    Axiora.Pathfinding._lastPosition = currentPos
+    
+    if distance < Axiora.Pathfinding.StuckThreshold then
+        Axiora.Pathfinding._stuckCount = Axiora.Pathfinding._stuckCount + 1
+        return Axiora.Pathfinding._stuckCount >= 2  -- Require 2 consecutive stuck checks
+    else
+        Axiora.Pathfinding._stuckCount = 0
+        return false
+    end
+end
+
+-- Multiple recovery strategies for when character gets stuck
+function Axiora.Pathfinding.RecoverFromStuck(character)
+    if not character then return false end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return false end
+    
+    local strategies = {
+        function() -- Strategy 1: Jump
+            humanoid.Jump = true
+            task.wait(0.3)
+        end,
+        function() -- Strategy 2: Move sideways (right)
+            humanoid:Move(Vector3.new(1, 0, 0))
+            task.wait(0.4)
+            humanoid:Move(Vector3.zero)
+        end,
+        function() -- Strategy 3: Move sideways (left)
+            humanoid:Move(Vector3.new(-1, 0, 0))
+            task.wait(0.4)
+            humanoid:Move(Vector3.zero)
+        end,
+        function() -- Strategy 4: Move backwards
+            humanoid:Move(Vector3.new(0, 0, -1))
+            task.wait(0.4)
+            humanoid:Move(Vector3.zero)
+        end,
+        function() -- Strategy 5: Jump + diagonal
+            humanoid.Jump = true
+            humanoid:Move(Vector3.new(0.7, 0, 0.7))
+            task.wait(0.5)
+            humanoid:Move(Vector3.zero)
+        end
+    }
+    
+    local strategyIndex = Axiora.Pathfinding._recoveryIndex
+    if strategyIndex > #strategies then
+        strategyIndex = 1
+    end
+    
+    pcall(strategies[strategyIndex])
+    Axiora.Pathfinding._recoveryIndex = strategyIndex + 1
+    
+    return true
+end
+
+-- Reset pathfinding state
+function Axiora.Pathfinding.Reset()
+    Axiora.Pathfinding._lastPosition = nil
+    Axiora.Pathfinding._lastCheckTime = 0
+    Axiora.Pathfinding._stuckCount = 0
+    Axiora.Pathfinding._recoveryIndex = 1
+end
+
+-- Smooth path using Catmull-Rom spline (for 3D visualization)
+function Axiora.Pathfinding.SmoothPath(waypoints, segments)
+    if #waypoints < 4 then return waypoints end
+    segments = segments or 5
+    
+    local smoothed = {}
+    
+    for i = 2, #waypoints - 2 do
+        local p0 = waypoints[i - 1]
+        local p1 = waypoints[i]
+        local p2 = waypoints[i + 1]
+        local p3 = waypoints[i + 2]
+        
+        for t = 0, 1, 1 / segments do
+            local t2 = t * t
+            local t3 = t2 * t
+            
+            local x = 0.5 * ((2 * p1.X) + (-p0.X + p2.X) * t + 
+                      (2 * p0.X - 5 * p1.X + 4 * p2.X - p3.X) * t2 + 
+                      (-p0.X + 3 * p1.X - 3 * p2.X + p3.X) * t3)
+            local y = 0.5 * ((2 * p1.Y) + (-p0.Y + p2.Y) * t + 
+                      (2 * p0.Y - 5 * p1.Y + 4 * p2.Y - p3.Y) * t2 + 
+                      (-p0.Y + 3 * p1.Y - 3 * p2.Y + p3.Y) * t3)
+            local z = 0.5 * ((2 * p1.Z) + (-p0.Z + p2.Z) * t + 
+                      (2 * p0.Z - 5 * p1.Z + 4 * p2.Z - p3.Z) * t2 + 
+                      (-p0.Z + 3 * p1.Z - 3 * p2.Z + p3.Z) * t3)
+            
+            table.insert(smoothed, Vector3.new(x, y, z))
+        end
+    end
+    
+    return smoothed
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 22: MACRO VALIDATION & INTEGRITY
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Validation = {
+    CurrentVersion = 2,
+    AutoFix = true,
+    StrictMode = false
+}
+
+-- Validate a single node
+function Axiora.Validation.ValidateNode(node, index)
+    if type(node) ~= "table" then
+        return false, "Node #" .. index .. " is not a table"
+    end
+    
+    if node.t == nil then
+        if Axiora.Validation.AutoFix then
+            node.t = 1  -- Default to movement
+            return true, "Auto-fixed: Node #" .. index .. " missing type"
+        end
+        return false, "Node #" .. index .. " missing type (t)"
+    end
+    
+    if node.d == nil then
+        if Axiora.Validation.AutoFix then
+            node.d = 0
+        else
+            return false, "Node #" .. index .. " missing delay (d)"
+        end
+    end
+    
+    -- Type-specific validation
+    if node.t == 1 then -- Movement
+        if not node.p and Axiora.Validation.StrictMode then
+            return false, "Move node #" .. index .. " missing position"
+        end
+    elseif node.t == 2 then -- Click
+        if (node.x == nil or node.y == nil) then
+            if Axiora.Validation.AutoFix then
+                node.x = node.x or 0.5
+                node.y = node.y or 0.5
+            else
+                return false, "Click node #" .. index .. " missing coordinates"
+            end
+        end
+    elseif node.t == 3 then -- Keyboard
+        if not node.k and Axiora.Validation.StrictMode then
+            return false, "Key node #" .. index .. " missing keycode"
+        end
+    end
+    
+    return true, nil
+end
+
+-- Validate entire buffer
+function Axiora.Validation.ValidateBuffer(buffer)
+    if type(buffer) ~= "table" then
+        return false, "Buffer is not a table", {}
+    end
+    
+    local errors = {}
+    local warnings = {}
+    
+    for i, node in ipairs(buffer) do
+        local valid, msg = Axiora.Validation.ValidateNode(node, i)
+        if not valid then
+            table.insert(errors, msg)
+        elseif msg then
+            table.insert(warnings, msg)
+        end
+    end
+    
+    if #errors > 0 then
+        return false, "Validation failed: " .. errors[1], errors
+    end
+    
+    return true, #warnings > 0 and (#warnings .. " nodes auto-fixed") or nil, warnings
+end
+
+-- Migrate old format to new
+function Axiora.Validation.MigrateVersion(data)
+    local version = data.version or data.v or 1
+    
+    if version < 2 then
+        -- v1 -> v2: Ensure all nodes have delay
+        for i, node in ipairs(data.buffer or data.b or {}) do
+            if node.d == nil then node.d = 0 end
+            -- Normalize position format
+            if node.p and type(node.p) == "table" and node.p[1] then
+                -- Already array format
+            elseif node.p and type(node.p) == "userdata" then
+                node.p = {node.p.X, node.p.Y, node.p.Z}
+            end
+        end
+        data.version = 2
+    end
+    
+    return data
+end
+
+-- Create backup before loading
+function Axiora.Validation.CreateBackup(name)
+    if not Axiora.Capabilities.WriteFile or not Axiora.Capabilities.ReadFile then
+        return false
+    end
+    
+    local sourcePath = "Axiora/saves/" .. name .. ".json"
+    local backupPath = "Axiora/backups/" .. name .. "_" .. os.time() .. ".json"
+    
+    local success = pcall(function()
+        if not isfolder("Axiora/backups") then makefolder("Axiora/backups") end
+        if isfile(sourcePath) then
+            writefile(backupPath, readfile(sourcePath))
+        end
+    end)
+    
+    return success
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 23: EXTENDED INPUT TYPES
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Extended node types
+Axiora.NodeTypes = {
+    MOVE = 1,
+    CLICK_LEFT = 2,
+    KEY = 3,
+    CONDITION = 4,
+    CLICK_RIGHT = 5,
+    CLICK_MIDDLE = 6,
+    SCROLL = 7,
+    HOLD_START = 8,
+    HOLD_END = 9,
+    GAMEPAD = 10,
+    GYRO = 11
+}
+
+-- Right-click function
+function Axiora.Input.RightClick(x, y)
+    if Axiora.Input.Method == "Delta" and Axiora.Input._deltaInput then
+        local success = pcall(function()
+            if Axiora.Input._deltaInput.mouse_move then
+                Axiora.Input._deltaInput.mouse_move(x, y)
+            end
+            task.wait(0.01)
+            if Axiora.Input._deltaInput.mouse2_click then
+                Axiora.Input._deltaInput.mouse2_click()
+            end
+        end)
+        if success then return true end
+    end
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, 1, true, game, 1)
+            task.wait(0.03)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 1, false, game, 1)
+        end)
+        return true
+    end
+    
+    return false
+end
+
+-- Middle-click function
+function Axiora.Input.MiddleClick(x, y)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, 2, true, game, 1)
+            task.wait(0.03)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 2, false, game, 1)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Scroll wheel function
+function Axiora.Input.Scroll(x, y, direction, amount)
+    amount = amount or 1
+    local scrollValue = direction == "up" and amount or -amount
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseWheelEvent(x, y, scrollValue)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Mouse hold (press without release)
+function Axiora.Input.MouseDown(x, y, button)
+    button = button or 0 -- 0 = left, 1 = right, 2 = middle
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, button, true, game, 1)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Mouse release
+function Axiora.Input.MouseUp(x, y, button)
+    button = button or 0
+    
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, button, false, game, 1)
+        end)
+        return true
+    end
+    return false
+end
+
+-- Key hold (press without release)
+function Axiora.Input.KeyDown(keyCode)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        end)
+        return true
+    end
+    
+    if Axiora.Capabilities.KeyPress then
+        pcall(function() keypress(keyCode) end)
+        return true
+    end
+    
+    return false
+end
+
+-- Key release
+function Axiora.Input.KeyUp(keyCode)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+        end)
+        return true
+    end
+    
+    if Axiora.Capabilities.KeyRelease then
+        pcall(function() keyrelease(keyCode) end)
+        return true
+    end
+    
+    return false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 24: GAME-SPECIFIC PROFILES
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Profiles = {
+    Current = nil,
+    List = {},
+    AutoDetect = true,
+    AutoLoad = true
+}
+
+function Axiora.Profiles.GetPlaceId()
+    return game.PlaceId
+end
+
+function Axiora.Profiles.GetGameName()
+    local success, info = pcall(function()
+        return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+    end)
+    if success and info then
+        return info.Name or "Unknown"
+    end
+    return "Game_" .. game.PlaceId
+end
+
+function Axiora.Profiles.LoadForCurrentGame()
+    if not Axiora.Profiles.AutoDetect then return false end
+    if not Axiora.Capabilities.ReadFile then return false end
+    
+    local placeId = Axiora.Profiles.GetPlaceId()
+    local profilePath = "Axiora/profiles/" .. placeId .. ".json"
+    
+    local success, data = pcall(function()
+        if isfile(profilePath) then
+            return HttpService:JSONDecode(readfile(profilePath))
+        end
+        return nil
+    end)
+    
+    if success and data then
+        Axiora.Profiles.Current = data
+        
+        -- Apply saved settings
+        for key, value in pairs(data.settings or {}) do
+            if Axiora.Settings[key] ~= nil then
+                Axiora.Settings[key] = value
+            end
+        end
+        
+        -- Apply calibration
+        if data.calibration then
+            Axiora.Settings.XOffset = data.calibration.XOffset or 0
+            Axiora.Settings.YOffset = data.calibration.YOffset or 0
+        end
+        
+        Axiora.Visuals.Notify("Profile", "Loaded: " .. (data.gameName or "Game profile"), 2, "success")
+        Axiora.Events:Fire("ProfileLoaded", {PlaceId = placeId, Profile = data})
+        return true
+    end
+    
+    return false
+end
+
+function Axiora.Profiles.SaveCurrentGame()
+    if not Axiora.Capabilities.WriteFile then
+        Axiora.Visuals.Notify("Profile", "Cannot save - no file system", 2, "error")
+        return false
+    end
+    
+    local placeId = Axiora.Profiles.GetPlaceId()
+    local profilePath = "Axiora/profiles/" .. placeId .. ".json"
+    
+    local profile = {
+        placeId = placeId,
+        gameName = Axiora.Profiles.GetGameName(),
+        settings = {
+            XOffset = Axiora.Settings.XOffset,
+            YOffset = Axiora.Settings.YOffset,
+            TimeScale = Axiora.Settings.TimeScale,
+            ClickRecoveryEnabled = Axiora.Settings.ClickRecoveryEnabled,
+            ClickRecoveryMaxAttempts = Axiora.Settings.ClickRecoveryMaxAttempts,
+            MovementSampleRate = Axiora.Settings.MovementSampleRate
+        },
+        calibration = {
+            XOffset = Axiora.Settings.XOffset,
+            YOffset = Axiora.Settings.YOffset
+        },
+        timestamp = os.time(),
+        version = Axiora._VERSION
+    }
+    
+    local success = pcall(function()
+        if not isfolder("Axiora/profiles") then makefolder("Axiora/profiles") end
+        writefile(profilePath, HttpService:JSONEncode(profile))
+    end)
+    
+    if success then
+        Axiora.Profiles.Current = profile
+        Axiora.Visuals.Notify("Profile", "Saved for " .. profile.gameName, 2, "success")
+        return true
+    end
+    
+    Axiora.Visuals.Notify("Profile", "Failed to save", 2, "error")
+    return false
+end
+
+function Axiora.Profiles.DeleteProfile(placeId)
+    placeId = placeId or Axiora.Profiles.GetPlaceId()
+    local profilePath = "Axiora/profiles/" .. placeId .. ".json"
+    
+    if Axiora.Capabilities.DeleteFile then
+        pcall(function()
+            if isfile(profilePath) then
+                delfile(profilePath)
+            end
+        end)
+        Axiora.Visuals.Notify("Profile", "Deleted profile", 2, "info")
+        return true
+    end
+    
+    return false
+end
+
+function Axiora.Profiles.ListProfiles()
+    local profiles = {}
+    
+    if not Axiora.Capabilities.ReadFile then return profiles end
+    
+    pcall(function()
+        if isfolder("Axiora/profiles") then
+            for _, file in ipairs(listfiles("Axiora/profiles")) do
+                if string.match(file, "%.json$") then
+                    local data = HttpService:JSONDecode(readfile(file))
+                    table.insert(profiles, {
+                        placeId = data.placeId,
+                        gameName = data.gameName,
+                        timestamp = data.timestamp
+                    })
+                end
+            end
+        end
+    end)
+    
+    return profiles
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 25: BIOMETRIC ANTI-AFK (Human-like Input Simulation)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.BiometricAntiAFK = {
+    Enabled = false,
+    _thread = nil,
+    
+    -- Configurable patterns
+    Patterns = {
+        MicroMovements = true,
+        OccasionalScrolls = true,
+        CameraLooks = true,
+        RandomJumps = false,
+        
+        -- Timing (seconds)
+        MinInterval = 30,
+        MaxInterval = 180,
+        
+        -- Movement
+        MouseJitter = 3  -- pixels
+    }
+}
+
+-- Generate human-like random delay with gaussian distribution
+function Axiora.BiometricAntiAFK.GenerateDelay()
+    local min = Axiora.BiometricAntiAFK.Patterns.MinInterval
+    local max = Axiora.BiometricAntiAFK.Patterns.MaxInterval
+    
+    -- Simulate gaussian with multiple random calls
+    local sum = 0
+    for i = 1, 3 do
+        sum = sum + math.random()
+    end
+    local gaussian = sum / 3  -- 0-1 range, clustered toward 0.5
+    
+    return min + (max - min) * gaussian
+end
+
+-- Simulate micro mouse movement
+function Axiora.BiometricAntiAFK.SimulateMicroMovement()
+    local jitter = Axiora.BiometricAntiAFK.Patterns.MouseJitter
+    local dx = math.random(-jitter, jitter)
+    local dy = math.random(-jitter, jitter)
+    
+    local mousePos = UserInputService:GetMouseLocation()
+    local newX = math.clamp(mousePos.X + dx, 0, Axiora.Math.Screen.Viewport.X)
+    local newY = math.clamp(mousePos.Y + dy, 0, Axiora.Math.Screen.Viewport.Y)
+    
+    if Axiora.Input.Method == "Native" then
+        pcall(function()
+            mousemoveabs(newX, newY)
+        end)
+    end
+end
+
+-- Simulate camera look
+function Axiora.BiometricAntiAFK.SimulateCameraLook()
+    pcall(function()
+        local cam = workspace.CurrentCamera
+        if cam then
+            local angleX = math.rad(math.random(-3, 3))
+            local angleY = math.rad(math.random(-2, 2))
+            cam.CFrame = cam.CFrame * CFrame.Angles(angleX, angleY, 0)
+        end
+    end)
+end
+
+-- Random action picker
+function Axiora.BiometricAntiAFK.PerformRandomAction()
+    local actions = {}
+    local patterns = Axiora.BiometricAntiAFK.Patterns
+    
+    if patterns.MicroMovements then
+        table.insert(actions, Axiora.BiometricAntiAFK.SimulateMicroMovement)
+    end
+    if patterns.CameraLooks then
+        table.insert(actions, Axiora.BiometricAntiAFK.SimulateCameraLook)
+    end
+    if patterns.OccasionalScrolls then
+        table.insert(actions, function()
+            local dir = math.random() > 0.5 and "up" or "down"
+            Axiora.Input.Scroll(0, 0, dir, 1)
+        end)
+    end
+    if patterns.RandomJumps then
+        table.insert(actions, function()
+            local LP = getLocalPlayer()
+            if LP and LP.Character then
+                local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Jump = true end
+            end
+        end)
+    end
+    
+    if #actions > 0 then
+        local action = actions[math.random(1, #actions)]
+        pcall(action)
+    end
+end
+
+function Axiora.BiometricAntiAFK.Start()
+    if Axiora.BiometricAntiAFK.Enabled then return end
+    Axiora.BiometricAntiAFK.Enabled = true
+    
+    Axiora.BiometricAntiAFK._thread = task.spawn(function()
+        while Axiora.BiometricAntiAFK.Enabled do
+            local delay = Axiora.BiometricAntiAFK.GenerateDelay()
+            task.wait(delay)
+            
+            if Axiora.BiometricAntiAFK.Enabled then
+                Axiora.BiometricAntiAFK.PerformRandomAction()
+            end
+        end
+    end)
+    
+    Axiora.Visuals.Notify("Biometric", "Human-like anti-AFK started", 2, "success")
+    Axiora.Events:Fire("BiometricAntiAFKStarted", {})
+end
+
+function Axiora.BiometricAntiAFK.Stop()
+    Axiora.BiometricAntiAFK.Enabled = false
+    Axiora.Visuals.Notify("Biometric", "Anti-AFK stopped", 2, "info")
+    Axiora.Events:Fire("BiometricAntiAFKStopped", {})
+end
+
+function Axiora.BiometricAntiAFK.Toggle()
+    if Axiora.BiometricAntiAFK.Enabled then
+        Axiora.BiometricAntiAFK.Stop()
+    else
+        Axiora.BiometricAntiAFK.Start()
+    end
+    return Axiora.BiometricAntiAFK.Enabled
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 26: SMART BREAKPOINTS (Conditional Pause)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.SmartBreakpoints = {
+    Conditions = {},
+    Enabled = true
+}
+
+-- Add a conditional breakpoint
+function Axiora.SmartBreakpoints.Add(nodeIndex, condition)
+    --[[
+    condition format:
+    {
+        type = "health" | "position" | "players" | "time" | "inventory",
+        operator = "<" | ">" | "==" | "near" | "far",
+        value = number | {x, y, z},
+        radius = number (for position),
+        message = "optional notification"
+    }
+    ]]
+    
+    Axiora.SmartBreakpoints.Conditions[nodeIndex] = condition
+    
+    -- Also set regular breakpoint
+    if Axiora.SetBreakpoint then
+        Axiora.SetBreakpoint(nodeIndex)
+    end
+    
+    Axiora.Visuals.Notify("Breakpoint", "Smart breakpoint added at node #" .. nodeIndex, 2, "success")
+    return true
+end
+
+-- Remove a smart breakpoint
+function Axiora.SmartBreakpoints.Remove(nodeIndex)
+    Axiora.SmartBreakpoints.Conditions[nodeIndex] = nil
+    
+    if Axiora.RemoveBreakpoint then
+        Axiora.RemoveBreakpoint(nodeIndex)
+    end
+    
+    return true
+end
+
+-- Check if smart breakpoint condition is met
+function Axiora.SmartBreakpoints.Check(nodeIndex)
+    if not Axiora.SmartBreakpoints.Enabled then return false end
+    
+    local condition = Axiora.SmartBreakpoints.Conditions[nodeIndex]
+    if not condition then return false end
+    
+    local LP = getLocalPlayer()
+    if not LP then return false end
+    
+    local shouldBreak = false
+    
+    if condition.type == "health" then
+        local character = LP.Character
+        if character then
+            local hum = character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.MaxHealth > 0 then
+                local healthPct = (hum.Health / hum.MaxHealth) * 100
+                
+                if condition.operator == "<" and healthPct < condition.value then
+                    shouldBreak = true
+                elseif condition.operator == ">" and healthPct > condition.value then
+                    shouldBreak = true
+                elseif condition.operator == "==" and math.abs(healthPct - condition.value) < 1 then
+                    shouldBreak = true
+                end
+            end
+        end
+        
+    elseif condition.type == "position" then
+        local character = LP.Character
+        if character then
+            local pos = character:GetPivot().Position
+            local target = Vector3.new(
+                condition.value[1] or condition.value.x or 0,
+                condition.value[2] or condition.value.y or 0,
+                condition.value[3] or condition.value.z or 0
+            )
+            local distance = (pos - target).Magnitude
+            local radius = condition.radius or 10
+            
+            if condition.operator == "near" and distance < radius then
+                shouldBreak = true
+            elseif condition.operator == "far" and distance > radius then
+                shouldBreak = true
+            end
+        end
+        
+    elseif condition.type == "players" then
+        local count = #Players:GetPlayers()
+        
+        if condition.operator == "<" and count < condition.value then
+            shouldBreak = true
+        elseif condition.operator == ">" and count > condition.value then
+            shouldBreak = true
+        elseif condition.operator == "==" and count == condition.value then
+            shouldBreak = true
+        end
+        
+    elseif condition.type == "time" then
+        local elapsed = Axiora.Analytics and Axiora.Analytics.GetUptime() or 0
+        local minutes = elapsed / 60
+        
+        if condition.operator == ">" and minutes > condition.value then
+            shouldBreak = true
+        elseif condition.operator == "<" and minutes < condition.value then
+            shouldBreak = true
+        end
+    end
+    
+    if shouldBreak and condition.message then
+        Axiora.Visuals.Notify("Smart Breakpoint", condition.message, 3, "warning")
+    end
+    
+    return shouldBreak
+end
+
+-- Clear all smart breakpoints
+function Axiora.SmartBreakpoints.ClearAll()
+    Axiora.SmartBreakpoints.Conditions = {}
+    if Axiora.ClearBreakpoints then
+        Axiora.ClearBreakpoints()
+    end
+    Axiora.Visuals.Notify("Breakpoint", "All smart breakpoints cleared", 2, "info")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 27: CONTROLLER & GYRO SUPPORT
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Controller = {
+    Enabled = false,
+    Recording = false,
+    Sensitivity = 1.0,
+    DeadZone = 0.1,
+    _connections = {}
+}
+
+Axiora.Controller.ButtonMap = {
+    [Enum.KeyCode.ButtonA] = "A",
+    [Enum.KeyCode.ButtonB] = "B",
+    [Enum.KeyCode.ButtonX] = "X",
+    [Enum.KeyCode.ButtonY] = "Y",
+    [Enum.KeyCode.ButtonL1] = "LB",
+    [Enum.KeyCode.ButtonR1] = "RB",
+    [Enum.KeyCode.ButtonL2] = "LT",
+    [Enum.KeyCode.ButtonR2] = "RT",
+    [Enum.KeyCode.ButtonL3] = "LS",
+    [Enum.KeyCode.ButtonR3] = "RS",
+    [Enum.KeyCode.DPadUp] = "DUp",
+    [Enum.KeyCode.DPadDown] = "DDown",
+    [Enum.KeyCode.DPadLeft] = "DLeft",
+    [Enum.KeyCode.DPadRight] = "DRight",
+    [Enum.KeyCode.ButtonStart] = "Start",
+    [Enum.KeyCode.ButtonSelect] = "Select"
+}
+
+function Axiora.Controller.IsConnected()
+    return UserInputService.GamepadEnabled
+end
+
+function Axiora.Controller.StartRecording()
+    if not Axiora.Controller.IsConnected() then
+        Axiora.Visuals.Notify("Controller", "No gamepad detected", 2, "error")
+        return false
+    end
+    
+    Axiora.Controller.Recording = true
+    Axiora.Controller.Enabled = true
+    
+    -- Button press listener
+    local buttonConn = UserInputService.InputBegan:Connect(function(input, processed)
+        if not Axiora.Controller.Recording then return end
+        if Axiora.State.Status ~= "RECORDING" then return end
+        
+        local buttonName = Axiora.Controller.ButtonMap[input.KeyCode]
+        if buttonName then
+            local node = {
+                t = Axiora.NodeTypes.GAMEPAD,
+                d = Axiora.Recording.GetElapsedTime and Axiora.Recording.GetElapsedTime() or 0,
+                button = buttonName,
+                pressed = true
+            }
+            table.insert(Axiora.State.Buffer, node)
+            Axiora.Recording.NodeCount = (Axiora.Recording.NodeCount or 0) + 1
+        end
+    end)
+    table.insert(Axiora.Controller._connections, buttonConn)
+    
+    -- Button release listener
+    local releaseConn = UserInputService.InputEnded:Connect(function(input, processed)
+        if not Axiora.Controller.Recording then return end
+        if Axiora.State.Status ~= "RECORDING" then return end
+        
+        local buttonName = Axiora.Controller.ButtonMap[input.KeyCode]
+        if buttonName then
+            local node = {
+                t = Axiora.NodeTypes.GAMEPAD,
+                d = Axiora.Recording.GetElapsedTime and Axiora.Recording.GetElapsedTime() or 0,
+                button = buttonName,
+                pressed = false
+            }
+            table.insert(Axiora.State.Buffer, node)
+        end
+    end)
+    table.insert(Axiora.Controller._connections, releaseConn)
+    
+    Axiora.Visuals.Notify("Controller", "Gamepad recording started", 2, "success")
+    return true
+end
+
+function Axiora.Controller.StopRecording()
+    Axiora.Controller.Recording = false
+    
+    for _, conn in ipairs(Axiora.Controller._connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Axiora.Controller._connections = {}
+    
+    Axiora.Visuals.Notify("Controller", "Gamepad recording stopped", 2, "info")
+end
+
+-- Simulate gamepad button press
+function Axiora.Controller.SimulateButton(buttonName, pressed)
+    -- Find the KeyCode for the button
+    local keyCode = nil
+    for code, name in pairs(Axiora.Controller.ButtonMap) do
+        if name == buttonName then
+            keyCode = code
+            break
+        end
+    end
+    
+    if keyCode and VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(pressed, keyCode, false, game)
+        end)
+        return true
+    end
+    
+    return false
+end
+
+-- Gyroscope support (mobile)
+Axiora.Gyro = {
+    Enabled = false,
+    Recording = false,
+    Sensitivity = 1.0,
+    SampleRate = 0.1, -- Sample every N seconds
+    _connection = nil,
+    _lastSample = 0
+}
+
+function Axiora.Gyro.IsSupported()
+    return UserInputService.GyroscopeEnabled
+end
+
+function Axiora.Gyro.StartTracking()
+    if not Axiora.Gyro.IsSupported() then
+        Axiora.Visuals.Notify("Gyro", "Device doesn't support gyroscope", 2, "error")
+        return false
+    end
+    
+    Axiora.Gyro.Enabled = true
+    Axiora.Gyro.Recording = true
+    
+    Axiora.Gyro._connection = UserInputService.DeviceRotationChanged:Connect(function(rotation, cframe)
+        if not Axiora.Gyro.Recording then return end
+        if Axiora.State.Status ~= "RECORDING" then return end
+        
+        local now = os.clock()
+        if now - Axiora.Gyro._lastSample < Axiora.Gyro.SampleRate then
+            return
+        end
+        Axiora.Gyro._lastSample = now
+        
+        local node = {
+            t = Axiora.NodeTypes.GYRO,
+            d = Axiora.Recording.GetElapsedTime and Axiora.Recording.GetElapsedTime() or 0,
+            rotation = {
+                x = rotation.X,
+                y = rotation.Y,
+                z = rotation.Z,
+                w = rotation.W
+            }
+        }
+        table.insert(Axiora.State.Buffer, node)
+    end)
+    
+    Axiora.Visuals.Notify("Gyro", "Gyroscope tracking started", 2, "success")
+    return true
+end
+
+function Axiora.Gyro.StopTracking()
+    Axiora.Gyro.Recording = false
+    Axiora.Gyro.Enabled = false
+    
+    if Axiora.Gyro._connection then
+        pcall(function() Axiora.Gyro._connection:Disconnect() end)
+        Axiora.Gyro._connection = nil
+    end
+    
+    Axiora.Visuals.Notify("Gyro", "Gyroscope tracking stopped", 2, "info")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 28: 3D VISUALIZATION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.Visualization3D = {
+    Enabled = false,
+    ShowPath = true,
+    ShowClicks = true,
+    ShowVelocity = false,
+    ShowJumpArcs = true,
+    
+    PathColor = Color3.fromRGB(100, 200, 255),
+    ClickColor = Color3.fromRGB(255, 100, 150),
+    JumpColor = Color3.fromRGB(150, 255, 100),
+    
+    _parts = {},
+    _folder = nil
+}
+
+function Axiora.Visualization3D.Init()
+    if Axiora.Visualization3D._folder then
+        pcall(function() Axiora.Visualization3D._folder:Destroy() end)
+    end
+    
+    Axiora.Visualization3D._folder = Instance.new("Folder")
+    Axiora.Visualization3D._folder.Name = "AxioraViz3D"
+    Axiora.Visualization3D._folder.Parent = workspace
+    Axiora.Visualization3D._parts = {}
+end
+
+function Axiora.Visualization3D.CreatePathLine(from, to, color)
+    local distance = (to - from).Magnitude
+    local mid = (from + to) / 2
+    
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.Color = color or Axiora.Visualization3D.PathColor
+    part.Size = Vector3.new(0.2, 0.2, distance)
+    part.CFrame = CFrame.lookAt(mid, to)
+    part.Transparency = 0.3
+    part.Parent = Axiora.Visualization3D._folder
+    
+    table.insert(Axiora.Visualization3D._parts, part)
+    return part
+end
+
+function Axiora.Visualization3D.CreateClickMarker(position, color)
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.Color = color or Axiora.Visualization3D.ClickColor
+    part.Shape = Enum.PartType.Ball
+    part.Size = Vector3.new(0.8, 0.8, 0.8)
+    part.Position = position
+    part.Transparency = 0.2
+    part.Parent = Axiora.Visualization3D._folder
+    
+    -- Add billboard for visibility
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0, 30, 0, 30)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = part
+    
+    local icon = Instance.new("TextLabel")
+    icon.Size = UDim2.new(1, 0, 1, 0)
+    icon.BackgroundTransparency = 1
+    icon.Text = "👆"
+    icon.TextSize = 20
+    icon.Parent = billboard
+    
+    table.insert(Axiora.Visualization3D._parts, part)
+    return part
+end
+
+function Axiora.Visualization3D.CreateJumpArc(startPos, peakHeight, endPos, color)
+    local segments = 10
+    local points = {}
+    
+    for i = 0, segments do
+        local t = i / segments
+        local x = startPos.X + (endPos.X - startPos.X) * t
+        local z = startPos.Z + (endPos.Z - startPos.Z) * t
+        -- Parabolic arc
+        local y = startPos.Y + (peakHeight * 4 * t * (1 - t))
+        table.insert(points, Vector3.new(x, y, z))
+    end
+    
+    for i = 1, #points - 1 do
+        Axiora.Visualization3D.CreatePathLine(points[i], points[i + 1], color or Axiora.Visualization3D.JumpColor)
+    end
+end
+
+function Axiora.Visualization3D.RenderBuffer(buffer)
+    Axiora.Visualization3D.Clear()
+    Axiora.Visualization3D.Init()
+    
+    if not buffer or #buffer == 0 then return end
+    
+    local lastPos = nil
+    local lastWasJump = false
+    
+    for i, node in ipairs(buffer) do
+        if node.t == 1 then -- Movement
+            local pos = Axiora.Math.DeserializeVec(node.p)
+            
+            if Axiora.Visualization3D.ShowPath and lastPos then
+                if lastWasJump and Axiora.Visualization3D.ShowJumpArcs then
+                    Axiora.Visualization3D.CreateJumpArc(lastPos, 3, pos)
+                else
+                    Axiora.Visualization3D.CreatePathLine(lastPos, pos)
+                end
+            end
+            
+            lastPos = pos
+            lastWasJump = node.j == true
+            
+        elseif node.t == 2 and Axiora.Visualization3D.ShowClicks then -- Click
+            if lastPos then
+                -- Create click marker at last known position (3D representation)
+                Axiora.Visualization3D.CreateClickMarker(lastPos + Vector3.new(0, 2, 0))
+            end
+        end
+    end
+    
+    Axiora.Visuals.Notify("3D Viz", "Rendered " .. #Axiora.Visualization3D._parts .. " elements", 2, "success")
+end
+
+function Axiora.Visualization3D.Clear()
+    for _, part in ipairs(Axiora.Visualization3D._parts) do
+        pcall(function() part:Destroy() end)
+    end
+    Axiora.Visualization3D._parts = {}
+    
+    if Axiora.Visualization3D._folder then
+        pcall(function() Axiora.Visualization3D._folder:ClearAllChildren() end)
+    end
+end
+
+function Axiora.Visualization3D.Toggle()
+    Axiora.Visualization3D.Enabled = not Axiora.Visualization3D.Enabled
+    
+    if Axiora.Visualization3D.Enabled then
+        Axiora.Visualization3D.RenderBuffer(Axiora.State.Buffer)
+    else
+        Axiora.Visualization3D.Clear()
+    end
+    
+    return Axiora.Visualization3D.Enabled
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 29: MULTI-INSTANCE ORCHESTRATION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.MultiInstance = {
+    Enabled = false,
+    Role = "standalone", -- standalone, leader, follower
+    InstanceId = tostring(math.random(100000, 999999)),
+    StaggerDelay = 0.5, -- Delay between instances
+    SyncEnabled = false,
+    
+    _channel = nil,
+    _connections = {}
+}
+
+-- Generate unique instance ID
+function Axiora.MultiInstance.GetInstanceId()
+    return Axiora.MultiInstance.InstanceId
+end
+
+-- Set instance role
+function Axiora.MultiInstance.SetRole(role)
+    if role ~= "leader" and role ~= "follower" and role ~= "standalone" then
+        role = "standalone"
+    end
+    Axiora.MultiInstance.Role = role
+    Axiora.Visuals.Notify("Multi-Instance", "Role set to: " .. role, 2, "info")
+end
+
+-- Start synchronized playback (leader broadcasts, followers listen)
+function Axiora.MultiInstance.StartSyncPlayback()
+    if Axiora.MultiInstance.Role == "leader" then
+        -- Leader starts and broadcasts
+        Axiora.Play(true)
+        Axiora.MultiInstance.BroadcastCommand("PLAY")
+    elseif Axiora.MultiInstance.Role == "follower" then
+        -- Follower waits for stagger delay then plays
+        task.delay(Axiora.MultiInstance.StaggerDelay, function()
+            Axiora.Play(true)
+        end)
+    else
+        -- Standalone just plays normally
+        Axiora.Play(true)
+    end
+end
+
+-- Broadcast command to other instances (via shared attribute if possible)
+function Axiora.MultiInstance.BroadcastCommand(command)
+    -- This uses a shared workspace attribute for cross-instance communication
+    -- Note: This only works if instances share the same server
+    pcall(function()
+        workspace:SetAttribute("AxioraSync_" .. os.time(), command .. "_" .. Axiora.MultiInstance.InstanceId)
+    end)
+end
+
+-- Listen for sync commands
+function Axiora.MultiInstance.StartListening()
+    if Axiora.MultiInstance.Role ~= "follower" then return end
+    
+    local conn = workspace.AttributeChanged:Connect(function(attr)
+        if string.match(attr, "^AxioraSync_") then
+            local value = workspace:GetAttribute(attr)
+            if value and string.match(value, "^PLAY_") then
+                -- Check it's not from ourselves
+                if not string.match(value, Axiora.MultiInstance.InstanceId) then
+                    task.delay(Axiora.MultiInstance.StaggerDelay, function()
+                        Axiora.Play(true)
+                    end)
+                end
+            elseif value and string.match(value, "^STOP_") then
+                Axiora.Stop()
+            end
+        end
+    end)
+    
+    table.insert(Axiora.MultiInstance._connections, conn)
+    Axiora.Visuals.Notify("Multi-Instance", "Listening for sync commands", 2, "info")
+end
+
+function Axiora.MultiInstance.StopListening()
+    for _, conn in ipairs(Axiora.MultiInstance._connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Axiora.MultiInstance._connections = {}
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 30: AI-ASSISTED CLICK RECOVERY (Enhanced)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+Axiora.AIClickRecovery = {
+    Enabled = false,
+    LearnedOffsets = {},
+    MaxLearnedOffsets = 100,
+    ConfidenceThreshold = 0.7
+}
+
+-- Enhanced spiral with fibonacci-based pattern for better coverage
+function Axiora.AIClickRecovery.GetFibonacciSpiral(baseOffset, maxAttempts)
+    local offsets = {{0, 0}}  -- Start at center
+    local phi = (1 + math.sqrt(5)) / 2  -- Golden ratio
+    
+    for i = 1, maxAttempts - 1 do
+        local angle = i * phi * math.pi * 2
+        local radius = baseOffset * math.sqrt(i) / 2
+        local x = math.cos(angle) * radius
+        local y = math.sin(angle) * radius
+        table.insert(offsets, {math.floor(x), math.floor(y)})
+    end
+    
+    return offsets
+end
+
+-- Learn from successful recovery
+function Axiora.AIClickRecovery.Learn(originalX, originalY, successX, successY)
+    local offsetX = successX - originalX
+    local offsetY = successY - originalY
+    
+    -- Create location key (rounded to 10px grid)
+    local key = math.floor(originalX / 10) .. "_" .. math.floor(originalY / 10)
+    
+    if not Axiora.AIClickRecovery.LearnedOffsets[key] then
+        Axiora.AIClickRecovery.LearnedOffsets[key] = {
+            offsets = {},
+            successCount = 0
+        }
+    end
+    
+    local entry = Axiora.AIClickRecovery.LearnedOffsets[key]
+    table.insert(entry.offsets, {offsetX, offsetY})
+    entry.successCount = entry.successCount + 1
+    
+    -- Limit stored offsets
+    if #entry.offsets > 10 then
+        table.remove(entry.offsets, 1)
+    end
+    
+    -- Cleanup old entries if we have too many
+    local count = 0
+    for _ in pairs(Axiora.AIClickRecovery.LearnedOffsets) do
+        count = count + 1
+    end
+    
+    if count > Axiora.AIClickRecovery.MaxLearnedOffsets then
+        -- Remove oldest entry
+        for k, _ in pairs(Axiora.AIClickRecovery.LearnedOffsets) do
+            Axiora.AIClickRecovery.LearnedOffsets[k] = nil
+            break
+        end
+    end
+end
+
+-- Get predicted offset based on learned data
+function Axiora.AIClickRecovery.GetPredictedOffset(x, y)
+    local key = math.floor(x / 10) .. "_" .. math.floor(y / 10)
+    local entry = Axiora.AIClickRecovery.LearnedOffsets[key]
+    
+    if not entry or #entry.offsets == 0 then
+        return nil
+    end
+    
+    -- Average the learned offsets
+    local avgX, avgY = 0, 0
+    for _, offset in ipairs(entry.offsets) do
+        avgX = avgX + offset[1]
+        avgY = avgY + offset[2]
+    end
+    avgX = avgX / #entry.offsets
+    avgY = avgY / #entry.offsets
+    
+    return {math.floor(avgX), math.floor(avgY)}
+end
+
+-- Enhanced click with AI assistance
+function Axiora.AIClickRecovery.SmartClick(x, y, validator)
+    if not Axiora.AIClickRecovery.Enabled then
+        return Axiora.ClickRecovery.ClickWithRetry(x, y, validator)
+    end
+    
+    -- First, try predicted offset if we have learned data
+    local predicted = Axiora.AIClickRecovery.GetPredictedOffset(x, y)
+    if predicted then
+        local predictedX = x + predicted[1]
+        local predictedY = y + predicted[2]
+        
+        Axiora.Input.Click(predictedX, predictedY)
+        
+        if validator then
+            task.wait(0.05)
+            local success = pcall(function() return validator() end)
+            if success then
+                return true, 1
+            end
+        else
+            return true, 1
+        end
+    end
+    
+    -- Fall back to fibonacci spiral
+    local offsets = Axiora.AIClickRecovery.GetFibonacciSpiral(
+        Axiora.Settings.ClickRecoveryOffsetPixels or 5,
+        Axiora.Settings.ClickRecoveryMaxAttempts or 9
+    )
+    
+    for attempt, offset in ipairs(offsets) do
+        local clickX = x + offset[1]
+        local clickY = y + offset[2]
+        
+        Axiora.Input.Click(clickX, clickY)
+        
+        if not validator then
+            return true, attempt
+        end
+        
+        task.wait(Axiora.Settings.ClickRecoveryDelay or 0.05)
+        
+        local success = pcall(function() return validator() end)
+        if success then
+            -- Learn from this success
+            if attempt > 1 then
+                Axiora.AIClickRecovery.Learn(x, y, clickX, clickY)
+            end
+            return true, attempt
+        end
+    end
+    
+    return false, #offsets
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 31: ENHANCED CALIBRATION (Y-Axis + DPI + Test Click)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Extend existing calibration with Y-axis support
+Axiora.Calibration.DPIScale = 1.0
+Axiora.Calibration.TestClickEnabled = true
+
+-- DPI detection (estimate based on screen size)
+function Axiora.Calibration.DetectDPI()
+    local viewport = Axiora.Math.Screen.Viewport
+    
+    -- Common resolutions and their typical DPI scales
+    if viewport.X >= 3840 then  -- 4K
+        return 2.0
+    elseif viewport.X >= 2560 then  -- 1440p
+        return 1.5
+    elseif viewport.X >= 1920 then  -- 1080p
+        return 1.0
+    elseif viewport.X >= 1366 then  -- Common laptop
+        return 1.0
+    else
+        return 1.0
+    end
+end
+
+-- Test click at specific position with visual feedback
+function Axiora.Calibration.PerformTestClick(relX, relY)
+    relX = relX or 0.5
+    relY = relY or 0.5
+    
+    -- Get absolute position with current offsets
+    local abs = Axiora.Math.GetAbsoluteInput(relX, relY)
+    
+    -- Visual indicator
+    if Axiora.Visuals and Axiora.Visuals.Ripple then
+        Axiora.Visuals.Ripple(abs.X, abs.Y, Color3.fromRGB(255, 200, 50))
+    end
+    
+    -- Perform click
+    Axiora.Input.Click(abs.X, abs.Y)
+    
+    Axiora.Visuals.Notify("Test Click", 
+        string.format("Clicked at (%.0f, %.0f)", abs.X, abs.Y), 
+        2, "info")
+    
+    return abs
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
