@@ -6549,9 +6549,7 @@ function Axiora.UI.BuildCommandCenter(parent)
         end)
     end
     
-            end
-        end)
-    end
+
     
     -- 3D Viz Toggle (Small button next to speed?)
     local vizBtn = Instance.new("TextButton")
