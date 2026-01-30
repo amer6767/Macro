@@ -30,19 +30,9 @@ local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(1, 0, 1, 0)
 mainFrame.Position = UDim2.new(0, 0, 0, 0)
-mainFrame.BackgroundColor3 = rgb(2, 6, 23) -- slate-950
+mainFrame.BackgroundTransparency = 1 -- FIXED: Made transparent to remove black border
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
-
--- Gradient background
-local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new{
-	ColorSequenceKeypoint.new(0, rgb(2, 6, 23)), -- slate-950
-	ColorSequenceKeypoint.new(0.5, rgb(59, 7, 100)), -- purple-950
-	ColorSequenceKeypoint.new(1, rgb(2, 6, 23)) -- slate-950
-}
-gradient.Rotation = 135
-gradient.Parent = mainFrame
 
 -- Container (max-width equivalent) - 400x400
 local container = Instance.new("Frame")
@@ -267,6 +257,9 @@ sidebarStroke.Transparency = 0.5
 sidebarStroke.Thickness = 1
 sidebarStroke.Parent = sidebar
 
+-- Forward declare mainContent so nav buttons can reference it
+local mainContent
+
 -- Navigation buttons
 local navButtons = {
 	{id = "control", label = "Control", yPos = 5},
@@ -388,7 +381,7 @@ urlCorner.CornerRadius = UDim.new(0, 5)
 urlCorner.Parent = loadUrlBtn
 
 -- Main Content Area
-local mainContent = Instance.new("Frame")
+mainContent = Instance.new("Frame")
 mainContent.Name = "MainContent"
 mainContent.Size = UDim2.new(0, 295, 0, 275)
 mainContent.Position = UDim2.new(0, 100, 0, 82)
