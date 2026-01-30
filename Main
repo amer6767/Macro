@@ -1620,14 +1620,29 @@ Axiora.Visuals.Themes = {
         Name = "Axiora Quantum",
         Primary = Color3.fromRGB(0, 180, 255),
         Secondary = Color3.fromRGB(0, 120, 180),
+        Tertiary = Color3.fromRGB(35, 35, 45),
+        Deep = Color3.fromRGB(12, 12, 18),
         Background = Color3.fromRGB(18, 18, 25),
         Surface = Color3.fromRGB(25, 25, 35),
+        Overlay = Color3.new(0, 0, 0),
         Text = Color3.fromRGB(245, 245, 255),
         TextDim = Color3.fromRGB(150, 150, 170),
         Success = Color3.fromRGB(0, 200, 100),
         Warning = Color3.fromRGB(255, 180, 0),
         Error = Color3.fromRGB(255, 60, 80),
-        Info = Color3.fromRGB(100, 200, 255)
+        Info = Color3.fromRGB(100, 200, 255),
+        
+        -- State Colors
+        Idle = Color3.fromRGB(150, 150, 170),
+        Playing = Color3.fromRGB(0, 255, 100),
+        Recording = Color3.fromRGB(255, 60, 60),
+        Paused = Color3.fromRGB(255, 200, 50),
+        
+        -- Editor Colors
+        Movement = Color3.fromRGB(0, 180, 255),
+        Click = Color3.fromRGB(200, 100, 255),
+        Key = Color3.fromRGB(255, 150, 50),
+        Delay = Color3.fromRGB(120, 120, 140)
     },
     crimson = {
         Name = "Crimson Pulse",
@@ -3963,13 +3978,13 @@ function Axiora.Calibration.ShowOverlay()
         end
     end)
     
-    userInputService.InputEnded:Connect(function(input)
+    UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
     
-    userInputService.InputChanged:Connect(function(input)
+    UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local pos = input.Position.X
             local startX = sliderTrack.AbsolutePosition.X
