@@ -9626,7 +9626,7 @@ function Axiora.MobileCalibration.CreateOverlay()
     bg.Size = UDim2.new(1,0,1,0)
     bg.Parent = sg
     
-    local msg = Instance.new("TextLabel")
+    msg.Name = "StatusMessage"
     msg.Text = "DON'T TOUCH - Calibrating..."
     msg.Size = UDim2.new(1,0,0,50)
     msg.Position = UDim2.new(0,0,0,50)
@@ -9637,7 +9637,7 @@ function Axiora.MobileCalibration.CreateOverlay()
     msg.Parent = bg
     
     Axiora.MobileCalibration.Overlay = sg
-    return bg
+    return bg, msg
 end
 
 function Axiora.MobileCalibration.SpawnTarget(posS, size)
@@ -9665,7 +9665,7 @@ function Axiora.MobileCalibration.RunCalibration()
     
     local profile = Axiora.MobileCalibration.GetDeviceFingerprint()
     Axiora.MobileCalibration.GenerateGrid()
-    local bg = Axiora.MobileCalibration.CreateOverlay()
+    local bg, msg = Axiora.MobileCalibration.CreateOverlay()
     
     -- PHASE 2B: AUTO-TOUCH SEQUENCE
     local zonesToTest = {"MC", "TC", "BC", "ML", "MR"} -- Priority order
