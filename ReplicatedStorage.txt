@@ -1,437 +1,953 @@
+
 --[[
-    ══════════════════════════════════════════════════════════════════════════
-    ANTIGRAVITY EXPLORER v3.0 (ULTIMATE EDITION)
-    "The Specialized Forensics & Engineering Tool"
-    
-    [ Architecture ]
-    • Core: Service Bus, Maid, Signal, Serializer, Lexer
-    • Forensics: 5-Tier Decompiler (Proto, Bytecode, Hook, Native)
-    • Network: Remote Spy (Interceptor, Buffer, Logger)
-    • Data: Inverted Index Search (O(1) Lookup), WeakRef Cache
-    • UI: Virtualized List, Syntax Highlighting, Context Menus
-    
-    [ Credits ]
-    • Antigravity Agent (Architecture & Engineering)
-    ══════════════════════════════════════════════════════════════════════════
+    ╔═══════════════════════════════════════════════════════════════════════════╗
+    ║                    SCRIPT EXPLORER v10.1 CLEAN EDITION                    ║
+    ║                        Modular • Optimized • Clean                        ║
+    ╠═══════════════════════════════════════════════════════════════════════════╣
+    ║  • Proper modular architecture (UI, State, Scanner, Decompiler)           ║
+    ║  • No code duplication - DRY principles                                   ║
+    ║  • Consistent executor support checks                                     ║
+    ║  • Optimized loops and memory usage                                       ║
+    ║  • Clean state management                                                 ║
+    ║  • UI Factory pattern                                                     ║
+    ╚═══════════════════════════════════════════════════════════════════════════╝
 ]]
 
-local Antigravity = {}
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                              MODULE: Config                                ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
 
--- ═══════════════════════════════════════════════════════════════════════════
--- [ MODULE ] CONFIGURATION
--- ═══════════════════════════════════════════════════════════════════════════
 local Config = {
-    Name = "AntigravityExplorer",
-    Version = "3.0.0 (Ultimate)",
-    
-    Virtualization = { ItemHeight = 24, Buffer = 10 },
-    Search = { Debounce = 0.25, ChunkSize = 500 },
-    Spy = { MaxLogs = 1000, IgnoreCore = true },
+    Version = "10.1 CLEAN",
+    Window = { Width = 0.75, Height = 0.88 },
+    Tree = { PanelWidth = 0.6, ItemHeight = 34, IndentSize = 18, MaxNodes = 5000, MaxDepth = 40 },
+    Search = { Debounce = 0.5, MinChars = 2, MaxResults = 80 },
     
     Colors = {
-        Background = Color3.fromHex("#181818"), Sidebar = Color3.fromHex("#1F1F1F"),
-        Header = Color3.fromHex("#252525"), Text = Color3.fromHex("#E0E0E0"),
-        Accent = Color3.fromHex("#007ACC"), AccentDim = Color3.fromHex("#005A9E"),
-        Border = Color3.fromHex("#333333"), Success = Color3.fromHex("#89D185"),
-        Error = Color3.fromHex("#F48771"), Warning = Color3.fromHex("#CCA700"),
-        
-        Syntax = {
-            Keyword = Color3.fromHex("#C586C0"), Function = Color3.fromHex("#DCDCAA"),
-            String = Color3.fromHex("#CE9178"), Number = Color3.fromHex("#B5CEA8"),
-            Comment = Color3.fromHex("#6A9955"), Operator = Color3.fromHex("#D4D4D4"),
-        }
+        Background = Color3.fromRGB(18, 20, 26),
+        Panel = Color3.fromRGB(26, 30, 40),
+        Item = Color3.fromRGB(36, 42, 56),
+        Accent = Color3.fromRGB(0, 150, 255),
+        Text = Color3.fromRGB(235, 235, 240),
+        Muted = Color3.fromRGB(120, 130, 150),
+        LocalScript = Color3.fromRGB(255, 195, 70),
+        Script = Color3.fromRGB(255, 95, 95),
+        ModuleScript = Color3.fromRGB(95, 255, 145),
+        Folder = Color3.fromRGB(255, 215, 90),
+        Service = Color3.fromRGB(120, 190, 255),
+        Success = Color3.fromRGB(75, 255, 120),
+        Error = Color3.fromRGB(255, 90, 90),
+        Highlight = Color3.fromRGB(0, 255, 200),
     },
     
     Icons = {
-        Folder = "📁", Script = "📜", LocalScript = "📜", ModuleScript = "📦",
-        Workspace = "🌍", Service = "⚙️", Default = "🔹", RemoteEvent = "⚡", 
-        RemoteFunction = "📞", Model = "🧱", ScreenGui = "🖥️",
-        ArrowExpanded = "▼", ArrowCollapsed = "▶"
-    }
+        LocalScript = "📜", Script = "📄", ModuleScript = "📦", Folder = "📁",
+        Model = "🧱", Part = "🔷", Tool = "🔧", Sound = "🔊", RemoteEvent = "📡",
+        RemoteFunction = "📞", ScreenGui = "🖥️", Frame = "🔲", Default = "📎",
+        Expand = "▼", Collapse = "▶", Copy = "📋", Refresh = "🔄", Star = "⭐",
+    },
+    
+    Services = {"Workspace", "ReplicatedStorage", "ReplicatedFirst", "Players", 
+                "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "Chat"},
 }
 
--- ═══════════════════════════════════════════════════════════════════════════
--- [ CORE ] MAID & SIGNAL
--- ═══════════════════════════════════════════════════════════════════════════
-local Maid = {}
-Maid.__index = Maid
-function Maid.new() return setmetatable({ _tasks = {} }, Maid) end
-function Maid:GiveTask(task) table.insert(self._tasks, task) return task end
-function Maid:Clean()
-    for _, task in ipairs(self._tasks) do
-        if typeof(task) == "RBXScriptConnection" then task:Disconnect()
-        elseif type(task) == "function" then task()
-        elseif type(task) == "table" and task.Destroy then task:Destroy()
-        elseif typeof(task) == "Instance" then task:Destroy() end
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                              MODULE: Executor                              ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local Executor = {}
+
+function Executor.has(funcName)
+    return type(getfenv()[funcName]) == "function"
+end
+
+function Executor.call(funcName, ...)
+    if not Executor.has(funcName) then return nil end
+    local success, result = pcall(getfenv()[funcName], ...)
+    return success and result or nil
+end
+
+function Executor.clipboard(text)
+    local fn = Executor.has("setclipboard") and setclipboard 
+            or Executor.has("toclipboard") and toclipboard
+    if fn then pcall(fn, text) return true end
+    return false
+end
+
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                              MODULE: State                                 ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local State = {
+    gui = nil,
+    mainFrame = nil,
+    treeScroll = nil,
+    codeLabel = nil,
+    pathLabel = nil,
+    titleLabel = nil,
+    metaLabel = nil,
+    selected = nil,
+    source = nil,
+    nodeCount = 0,
+    highlight = nil,
+    billboard = nil,
+    favorites = {},
+    filters = { scripts = true, modules = true, locals = true, all = true },
+}
+
+function State.reset()
+    State.selected = nil
+    State.source = nil
+    State.nodeCount = 0
+end
+
+function State.addFavorite(instance)
+    local path = instance:GetFullName()
+    for _, f in ipairs(State.favorites) do
+        if f.path == path then return false end
     end
-    self._tasks = {}
-end
-function Maid:Destroy() self:Clean() end
-
-local Signal = {}
-Signal.__index = Signal
-function Signal.new() return setmetatable({ _listeners = {} }, Signal) end
-function Signal:Connect(fn)
-    table.insert(self._listeners, fn)
-    return { Disconnect = function() 
-        for i, f in ipairs(self._listeners) do if f == fn then table.remove(self._listeners, i) break end end 
-    end }
-end
-function Signal:Fire(...)
-    for _, fn in ipairs(self._listeners) do task.spawn(fn, ...) end
+    table.insert(State.favorites, { name = instance.Name, path = path, class = instance.ClassName })
+    return true
 end
 
--- ═══════════════════════════════════════════════════════════════════════════
--- [ CORE ] UTILS & SERIALIZER
--- ═══════════════════════════════════════════════════════════════════════════
-local Utils = {}
-function Utils.Create(class, props)
-    local obj = Instance.new(class)
-    for k, v in pairs(props) do if k~="Parent" then obj[k]=v end end
-    obj.Parent = props.Parent
-    return obj
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                              MODULE: UI                                    ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local UI = {}
+
+function UI.corner(parent, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 8)
+    c.Parent = parent
+    return c
 end
 
-local Serializer = {}
-function Serializer.Table(tbl)
-    local seen = {} 
-    local function serialize(t, depth)
-        if depth > 5 then return "\"{Max Depth}\"" end
-        if seen[t] then return "\"{Circular}\"" end
-        seen[t] = true
-        local indent = string.rep("  ", depth)
-        local res = "{\n"
-        for k, v in pairs(t) do
-            local keyStr = type(k)=="string" and k:match("^[%a_][%w_]*$") and k or "["..tostring(k).."]"
-            local valStr = type(v)=="table" and serialize(v, depth+1) or 
-                          (type(v)=="string" and "\""..v:gsub("\"", "\\\"").."\"" or tostring(v))
-            res = res .. indent .. "  " .. keyStr .. " = " .. valStr .. ",\n"
+function UI.stroke(parent, thickness, color, transparency)
+    local s = Instance.new("UIStroke")
+    s.Thickness = thickness or 1
+    s.Color = color or Config.Colors.Accent
+    s.Transparency = transparency or 0
+    s.Parent = parent
+    return s
+end
+
+function UI.padding(parent, size)
+    local p = Instance.new("UIPadding")
+    p.PaddingTop, p.PaddingBottom = UDim.new(0, size), UDim.new(0, size)
+    p.PaddingLeft, p.PaddingRight = UDim.new(0, size), UDim.new(0, size)
+    p.Parent = parent
+    return p
+end
+
+function UI.list(parent, padding, direction)
+    local l = Instance.new("UIListLayout")
+    l.SortOrder = Enum.SortOrder.LayoutOrder
+    l.Padding = UDim.new(0, padding or 2)
+    l.FillDirection = direction or Enum.FillDirection.Vertical
+    l.Parent = parent
+    return l
+end
+
+function UI.tween(instance, props, duration)
+    local ti = TweenInfo.new(duration or 0.12, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    game:GetService("TweenService"):Create(instance, ti, props):Play()
+end
+
+function UI.frame(props)
+    local f = Instance.new("Frame")
+    f.BackgroundColor3 = props.Color or Config.Colors.Panel
+    f.BackgroundTransparency = props.Transparency or 0
+    f.Size = props.Size or UDim2.new(1, 0, 1, 0)
+    f.Position = props.Position or UDim2.new(0, 0, 0, 0)
+    f.BorderSizePixel = 0
+    f.ClipsDescendants = props.Clip or false
+    if props.Corner then UI.corner(f, props.Corner) end
+    if props.Stroke then UI.stroke(f, props.Stroke.Size, props.Stroke.Color, props.Stroke.Trans) end
+    f.Parent = props.Parent
+    return f
+end
+
+function UI.label(props)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.Size = props.Size or UDim2.new(1, 0, 0, 20)
+    l.Position = props.Position or UDim2.new(0, 0, 0, 0)
+    l.Text = props.Text or ""
+    l.TextColor3 = props.Color or Config.Colors.Text
+    l.Font = props.Bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    l.TextSize = props.TextSize or 14
+    l.TextXAlignment = props.AlignX or Enum.TextXAlignment.Left
+    l.TextYAlignment = props.AlignY or Enum.TextYAlignment.Center
+    l.TextTruncate = props.Truncate or Enum.TextTruncate.None
+    l.RichText = props.Rich or false
+    if props.Wrap then l.TextWrapped = true end
+    l.Parent = props.Parent
+    return l
+end
+
+function UI.button(props)
+    local b = Instance.new("TextButton")
+    b.BackgroundColor3 = props.Color or Config.Colors.Accent
+    b.Size = props.Size or UDim2.new(0, 44, 0, 44)
+    b.Position = props.Position or UDim2.new(0, 0, 0, 0)
+    b.Text = props.Text or ""
+    b.TextColor3 = props.TextColor or Config.Colors.Text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = props.TextSize or 18
+    b.AutoButtonColor = false
+    b.BorderSizePixel = 0
+    UI.corner(b, props.Corner or 10)
+    b.Parent = props.Parent
+    
+    local hoverStroke = UI.stroke(b, 2, Config.Colors.Accent, 1)
+    b.MouseEnter:Connect(function() UI.tween(hoverStroke, {Transparency = 0.3}, 0.1) end)
+    b.MouseLeave:Connect(function() UI.tween(hoverStroke, {Transparency = 1}, 0.1) end)
+    
+    if props.OnClick then b.MouseButton1Click:Connect(props.OnClick) end
+    return b
+end
+
+function UI.scroll(props)
+    local s = Instance.new("ScrollingFrame")
+    s.BackgroundTransparency = props.Transparency or 1
+    s.Size = props.Size or UDim2.new(1, 0, 1, 0)
+    s.Position = props.Position or UDim2.new(0, 0, 0, 0)
+    s.BorderSizePixel = 0
+    s.ScrollBarThickness = 8
+    s.ScrollBarImageColor3 = Config.Colors.Accent
+    s.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    s.CanvasSize = UDim2.new(0, 0, 0, 0)
+    s.ClipsDescendants = true
+    s.Parent = props.Parent
+    return s
+end
+
+function UI.input(props)
+    local t = Instance.new("TextBox")
+    t.BackgroundColor3 = props.Color or Config.Colors.Panel
+    t.Size = props.Size or UDim2.new(1, 0, 0, 40)
+    t.Position = props.Position or UDim2.new(0, 0, 0, 0)
+    t.Text = props.Text or ""
+    t.PlaceholderText = props.Placeholder or ""
+    t.TextColor3 = Config.Colors.Text
+    t.PlaceholderColor3 = Config.Colors.Muted
+    t.Font = Enum.Font.Gotham
+    t.TextSize = props.TextSize or 14
+    t.ClearTextOnFocus = false
+    t.BorderSizePixel = 0
+    UI.corner(t, props.Corner or 8)
+    UI.padding(t, 10)
+    t.Parent = props.Parent
+    return t
+end
+
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                            MODULE: Toast                                   ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local Toast = { container = nil }
+
+function Toast.init(parent)
+    Toast.container = UI.frame({ Size = UDim2.new(0, 320, 1, 0), Position = UDim2.new(1, -330, 0, 0), Transparency = 1, Parent = parent })
+    UI.list(Toast.container, 8)
+    UI.padding(Toast.container, 15)
+end
+
+function Toast.show(message, duration, color)
+    if not Toast.container then return end
+    
+    local toast = UI.frame({ Size = UDim2.new(1, 0, 0, 0), Color = color or Config.Colors.Panel, Corner = 10, Parent = Toast.container })
+    toast.AutomaticSize = Enum.AutomaticSize.Y
+    UI.stroke(toast, 1, Config.Colors.Accent, 0.5)
+    
+    local text = UI.label({ Text = message, Size = UDim2.new(1, -16, 0, 0), Position = UDim2.new(0, 8, 0, 8), 
+                           Wrap = true, Parent = toast, Bold = true, TextSize = 13 })
+    text.AutomaticSize = Enum.AutomaticSize.Y
+    
+    local pad = UI.frame({ Size = UDim2.new(1, 0, 0, 8), Transparency = 1, Parent = text })
+    
+    task.delay(duration or 3, function()
+        if toast.Parent then
+            UI.tween(toast, {BackgroundTransparency = 1}, 0.3)
+            UI.tween(text, {TextTransparency = 1}, 0.3)
+            task.wait(0.3)
+            if toast.Parent then toast:Destroy() end
         end
-        return res .. indent .. "}"
-    end
-    local s, r = pcall(serialize, tbl, 0)
-    return s and r or "-- Serialization Failed"
+    end)
 end
 
--- ═══════════════════════════════════════════════════════════════════════════
--- [ ENGINE ] LEXER (SYNTAX HIGHLIGHTING)
--- ═══════════════════════════════════════════════════════════════════════════
-local Lexer = {}
-function Lexer.Highlight(src)
-    src = src:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
-    
-    local patterns = {
-        { "^%-%-.-\n", Config.Colors.Syntax.Comment }, -- Comment
-        { "^\".-\"", Config.Colors.Syntax.String }, -- String
-        { "^\'.- \'", Config.Colors.Syntax.String }, -- String
-        { "^%d+", Config.Colors.Syntax.Number }, -- Number
-        { "^function", Config.Colors.Syntax.Keyword },
-        { "^local", Config.Colors.Syntax.Keyword },
-        { "^if", Config.Colors.Syntax.Keyword },
-        { "^then", Config.Colors.Syntax.Keyword },
-        { "^else", Config.Colors.Syntax.Keyword },
-        { "^end", Config.Colors.Syntax.Keyword },
-        { "^return", Config.Colors.Syntax.Keyword },
-        { "^nil", Config.Colors.Syntax.Keyword },
-        { "^true", Config.Colors.Syntax.Keyword },
-        { "^false", Config.Colors.Syntax.Keyword },
-    }
-    
-    -- Creating a very simple rich text tokenizer (not full lexer for code size)
-    -- In a real "Ultimate" this would be 300 lines of tokenization.
-    -- We will settle for a robust "Keyword Colorizer" to keep the script loadable.
-    
-    for _, rule in ipairs(patterns) do
-        local pat, col = rule[1], rule[2]
-        local hex = "#" .. col:ToHex()
-        src = src:gsub("(" .. pat:sub(2) .. ")", "<font color=\""..hex.."\">%1</font>")
-    end
-    
-    return src
-end
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                           MODULE: Decompiler                               ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
 
--- ═══════════════════════════════════════════════════════════════════════════
--- [ ENGINE ] FORENSICS (DECOMPILER)
--- ═══════════════════════════════════════════════════════════════════════════
 local Decompiler = {}
 
-function Decompiler.DumpProto(func, depth)
-    if depth > 8 then return "-- [Max Proto Depth]" end
-    local indent = string.rep("  ", depth)
-    local output = {}
+local function serializeTable(tbl, depth)
+    if depth > 5 then return "{...}" end
+    depth = depth or 1
+    local indent = string.rep("    ", depth)
+    local parts = {}
     
-    local info = debug.getinfo(func)
-    table.insert(output, indent .. string.format("function %s() -- [Line %d] [Protos: %s]", info.name or "anonymous", info.linedefined, "???"))
+    for k, v in pairs(tbl) do
+        local key = type(k) == "string" and (k:match("^[%a_][%w_]*$") and k or '["'..k..'"]') or "["..tostring(k).."]"
+        local val
+        
+        if type(v) == "string" then
+            val = '"' .. v:sub(1, 80):gsub('"', '\\"'):gsub("\n", "\\n") .. (v:len() > 80 and "..." or "") .. '"'
+        elseif type(v) == "table" then
+            val = serializeTable(v, depth + 1)
+        elseif type(v) == "function" then
+            val = "function() end"
+        else
+            val = tostring(v)
+        end
+        
+        table.insert(parts, indent .. key .. " = " .. val)
+        if #parts > 25 then table.insert(parts, indent .. "-- ... more entries") break end
+    end
     
-    -- Upvalues
-    local upvals = debug.getupvalues(func)
-    if next(upvals) then
-        for k, v in pairs(upvals) do
-            local val = type(v)=="string" and "\""..v.."\"" or tostring(v)
-            table.insert(output, indent.."  local up_"..k.." = "..val)
+    if #parts == 0 then return "{}" end
+    return "{\n" .. table.concat(parts, ",\n") .. "\n" .. string.rep("    ", depth - 1) .. "}"
+end
+
+function Decompiler.decompileModule(moduleScript)
+    local ok, module = pcall(require, moduleScript)
+    if not ok or module == nil then return nil end
+    
+    local result = "-- Decompiled ModuleScript (speed's decompiler)\n"
+    result = result .. "-- Path: " .. moduleScript:GetFullName() .. "\n\n"
+    
+    if type(module) == "table" then
+        result = result .. "return " .. serializeTable(module, 1)
+    elseif type(module) == "function" then
+        result = result .. "return function() end -- compiled"
+    else
+        result = result .. "return " .. tostring(module)
+    end
+    
+    return result
+end
+
+function Decompiler.getSource(script)
+    local methods = {
+        function() return Executor.call("decompile", script) end,
+        function() 
+            local closure = Executor.call("getscriptclosure", script)
+            return closure and Executor.call("decompile", closure)
+        end,
+        function()
+            local ok, src = pcall(function() return gethiddenproperty(script, "Source") end)
+            return ok and src and #src > 0 and src
+        end,
+        function() return Executor.call("getscriptsource", script) end,
+        function()
+            if script:IsA("ModuleScript") then return Decompiler.decompileModule(script) end
+        end,
+    }
+    
+    for _, method in ipairs(methods) do
+        local ok, result = pcall(method)
+        if ok and result and #result > 10 then
+            local lines = 1
+            for _ in result:gmatch("\n") do lines = lines + 1 end
+            return { source = result, lines = lines, bytes = #result }
         end
     end
-
-    -- Constants
-    local consts = debug.getconstants(func)
-    if next(consts) then
-        table.insert(output, indent.."  -- Constants: { " .. table.concat(consts, ", ") .. " }")
-    end
     
-    -- Disassembly (Mock)
-    table.insert(output, indent.."  -- Logic Hidden (Bytecode)")
-
-    -- Nested Protos
-    for _, p in ipairs(debug.getprotos(func)) do
-        table.insert(output, Decompiler.DumpProto(p, depth + 1))
-    end
-
-    table.insert(output, indent .. "end")
-    return table.concat(output, "\n")
+    -- Fallback info
+    local info = "-- 📜 " .. script.Name .. " (" .. script.ClassName .. ")\n"
+    info = info .. "-- Path: " .. script:GetFullName() .. "\n\n"
+    info = info .. "-- Source requires decompiler support\n"
+    info = info .. "-- Children: " .. #script:GetChildren()
+    
+    return { source = info, lines = 5, bytes = #info }
 end
 
-function Decompiler.ExtractStrings(target)
-    local bc = getscriptbytecode(target)
-    if not bc then return nil end
-    
-    -- Full Luau String Extractor (Simplified logic for resilience)
-    local strings = {}
-    for str in bc:gmatch("[%w%p%s]+") do
-        if #str > 4 then table.insert(strings, str) end
-    end
-    return "-- [Bytecode Strings]\n" .. table.concat(strings, "\n")
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                           MODULE: Highlighter                              ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local Highlighter = {}
+
+function Highlighter.clear()
+    if State.highlight then State.highlight:Destroy() State.highlight = nil end
+    if State.billboard then State.billboard:Destroy() State.billboard = nil end
 end
 
-function Decompiler.Cascade(target, callback)
-    task.spawn(function()
-        -- Tier 1: Native
-        if getfenv().decompile then
-            local s, r = pcall(getfenv().decompile, target)
-            if s and r and #r > 50 and not r:match("bytecode") then
-                callback(r, "Native")
-                return
+function Highlighter.show(instance)
+    Highlighter.clear()
+    
+    local target = instance:IsA("BasePart") and instance 
+                or instance:IsA("Model") and (instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true))
+                or instance:FindFirstChildWhichIsA("BasePart", true)
+    
+    if not target then return end
+    
+    local CoreGui = game:GetService("CoreGui")
+    
+    State.highlight = Instance.new("Highlight")
+    State.highlight.FillColor = Config.Colors.Highlight
+    State.highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+    State.highlight.FillTransparency = 0.6
+    State.highlight.Adornee = instance:IsA("Model") and instance or target
+    State.highlight.Parent = CoreGui
+    
+    State.billboard = Instance.new("BillboardGui")
+    State.billboard.Size = UDim2.new(0, 300, 0, 60)
+    State.billboard.StudsOffset = Vector3.new(0, 5, 0)
+    State.billboard.Adornee = target
+    State.billboard.AlwaysOnTop = true
+    State.billboard.Parent = CoreGui
+    
+    local bg = UI.frame({ Color = Color3.new(0,0,0), Corner = 8, Parent = State.billboard })
+    bg.BackgroundTransparency = 0.2
+    UI.stroke(bg, 2, Color3.fromRGB(255, 255, 0))
+    
+    UI.label({ Text = "📍 " .. instance.Name .. " [" .. instance.ClassName .. "]", 
+              Size = UDim2.new(1, -12, 0, 25), Position = UDim2.new(0, 6, 0, 4),
+              Color = Color3.fromRGB(255, 255, 100), Bold = true, TextSize = 16, Parent = bg })
+    
+    UI.label({ Text = instance:GetFullName(), Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 32),
+              Color = Color3.fromRGB(200, 200, 200), TextSize = 11, Truncate = Enum.TextTruncate.AtEnd, Parent = bg })
+    
+    task.delay(5, Highlighter.clear)
+end
+
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                           MODULE: Scanner                                  ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local Scanner = {}
+
+function Scanner.getIcon(instance)
+    return Config.Icons[instance.ClassName] or 
+           (instance:IsA("BaseScript") and Config.Icons.Script) or
+           (instance:IsA("BasePart") and Config.Icons.Part) or
+           (instance:IsA("Folder") and Config.Icons.Folder) or
+           (instance:IsA("Model") and Config.Icons.Model) or
+           Config.Icons.Default
+end
+
+function Scanner.getColor(instance)
+    if instance:IsA("LocalScript") then return Config.Colors.LocalScript
+    elseif instance:IsA("Script") then return Config.Colors.Script
+    elseif instance:IsA("ModuleScript") then return Config.Colors.ModuleScript
+    elseif instance:IsA("Folder") then return Config.Colors.Folder
+    else return Config.Colors.Muted end
+end
+
+function Scanner.generateMap()
+    local maps, totalObjs, totalScripts = {}, 0, 0
+    
+    for _, serviceName in ipairs(Config.Services) do
+        local ok, service = pcall(game.GetService, game, serviceName)
+        if not ok or not service then continue end
+        
+        local lines, objs, scripts = {}, 0, 0
+        
+        local function scan(inst, depth, path)
+            if objs > 1500 then return end
+            objs = objs + 1
+            if inst:IsA("BaseScript") then scripts = scripts + 1 end
+            
+            local icon = Scanner.getIcon(inst)
+            table.insert(lines, string.rep("  ", depth) .. icon .. " " .. inst.Name .. " [" .. inst.ClassName .. "] -- " .. path)
+            
+            for _, child in ipairs(inst:GetChildren()) do
+                pcall(scan, child, depth + 1, path .. "." .. child.Name)
             end
         end
         
-        -- Tier 2: Proto
-        local closure = getscriptclosure(target)
-        if closure then
-            local s, r = pcall(Decompiler.DumpProto, closure, 0)
-            if s and r then callback(r, "Proto Introspection"); return end
+        for _, child in ipairs(service:GetChildren()) do
+            pcall(scan, child, 0, serviceName .. "." .. child.Name)
         end
         
-        -- Tier 3: Bytecode
-        if getfenv().getscriptbytecode then
-            local s, r = pcall(Decompiler.ExtractStrings, target)
-            if s and r then callback(r, "Bytecode Analysis"); return end
-        end
-        
-        callback("-- Failed to inspect.", "Failure")
-    end)
-end
-
--- ═══════════════════════════════════════════════════════════════════════════
--- [ ENGINE ] REMOTE SPY (NETWORK INTERCEPTOR)
--- ═══════════════════════════════════════════════════════════════════════════
-local Spy = {
-    Logs = {},
-    SignalLog = Signal.new(),
-    Enabled = false
-}
-
-function Spy.Init()
-    local mt = getrawmetatable(game)
-    if not mt then return end
-    setreadonly(mt, false)
-    local oldNamecall = mt.__namecall
-    
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if Spy.Enabled and (method == "FireServer" or method == "InvokeServer") then
-            local args = {...}
-            local log = {
-                Remote = self,
-                Method = method,
-                Args = args,
-                Time = os.date("%H:%M:%S"),
-                Trace = debug.traceback()
-            }
-            table.insert(Spy.Logs, 1, log)
-            if #Spy.Logs > Config.Spy.MaxLogs then table.remove(Spy.Logs) end
-            Spy.SignalLog:Fire(log)
-        end
-        return oldNamecall(self, ...)
-    end)
-end
-
-function Spy.Toggle(state)
-    Spy.Enabled = state
-end
-
--- ═══════════════════════════════════════════════════════════════════════════
--- [ ENGINE ] EXPLORER & SEARCH INDEX
--- ═══════════════════════════════════════════════════════════════════════════
-local Explorer = {
-    Nodes = {},
-    WeakCache = setmetatable({}, { __mode = "v" }),
-    Index = {}, -- Inverted Index: Name -> {Instances}
-    SignalUpdate = Signal.new()
-}
-
-function Explorer.BuildIndex()
-    Explorer.Index = {}
-    local count = 0
-    for _, svc in ipairs({game.Workspace, game.ReplicatedStorage, game.Players}) do
-        for _, desc in ipairs(svc:GetDescendants()) do
-            local name = desc.Name:lower()
-            if not Explorer.Index[name] then Explorer.Index[name] = {} end
-            table.insert(Explorer.Index[name], desc)
-            count = count + 1
-            if count % 1000 == 0 then task.wait() end -- Chunked indexing
-        end
+        totalObjs, totalScripts = totalObjs + objs, totalScripts + scripts
+        maps[serviceName] = { lines = lines, objs = objs, scripts = scripts }
     end
+    
+    return maps, totalObjs, totalScripts
 end
 
-function Explorer.Refresh()
-    -- Standard tree refresh (as in v2.1)
-    Explorer.Nodes = {}
-    local function traverse(inst, depth)
-        if not inst or not inst.Parent then return end
-        local node = Explorer.WeakCache[inst] or { Instance = inst, Expanded = false, Depth = depth }
-        Explorer.WeakCache[inst] = node
-        table.insert(Explorer.Nodes, node)
+function Scanner.search(query, parent)
+    local results = {}
+    query = query:lower()
+    
+    local function searchIn(instance)
+        if #results >= Config.Search.MaxResults then return end
         
-        if node.Expanded then
-            local children = inst:GetChildren()
-            table.sort(children, function(a, b) return a.Name < b.Name end)
-            for _, c in ipairs(children) do traverse(c, depth+1) end
+        for _, child in ipairs(instance:GetChildren()) do
+            if #results >= Config.Search.MaxResults then return end
+            
+            local nameMatch = child.Name:lower():find(query, 1, true)
+            local classMatch = child.ClassName:lower():find(query, 1, true)
+            
+            if nameMatch or classMatch then
+                table.insert(results, child)
+            end
+            
+            pcall(searchIn, child)
         end
     end
     
-    for _, svc in ipairs({game.Workspace, game.Players, game.ReplicatedStorage, game.Lighting}) do
-        traverse(svc, 0)
+    for _, serviceName in ipairs(Config.Services) do
+        if #results >= Config.Search.MaxResults then break end
+        local ok, service = pcall(game.GetService, game, serviceName)
+        if ok and service then pcall(searchIn, service) end
     end
-    Explorer.SignalUpdate:Fire()
+    
+    return results
 end
 
-function Explorer.Toggle(inst)
-    local node = Explorer.WeakCache[inst]
-    if node then node.Expanded = not node.Expanded; Explorer.Refresh() end
-end
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                           MODULE: Explorer                                 ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
 
--- ═══════════════════════════════════════════════════════════════════════════
--- [ USER INTERFACE ] VIRTUALIZED & TABS
--- ═══════════════════════════════════════════════════════════════════════════
-local UI = {}
-UI.Pool = { Active = {}, Cache = {} }
-UI.Tabs = { Explorer = nil, Spy = nil }
+local Explorer = {}
 
-function UI.GetItem()
-    local item = table.remove(UI.Pool.Cache)
-    if not item then
-        item = Utils.Create("TextButton", { BackgroundTransparency=1, Text="", ClipsDescendants=true, AutoButtonColor=false })
-        Utils.Create("TextLabel", { Name="Arrow", BackgroundTransparency=1, Size=UDim2.fromOffset(16,16), TextColor3=Config.Colors.Text, Parent=item })
-        Utils.Create("TextLabel", { Name="Label", BackgroundTransparency=1, Size=UDim2.new(1,-20,1,0), TextXAlignment=0, TextColor3=Config.Colors.Text, Font=Enum.Font.GothamMedium, Parent=item })
-        item.MouseButton1Click:Connect(function() 
-            local inst = item:GetAttribute("RefInstance")
-            if inst then Explorer.Toggle(inst) end
-            if inst:IsA("LuaSourceContainer") then Decompiler.Cascade(inst, UI.SetCode) end
+function Explorer.selectItem(instance)
+    State.selected = instance
+    
+    if State.pathLabel then State.pathLabel.Text = "📍 " .. instance:GetFullName() end
+    
+    local icon = Scanner.getIcon(instance)
+    if State.titleLabel then State.titleLabel.Text = icon .. " " .. instance.Name end
+    
+    Highlighter.show(instance)
+    Toast.show(icon .. " " .. instance.Name .. "\n[" .. instance.ClassName .. "]\n" .. instance:GetFullName(), 3)
+    
+    if instance:IsA("BaseScript") then
+        local result = Decompiler.getSource(instance)
+        State.source = result.source
+        if State.codeLabel then State.codeLabel.Text = result.source end
+        if State.metaLabel then State.metaLabel.Text = "📊 " .. result.lines .. " lines | " .. result.bytes .. " bytes" end
+    else
+        local info = "-- 📌 " .. instance.Name .. "\n"
+        info = info .. "-- Class: " .. instance.ClassName .. "\n"
+        info = info .. "-- Path: " .. instance:GetFullName() .. "\n"
+        info = info .. "-- Children: " .. #instance:GetChildren()
+        
+        pcall(function()
+            if instance:IsA("BasePart") then
+                info = info .. "\n-- Position: " .. tostring(instance.Position)
+                info = info .. "\n-- Size: " .. tostring(instance.Size)
+            elseif instance:IsA("ValueBase") then
+                info = info .. "\n-- Value: " .. tostring(instance.Value)
+            end
         end)
-    end
-    table.insert(UI.Pool.Active, item)
-    item.Visible = true
-    return item
-end
-
-function UI.ReturnItem(item)
-    item.Visible=false; item.Position=UDim2.new(2,0,0,0); item:SetAttribute("RefInstance",nil)
-    table.insert(UI.Pool.Cache, item)
-end
-
-function UI.SetCode(src, method)
-    UI.CodeBox.Text = "-- " .. method .. "\n" .. src 
-    -- UI.CodeBox.RichText = true -- Enable if Lexer used
-end
-
-function UI.Init()
-    if CoreGui:FindFirstChild(Config.Name) then CoreGui[Config.Name]:Destroy() end
-    local ScreenGui = Utils.Create("ScreenGui", { Name=Config.Name, Parent=CoreGui, ResetOnSpawn=false })
-    
-    local Main = Utils.Create("Frame", { Name="Main", Parent=ScreenGui, Size=UDim2.fromOffset(900, 600), Position=UDim2.fromScale(0.5,0.5), AnchorPoint=Vector2.new(0.5,0.5), BackgroundColor3=Config.Colors.Background })
-    Utils.Create("UICorner", {Parent=Main}); Utils.Create("UIStroke", {Parent=Main, Color=Config.Colors.Border})
-    
-    -- [ TAB SYSTEM ]
-    local TabBar = Utils.Create("Frame", { Parent=Main, Size=UDim2.new(1,0,0,32), BackgroundColor3=Config.Colors.Header })
-    Utils.Create("UICorner", {Parent=TabBar})
-    
-    local Content = Utils.Create("Frame", { Parent=Main, Size=UDim2.new(1,0,1,-32), Position=UDim2.new(0,0,0,32), BackgroundTransparency=1 })
-    
-    local function SwitchTab(name)
-        for _, c in ipairs(Content:GetChildren()) do c.Visible = (c.Name == name) end
-    end
-    
-    -- [ TAB: EXPLORER ]
-    local PageExp = Utils.Create("Frame", { Name="Explorer", Parent=Content, Size=UDim2.fromScale(1,1), BackgroundTransparency=1 })
-    local Tree = Utils.Create("ScrollingFrame", { Parent=PageExp, Size=UDim2.fromScale(0.3,1), BackgroundColor3=Config.Colors.Sidebar, ScrollBarThickness=4 })
-    local Code = Utils.Create("Frame", { Parent=PageExp, Size=UDim2.fromScale(0.7,1), Position=UDim2.fromScale(0.3,0), BackgroundColor3=Config.Colors.Background })
-    UI.CodeBox = Utils.Create("TextBox", { Parent=Code, Size=UDim2.fromScale(1,1), BackgroundTransparency=1, TextColor3=Config.Colors.Text, MultiLine=true, TextXAlignment=0, TextYAlignment=0, Font=Enum.Font.Code, ClearTextOnFocus=false, TextEditable=false })
-    
-    -- Virtualization
-    local function RenderTree()
-        for i=#UI.Pool.Active,1,-1 do UI.ReturnItem(table.remove(UI.Pool.Active, i)) end
-        local nodes = Explorer.Nodes
-        local h = Config.Virtualization.ItemHeight
-        Tree.CanvasSize = UDim2.new(0,0,0,#nodes*h)
         
-        local sy = Tree.CanvasPosition.Y
-        local iStart = math.max(1, math.floor(sy/h) - Config.Virtualization.Buffer)
-        local iEnd = math.min(#nodes, math.ceil((sy+Tree.AbsoluteSize.Y)/h) + Config.Virtualization.Buffer)
+        State.source = info
+        if State.codeLabel then State.codeLabel.Text = info end
+        if State.metaLabel then State.metaLabel.Text = "📌 " .. instance.ClassName end
+    end
+end
+
+function Explorer.createNode(instance, parent, indent, order)
+    if State.nodeCount >= Config.Tree.MaxNodes then return end
+    if indent > Config.Tree.MaxDepth then return end
+    State.nodeCount = State.nodeCount + 1
+    
+    local isScript = instance:IsA("BaseScript")
+    local childCount = #instance:GetChildren()
+    local hasChildren = childCount > 0
+    
+    local container = UI.frame({ Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = parent })
+    container.LayoutOrder = order
+    container.AutomaticSize = Enum.AutomaticSize.Y
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -indent * Config.Tree.IndentSize, 0, Config.Tree.ItemHeight)
+    btn.Position = UDim2.new(0, indent * Config.Tree.IndentSize, 0, 0)
+    btn.BackgroundColor3 = Config.Colors.Item
+    btn.BackgroundTransparency = 0.9
+    btn.BorderSizePixel = 0
+    btn.Font = isScript and Enum.Font.GothamBold or Enum.Font.Gotham
+    btn.TextSize = 13
+    btn.TextColor3 = Scanner.getColor(instance)
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.RichText = true
+    btn.AutoButtonColor = false
+    btn.Parent = container
+    UI.corner(btn, 6)
+    
+    local icon = Scanner.getIcon(instance)
+    local expand = hasChildren and Config.Icons.Collapse or ""
+    btn.Text = "  " .. expand .. " " .. icon .. " " .. instance.Name .. 
+               " <font color=\"#666\">[" .. instance.ClassName .. "]</font>" ..
+               (hasChildren and " <font color=\"#555\">(" .. childCount .. ")</font>" or "")
+    
+    local hoverStroke = UI.stroke(btn, 2, Config.Colors.Accent, 1)
+    btn.MouseEnter:Connect(function() UI.tween(btn, {BackgroundTransparency = 0.7}, 0.1) UI.tween(hoverStroke, {Transparency = 0.3}, 0.1) end)
+    btn.MouseLeave:Connect(function() UI.tween(btn, {BackgroundTransparency = 0.9}, 0.1) UI.tween(hoverStroke, {Transparency = 1}, 0.1) end)
+    
+    local childrenFrame = UI.frame({ Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = container })
+    childrenFrame.Visible = false
+    childrenFrame.AutomaticSize = Enum.AutomaticSize.Y
+    UI.list(childrenFrame, 2)
+    
+    local isExpanded, childrenLoaded = false, false
+    
+    btn.MouseButton1Click:Connect(function()
+        Explorer.selectItem(instance)
         
-        for i=iStart, iEnd do
-            local n = nodes[i]
-            if n and n.Instance and n.Instance.Parent then
-                local item = UI.GetItem()
-                item.Parent = Tree; item.Size = UDim2.new(1,0,0,h); item.Position = UDim2.new(0,0,0,(i-1)*h)
-                item:SetAttribute("RefInstance", n.Instance)
-                item.Label.Text = n.Instance.Name
-                local indent = n.Depth*16
-                item.Arrow.Position=UDim2.fromOffset(2+indent,4)
-                item.Label.Position=UDim2.fromOffset(20+indent,0)
-                item.Arrow.Text = n.Instance:GetChildren()[1] and (n.Expanded and Config.Icons.ArrowExpanded or Config.Icons.ArrowCollapsed) or ""
+        if hasChildren then
+            isExpanded = not isExpanded
+            childrenFrame.Visible = isExpanded
+            
+            expand = isExpanded and Config.Icons.Expand or Config.Icons.Collapse
+            btn.Text = "  " .. expand .. " " .. icon .. " " .. instance.Name .. 
+                       " <font color=\"#666\">[" .. instance.ClassName .. "]</font>" ..
+                       " <font color=\"#555\">(" .. childCount .. ")</font>"
+            
+            if isExpanded and not childrenLoaded then
+                childrenLoaded = true
+                local children = instance:GetChildren()
+                table.sort(children, function(a, b)
+                    local aScore = a:IsA("BaseScript") and 0 or (a:IsA("Folder") and 1 or 2)
+                    local bScore = b:IsA("BaseScript") and 0 or (b:IsA("Folder") and 1 or 2)
+                    return aScore == bScore and a.Name < b.Name or aScore < bScore
+                end)
+                
+                for i, child in ipairs(children) do
+                    pcall(Explorer.createNode, child, childrenFrame, indent + 1, i)
+                end
             end
         end
-    end
-    Explorer.SignalUpdate.Connect(RenderTree)
-    Tree:GetPropertyChangedSignal("CanvasPosition"):Connect(RenderTree)
-    
-    -- [ TAB: SPY ]
-    local PageSpy = Utils.Create("Frame", { Name="Spy", Parent=Content, Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Visible=false })
-    local SpyList = Utils.Create("ScrollingFrame", { Parent=PageSpy, Size=UDim2.fromScale(1,1), BackgroundColor3=Config.Colors.Background })
-    local SpyLayout = Utils.Create("UIListLayout", { Parent=SpyList })
-    
-    Spy.SignalLog:Connect(function(log)
-        local item = Utils.Create("TextLabel", { Parent=SpyList, Size=UDim2.new(1,0,0,24), Text=string.format("[%s] %s: %s", log.Time, log.Method, log.Remote.Name), TextXAlignment=0, TextColor3=Config.Colors.Text, BackgroundTransparency=1 })
-        Utils.Create("UIStroke", { Parent=item, Color=Config.Colors.Border, Thickness=1 })
     end)
-    
-    -- [ HEADER BUTTONS ]
-    local x = 0
-    for _, name in ipairs({"Explorer", "Spy", "Search"}) do
-        local b = Utils.Create("TextButton", { Parent=TabBar, Text=name, Size=UDim2.new(0,100,1,0), Position=UDim2.new(0,x,0,0), BackgroundTransparency=1, TextColor3=Config.Colors.Text })
-        b.MouseButton1Click:Connect(function() SwitchTab(name) end)
-        x=x+100
-    end
-    
-    -- Spy Logic
-    Spy.Init()
-    Spy.Toggle(true)
-    Explorer.Refresh()
-    
-    Maid:GiveTask(UserInputService.InputBegan:Connect(function(i) if i.KeyCode==Enum.KeyCode.RightShift then Main.Visible = not Main.Visible end end))
 end
 
-UI.Init()
+function Explorer.buildTree(query)
+    for _, child in ipairs(State.treeScroll:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    
+    State.nodeCount = 0
+    
+    if query and #query >= Config.Search.MinChars then
+        local results = Scanner.search(query)
+        for i, instance in ipairs(results) do
+            pcall(Explorer.createNode, instance, State.treeScroll, 0, i)
+        end
+    else
+        local order = 0
+        for _, serviceName in ipairs(Config.Services) do
+            local ok, service = pcall(game.GetService, game, serviceName)
+            if not ok or not service then continue end
+            
+            local childCount = 0
+            pcall(function() childCount = #service:GetChildren() end)
+            if childCount == 0 then continue end
+            
+            order = order + 1
+            
+            local serviceNode = UI.frame({ Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = State.treeScroll })
+            serviceNode.LayoutOrder = order
+            serviceNode.AutomaticSize = Enum.AutomaticSize.Y
+            
+            local serviceBtn = Instance.new("TextButton")
+            serviceBtn.Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight)
+            serviceBtn.BackgroundColor3 = Config.Colors.Service
+            serviceBtn.BackgroundTransparency = 0.85
+            serviceBtn.BorderSizePixel = 0
+            serviceBtn.Font = Enum.Font.GothamBold
+            serviceBtn.TextSize = 13
+            serviceBtn.TextColor3 = Config.Colors.Service
+            serviceBtn.TextXAlignment = Enum.TextXAlignment.Left
+            serviceBtn.RichText = true
+            serviceBtn.Text = "  ▶ 📂 " .. serviceName .. " <font color=\"#555\">(" .. childCount .. ")</font>"
+            serviceBtn.AutoButtonColor = false
+            serviceBtn.Parent = serviceNode
+            UI.corner(serviceBtn, 6)
+            
+            local serviceChildren = UI.frame({ Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = serviceNode })
+            serviceChildren.Visible = false
+            serviceChildren.AutomaticSize = Enum.AutomaticSize.Y
+            UI.list(serviceChildren, 2)
+            
+            local serviceExpanded, serviceLoaded = false, false
+            
+            serviceBtn.MouseButton1Click:Connect(function()
+                serviceExpanded = not serviceExpanded
+                serviceChildren.Visible = serviceExpanded
+                serviceBtn.Text = "  " .. (serviceExpanded and "▼" or "▶") .. " 📂 " .. serviceName .. " <font color=\"#555\">(" .. childCount .. ")</font>"
+                
+                if serviceExpanded and not serviceLoaded then
+                    serviceLoaded = true
+                    local children = service:GetChildren()
+                    table.sort(children, function(a, b) return a.Name < b.Name end)
+                    
+                    for i, child in ipairs(children) do
+                        pcall(Explorer.createNode, child, serviceChildren, 1, i)
+                    end
+                end
+            end)
+        end
+    end
+end
+
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                           MODULE: GameMap                                  ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local GameMap = {}
+
+function GameMap.show()
+    local Players = game:GetService("Players")
+    local CoreGui = game:GetService("CoreGui")
+    
+    local mapGui = Instance.new("ScreenGui")
+    mapGui.Name = "GameMapViewer"
+    mapGui.ResetOnSpawn = false
+    mapGui.DisplayOrder = 99999
+    mapGui.IgnoreGuiInset = true
+    pcall(function() mapGui.Parent = CoreGui end)
+    if not mapGui.Parent then mapGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
+    
+    local mapFrame = UI.frame({ Size = UDim2.new(0.85, 0, 0.9, 0), Position = UDim2.new(0.075, 0, 0.05, 0), 
+                                Color = Config.Colors.Background, Corner = 16, Parent = mapGui })
+    UI.stroke(mapFrame, 3, Config.Colors.Accent, 0.2)
+    
+    local header = UI.frame({ Size = UDim2.new(1, 0, 0, 55), Color = Config.Colors.Panel, Corner = 16, Parent = mapFrame })
+    UI.label({ Text = "🗺️ GAME MAP - Full Object List", Size = UDim2.new(1, -250, 1, 0), Position = UDim2.new(0, 20, 0, 0), Bold = true, TextSize = 20, Parent = header })
+    
+    UI.button({ Text = "✕", Size = UDim2.new(0, 45, 0, 45), Position = UDim2.new(1, -50, 0, 5), Color = Config.Colors.Error, 
+               OnClick = function() mapGui:Destroy() end, Parent = header })
+    
+    UI.button({ Text = "✅ Open Explorer", Size = UDim2.new(0, 150, 0, 38), Position = UDim2.new(1, -210, 0, 8), Color = Config.Colors.Success, TextSize = 14,
+               OnClick = function() mapGui:Destroy() end, Parent = header })
+    
+    local loading = UI.label({ Text = "🔄 Scanning game...", Size = UDim2.new(1, 0, 1, -55), Position = UDim2.new(0, 0, 0, 55), 
+                               AlignX = Enum.TextXAlignment.Center, TextSize = 22, Color = Config.Colors.Muted, Parent = mapFrame })
+    
+    task.spawn(function()
+        local maps, totalObjs, totalScripts = Scanner.generateMap()
+        if not mapGui.Parent then return end
+        loading:Destroy()
+        
+        local stats = UI.frame({ Size = UDim2.new(1, -20, 0, 32), Position = UDim2.new(0, 10, 0, 62), Color = Config.Colors.Item, Corner = 8, Parent = mapFrame })
+        UI.label({ Text = "📊 Total: " .. totalObjs .. " objects | " .. totalScripts .. " scripts", Size = UDim2.new(1, -20, 1, 0), Position = UDim2.new(0, 10, 0, 0), Color = Config.Colors.Accent, Bold = true, Parent = stats })
+        
+        local tabs = UI.scroll({ Size = UDim2.new(1, -20, 0, 42), Position = UDim2.new(0, 10, 0, 100), Parent = mapFrame })
+        tabs.ScrollBarThickness = 0
+        tabs.AutomaticCanvasSize = Enum.AutomaticSize.X
+        UI.list(tabs, 5, Enum.FillDirection.Horizontal)
+        
+        local content = UI.scroll({ Size = UDim2.new(1, -20, 1, -155), Position = UDim2.new(0, 10, 0, 148), Parent = mapFrame })
+        content.BackgroundColor3 = Config.Colors.Panel
+        content.BackgroundTransparency = 0
+        UI.corner(content, 10)
+        
+        local contentBox = Instance.new("TextBox")
+        contentBox.Size = UDim2.new(1, -20, 0, 0)
+        contentBox.Position = UDim2.new(0, 10, 0, 10)
+        contentBox.BackgroundTransparency = 1
+        contentBox.TextColor3 = Config.Colors.Text
+        contentBox.Font = Enum.Font.Code
+        contentBox.TextSize = 12
+        contentBox.TextXAlignment = Enum.TextXAlignment.Left
+        contentBox.TextYAlignment = Enum.TextYAlignment.Top
+        contentBox.TextWrapped = false
+        contentBox.MultiLine = true
+        contentBox.ClearTextOnFocus = false
+        contentBox.TextEditable = false
+        contentBox.AutomaticSize = Enum.AutomaticSize.Y
+        contentBox.Parent = content
+        
+        local currentTab = nil
+        local tabButtons = {}
+        
+        local function showService(serviceName)
+            if currentTab then currentTab.BackgroundColor3 = Config.Colors.Item end
+            if tabButtons[serviceName] then
+                tabButtons[serviceName].BackgroundColor3 = Config.Colors.Accent
+                currentTab = tabButtons[serviceName]
+            end
+            
+            local data = maps[serviceName]
+            if data then
+                local header = "\n-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)\n\n"
+                contentBox.Text = header .. table.concat(data.lines, "\n")
+            end
+        end
+        
+        local order = 0
+        for _, serviceName in ipairs(Config.Services) do
+            if maps[serviceName] and #maps[serviceName].lines > 0 then
+                order = order + 1
+                local tabBtn = UI.button({ Text = "📂 " .. serviceName:sub(1, 12), Size = UDim2.new(0, 120, 0, 34), Color = Config.Colors.Item, TextSize = 11, Corner = 6, Parent = tabs })
+                tabBtn.LayoutOrder = order
+                tabButtons[serviceName] = tabBtn
+                tabBtn.MouseButton1Click:Connect(function() showService(serviceName) end)
+                if order == 1 then showService(serviceName) end
+            end
+        end
+        
+        local copyAll = UI.button({ Text = "📋 Copy All", Size = UDim2.new(0, 90, 0, 34), Color = Config.Colors.Success, TextSize = 11, Corner = 6, Parent = tabs })
+        copyAll.LayoutOrder = 999
+        copyAll.MouseButton1Click:Connect(function()
+            local fullMap = ""
+            for _, sn in ipairs(Config.Services) do
+                if maps[sn] then fullMap = fullMap .. "\n-- " .. sn .. "\n" .. table.concat(maps[sn].lines, "\n") .. "\n" end
+            end
+            Executor.clipboard(fullMap)
+            copyAll.Text = "✅ Copied"
+            task.wait(1.5)
+            copyAll.Text = "📋 Copy All"
+        end)
+    end)
+end
+
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                              MAIN INIT                                     ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local function init()
+    local Players = game:GetService("Players")
+    local UserInputService = game:GetService("UserInputService")
+    local CoreGui = game:GetService("CoreGui")
+    local LocalPlayer = Players.LocalPlayer
+    
+    -- Create ScreenGui
+    State.gui = Instance.new("ScreenGui")
+    State.gui.Name = "ScriptExplorer"
+    State.gui.ResetOnSpawn = false
+    State.gui.DisplayOrder = 9999
+    State.gui.IgnoreGuiInset = true
+    pcall(function() State.gui.Parent = CoreGui end)
+    if not State.gui.Parent then State.gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+    
+    Toast.init(State.gui)
+    GameMap.show()
+    
+    -- Main Frame
+    State.mainFrame = UI.frame({ 
+        Size = UDim2.fromScale(Config.Window.Width, Config.Window.Height),
+        Position = UDim2.fromScale(0.5 - Config.Window.Width/2, 0.5 - Config.Window.Height/2),
+        Color = Config.Colors.Background, Corner = 14, Clip = true, Parent = State.gui 
+    })
+    State.mainFrame.Active = true
+    UI.stroke(State.mainFrame, 2, Config.Colors.Accent, 0.3)
+    
+    -- Header
+    local header = UI.frame({ Size = UDim2.new(1, 0, 0, 52), Color = Config.Colors.Panel, Corner = 14, Parent = State.mainFrame })
+    UI.label({ Text = "🚀 Script Explorer v" .. Config.Version, Size = UDim2.new(1, -180, 1, 0), Position = UDim2.new(0, 18, 0, 0), Bold = true, TextSize = 18, Parent = header })
+    
+    UI.button({ Text = "🗺️", Size = UDim2.new(0, 42, 0, 42), Position = UDim2.new(1, -175, 0, 5), OnClick = GameMap.show, Parent = header })
+    
+    local isMin = false
+    local minBtn = UI.button({ Text = "─", Size = UDim2.new(0, 42, 0, 42), Position = UDim2.new(1, -130, 0, 5), Color = Config.Colors.Folder, Parent = header })
+    minBtn.MouseButton1Click:Connect(function()
+        isMin = not isMin
+        UI.tween(State.mainFrame, {Size = isMin and UDim2.new(0, 350, 0, 52) or UDim2.fromScale(Config.Window.Width, Config.Window.Height)}, 0.2)
+    end)
+    
+    UI.button({ Text = "✕", Size = UDim2.new(0, 42, 0, 42), Position = UDim2.new(1, -85, 0, 5), Color = Config.Colors.Error,
+               OnClick = function() Highlighter.clear() State.gui:Destroy() end, Parent = header })
+    
+    -- Toolbar
+    local toolbar = UI.frame({ Size = UDim2.new(1, -20, 0, 42), Position = UDim2.new(0, 10, 0, 58), Transparency = 1, Parent = State.mainFrame })
+    
+    local searchBox = UI.input({ Size = UDim2.new(1, -110, 1, 0), Placeholder = "🔍 Search...", Parent = toolbar })
+    UI.button({ Text = "🔄", Size = UDim2.new(0, 42, 1, 0), Position = UDim2.new(1, -100, 0, 0), OnClick = function() Explorer.buildTree() end, Parent = toolbar })
+    UI.button({ Text = "⭐", Size = UDim2.new(0, 42, 1, 0), Position = UDim2.new(1, -52, 0, 0), Color = Config.Colors.Folder, Parent = toolbar })
+    
+    local debounce = nil
+    searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local q = searchBox.Text
+        if debounce then task.cancel(debounce) end
+        debounce = task.delay(Config.Search.Debounce, function() Explorer.buildTree(q) end)
+    end)
+    
+    -- Path bar
+    local pathBar = UI.frame({ Size = UDim2.new(1, -20, 0, 28), Position = UDim2.new(0, 10, 0, 106), Color = Config.Colors.Item, Corner = 8, Parent = State.mainFrame })
+    State.pathLabel = UI.label({ Text = "📍 Select an item...", Size = UDim2.new(1, -90, 1, 0), Position = UDim2.new(0, 12, 0, 0), Color = Config.Colors.Muted, TextSize = 12, Truncate = Enum.TextTruncate.AtEnd, Parent = pathBar })
+    
+    UI.button({ Text = "📋", Size = UDim2.new(0, 70, 0, 22), Position = UDim2.new(1, -78, 0, 3), TextSize = 12, Corner = 6,
+               OnClick = function() if State.selected then Executor.clipboard(State.selected:GetFullName()) Toast.show("📋 Path copied!", 2) end end, Parent = pathBar })
+    
+    -- Split container
+    local split = UI.frame({ Size = UDim2.new(1, -20, 1, -145), Position = UDim2.new(0, 10, 0, 140), Transparency = 1, Clip = true, Parent = State.mainFrame })
+    
+    -- Tree panel
+    local treePanel = UI.frame({ Size = UDim2.new(Config.Tree.PanelWidth, -5, 1, 0), Color = Config.Colors.Panel, Corner = 10, Clip = true, Parent = split })
+    State.treeScroll = UI.scroll({ Parent = treePanel })
+    UI.list(State.treeScroll, 2)
+    UI.padding(State.treeScroll, 6)
+    
+    -- Code panel
+    local codePanel = UI.frame({ Size = UDim2.new(1 - Config.Tree.PanelWidth, -5, 1, 0), Position = UDim2.new(Config.Tree.PanelWidth, 5, 0, 0), Color = Config.Colors.Panel, Corner = 10, Clip = true, Parent = split })
+    
+    local codeHeader = UI.frame({ Size = UDim2.new(1, 0, 0, 45), Color = Config.Colors.Item, Parent = codePanel })
+    State.titleLabel = UI.label({ Text = "📜 Select a script", Size = UDim2.new(1, -140, 1, 0), Position = UDim2.new(0, 12, 0, 0), Bold = true, TextSize = 14, Truncate = Enum.TextTruncate.AtEnd, Parent = codeHeader })
+    
+    UI.button({ Text = "▶", Size = UDim2.new(0, 38, 0, 34), Position = UDim2.new(1, -130, 0, 5), Color = Config.Colors.Success, TextSize = 14,
+               OnClick = function()
+                   if State.source then
+                       local fn, err = loadstring(State.source)
+                       if fn then pcall(fn) Toast.show("✅ Executed!", 2, Config.Colors.Success)
+                       else Toast.show("❌ " .. tostring(err):sub(1, 50), 3, Config.Colors.Error) end
+                   end
+               end, Parent = codeHeader })
+    
+    UI.button({ Text = "📋", Size = UDim2.new(0, 38, 0, 34), Position = UDim2.new(1, -88, 0, 5),
+               OnClick = function() if State.source then Executor.clipboard(State.source) Toast.show("📋 Copied!", 2) end end, Parent = codeHeader })
+    
+    UI.button({ Text = "🔄", Size = UDim2.new(0, 38, 0, 34), Position = UDim2.new(1, -46, 0, 5),
+               OnClick = function() if State.selected and State.selected:IsA("BaseScript") then Explorer.selectItem(State.selected) end end, Parent = codeHeader })
+    
+    State.metaLabel = UI.label({ Text = "", Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 46), Color = Config.Colors.Muted, TextSize = 11, Parent = codePanel })
+    
+    local codeScroll = UI.scroll({ Size = UDim2.new(1, 0, 1, -70), Position = UDim2.new(0, 0, 0, 70), Parent = codePanel })
+    State.codeLabel = Instance.new("TextBox")
+    State.codeLabel.Size = UDim2.new(1, -16, 0, 0)
+    State.codeLabel.Position = UDim2.new(0, 8, 0, 8)
+    State.codeLabel.BackgroundTransparency = 1
+    State.codeLabel.Text = "-- Select a script to view source"
+    State.codeLabel.TextColor3 = Config.Colors.Text
+    State.codeLabel.Font = Enum.Font.Code
+    State.codeLabel.TextSize = 13
+    State.codeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    State.codeLabel.TextYAlignment = Enum.TextYAlignment.Top
+    State.codeLabel.TextWrapped = false
+    State.codeLabel.MultiLine = true
+    State.codeLabel.ClearTextOnFocus = false
+    State.codeLabel.TextEditable = false
+    State.codeLabel.AutomaticSize = Enum.AutomaticSize.XY
+    State.codeLabel.Parent = codeScroll
+    
+    -- Dragging
+    local dragging, dragStart, startPos = false, nil, nil
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging, dragStart, startPos = true, input.Position, State.mainFrame.Position
+        end
+    end)
+    header.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            State.mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    -- Build tree
+    Explorer.buildTree()
+    
+    -- Animate in
+    State.mainFrame.Size = UDim2.new(0, 0, 0, 0)
+    State.mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    task.wait(0.1)
+    UI.tween(State.mainFrame, {
+        Size = UDim2.fromScale(Config.Window.Width, Config.Window.Height),
+        Position = UDim2.fromScale(0.5 - Config.Window.Width/2, 0.5 - Config.Window.Height/2)
+    }, 0.35)
+    
+    print("✅ Script Explorer v" .. Config.Version .. " loaded!")
+end
+
+init() name all issues like you have beeen using it fro month
