@@ -10105,12 +10105,24 @@ function Axiora.Calibration.PerformTestClick(relX, relY)
     relX = relX or 0.5
     relY = relY or 0.5
     
-    -- Calculate targeted screen position
+    -- Calculate targeted screen position (WITH Offset)
     local abs = Axiora.Math.GetAbsoluteInput(relX, relY)
     
+    -- Calculate reference position (WITHOUT Offset) for comparison
+    local refAbs = Vector2.new(
+        (Axiora.Math.Screen.Viewport.X * relX) + Axiora.Math.Screen.GuiInset.X,
+        (Axiora.Math.Screen.Viewport.Y * relY) + Axiora.Math.Screen.GuiInset.Y
+    )
+
     -- Visual Feedback: Show where we are clicking
     if Axiora.Visuals and Axiora.Visuals.Ripple then
-        Axiora.Visuals.Ripple(abs.X, abs.Y, Color3.fromRGB(255, 0, 0)) -- Red for Simulated Click
+        -- 1. Reference Dot (Green) - Where the script "Thinks" it is without offset
+        Axiora.Visuals.Ripple(refAbs.X, refAbs.Y, Color3.fromRGB(0, 255, 0)) 
+        
+        task.wait(0.1) -- Small delay for clarity
+        
+        -- 2. Result Dot (Red) - Where the click ACTUALLY happens with offset
+        Axiora.Visuals.Ripple(abs.X, abs.Y, Color3.fromRGB(255, 0, 0)) 
     end
     
     -- Send actual Input
