@@ -6023,23 +6023,33 @@ function Axiora.UI.BuildEditor(parent)
     local theme = Axiora.UI.Theme
     local nodes = Axiora.EditBuffer()
     
-    if #nodes == 0 then
-        local empty = Axiora.UI.Primitives.CreateNeonText(parent, "Buffer Empty - Record something first", 16, theme.Tertiary)
-        empty.Position = UDim2.new(0, 0, 0.4, 0)
-        return
-    end
-    
-    local scroll = Instance.new("ScrollingFrame")
-    scroll.BackgroundTransparency = 1
-    scroll.Size = UDim2.new(1, -20, 1, -10)
-    scroll.Position = UDim2.new(0, 10, 0, 10)
-    scroll.CanvasSize = UDim2.new(0, 0, 0, #nodes * 65)
-    scroll.ScrollBarThickness = 2
-    scroll.Parent = parent
-    
+    -- Auto-resize logic
     local layout = Instance.new("UIListLayout")
     layout.Padding = UDim.new(0, 8)
-    layout.Parent = scroll
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.Parent = parent
+    
+    local function updateSize()
+        if parent.Parent and parent.Parent:IsA("ScrollingFrame") then
+            parent.Parent.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+        end
+        parent.Size = UDim2.new(1, 0, 0, layout.AbsoluteContentSize.Y)
+    end
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
+    
+    if #nodes == 0 then
+        local emptyFrame = Instance.new("Frame")
+        emptyFrame.Size = UDim2.new(1, -10, 0, 100)
+        emptyFrame.BackgroundTransparency = 1
+        emptyFrame.Parent = parent
+        
+        local empty = Axiora.UI.Primitives.CreateNeonText(emptyFrame, "Buffer Empty - Record something first", 14, theme.TextDim)
+        empty.Size = UDim2.new(1,0,1,0)
+        
+        updateSize()
+        return
+    end
     
     for i, node in ipairs(nodes) do
         local color = theme.Delay
@@ -6050,51 +6060,64 @@ function Axiora.UI.BuildEditor(parent)
         
         local card = Instance.new("Frame")
         card.BackgroundColor3 = theme.Surface
-        card.BackgroundTransparency = 0.2
-        card.Size = UDim2.new(1, 0, 0, 60)
-        card.Parent = scroll
+        card.BackgroundTransparency = 0.4 -- More transparent for modern look
+        card.Size = UDim2.new(0.95, 0, 0, 55)
+        card.Parent = parent
         Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
         
         -- Left Stripe
         local stripe = Instance.new("Frame")
         stripe.BackgroundColor3 = color
-        stripe.Size = UDim2.new(0, 4, 1, 0)
+        stripe.Size = UDim2.new(0, 3, 1, 0)
         stripe.Parent = card
         Instance.new("UICorner", stripe).CornerRadius = UDim.new(1, 0)
         
         -- Info
-        local title = Axiora.UI.Primitives.CreateNeonText(card, icon .. " " .. node.Type .. " #" .. i, 14, theme.Primary)
+        local titleText = icon .. " " .. node.Type .. " #" .. i
+        local title = Instance.new("TextLabel")
+        title.Text = titleText
+        title.TextColor3 = theme.Text
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 12
+        title.BackgroundTransparency = 1
         title.Size = UDim2.new(1, -60, 0, 20)
-        title.Position = UDim2.new(0, 15, 0, 10)
+        title.Position = UDim2.new(0, 12, 0, 8)
         title.TextXAlignment = Enum.TextXAlignment.Left
+        title.Parent = card
         
         local descText = "Delay: " .. string.format("%.2f", node.Delay) .. "s"
         local desc = Instance.new("TextLabel")
         desc.BackgroundTransparency = 1
         desc.Size = UDim2.new(1, -60, 0, 20)
-        desc.Position = UDim2.new(0, 15, 0, 30)
+        desc.Position = UDim2.new(0, 12, 0, 28)
         desc.Text = descText
         desc.TextColor3 = theme.Secondary
         desc.Font = Enum.Font.Gotham
-        desc.TextSize = 12
+        desc.TextSize = 10
         desc.TextXAlignment = Enum.TextXAlignment.Left
         desc.Parent = card
         
-        -- Delete Action (Basic tap for now, swipe needs Logic)
+        -- Delete Action
         local delBtn = Instance.new("TextButton")
         delBtn.BackgroundTransparency = 1
-        delBtn.Size = UDim2.new(0, 40, 1, 0)
-        delBtn.Position = UDim2.new(1, -40, 0, 0)
+        delBtn.Size = UDim2.new(0, 30, 1, 0)
+        delBtn.Position = UDim2.new(1, -35, 0, 0)
         delBtn.Text = "🗑️"
-        delBtn.TextSize = 16
+        delBtn.TextColor3 = theme.Error
+        delBtn.TextSize = 14
         delBtn.Parent = card
         
         delBtn.MouseButton1Click:Connect(function()
             Axiora.DeleteNode(i)
-            card:Destroy() -- Optimistic UI update
-             -- In real app, re-render whole list or shift indices
+            card:Destroy() 
+            Axiora.Visuals.Notify("Editor", "Node deleted", 1, "info")
+            -- Rebuild recommended for proper indices, but simple destroy works for visuals
         end)
     end
+    
+    -- Initial sizing
+    task.wait()
+    updateSize()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -6105,26 +6128,45 @@ function Axiora.UI.BuildLibrary(parent)
     local theme = Axiora.UI.Theme
     local saves = Axiora.ListSaves()
     
-    local scroll = Instance.new("ScrollingFrame")
-    scroll.BackgroundTransparency = 1
-    scroll.Size = UDim2.new(1, -20, 1, -10)
-    scroll.Position = UDim2.new(0, 10, 0, 10)
-    scroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(#saves/2) * 110)
-    scroll.ScrollBarThickness = 2
-    scroll.Parent = parent
-    
+    -- Grid Layout
     local grid = Instance.new("UIGridLayout")
-    grid.CellSize = UDim2.new(0.48, 0, 0, 100)
+    grid.CellSize = UDim2.new(0.47, 0, 0, 100) -- Slightly smaller to fit padding
     grid.CellPadding = UDim2.new(0.04, 0, 0, 10)
-    grid.Parent = scroll
+    grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    grid.Parent = parent
     
-    for _, save in ipairs(saves) do
+    local function updateSize()
+        if parent.Parent and parent.Parent:IsA("ScrollingFrame") then
+             -- Grid size calculation
+             local columns = 2
+             local rows = math.ceil(#parent:GetChildren() / columns) -- Approximation
+             -- Better: AbsoluteContentSize
+             parent.Parent.CanvasSize = UDim2.new(0, 0, 0, grid.AbsoluteContentSize.Y + 20)
+        end
+        parent.Size = UDim2.new(1, 0, 0, grid.AbsoluteContentSize.Y)
+    end
+    grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
+    
+    if #saves == 0 then
+        local empty = Axiora.UI.Primitives.CreateNeonText(parent, "No saved macros found", 14, theme.TextDim)
+        empty.Size = UDim2.new(1,0,0,50)
+        return
+    end
+    
+    for i, save in ipairs(saves) do
         local card = Instance.new("TextButton")
         card.BackgroundColor3 = theme.Surface
-        card.BackgroundTransparency = 0.2
+        card.BackgroundTransparency = 0.4
         card.Text = ""
-        card.Parent = scroll
+        card.Parent = parent
         Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+        
+        -- Stroke
+        local s = Instance.new("UIStroke")
+        s.Color = theme.Primary
+        s.Transparency = 0.7
+        s.Thickness = 1
+        s.Parent = card
         
         -- Icon
         local icon = Instance.new("TextLabel")
@@ -6135,16 +6177,27 @@ function Axiora.UI.BuildLibrary(parent)
         icon.Parent = card
         
         -- Name
-        local label = Axiora.UI.Primitives.CreateNeonText(card, save, 12, theme.Primary)
-        label.Size = UDim2.new(1, -10, 0, 20)
-        label.Position = UDim2.new(0, 5, 0.65, 0)
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Text = save
+        nameLabel.Size = UDim2.new(1, -10, 0, 20)
+        nameLabel.Position = UDim2.new(0, 5, 0.65, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.TextColor3 = theme.Text
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 11
+        nameLabel.Parent = card
         
         -- Load Action
         card.MouseButton1Click:Connect(function()
             Axiora.Load(save)
-            Axiora.UI.CloseHub() -- Auto close on load
+            Axiora.Visuals.Notify("Library", "Loaded " .. save, 2, "success")
+            -- In new GUI, we might want to switch to Control tab?
+            -- But for now just load.
         end)
     end
+    
+    task.wait()
+    updateSize()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -6361,6 +6414,91 @@ function Axiora.UI.BuildScripts(parent)
     end)
 end
 
+-- Helper to refresh scripts tab
+function Axiora.UI.RefreshScripts()
+    if Axiora.UI.MainPanel then
+        -- Find the scripts container efficiently
+        local contentContainer = Axiora.UI.MainPanel:FindFirstChild("ContentContainer")
+        if contentContainer then
+            local scriptsTab = contentContainer:FindFirstChild("Scripts")
+            if scriptsTab then
+                scriptsTab:ClearAllChildren()
+                Axiora.UI.BuildScripts(scriptsTab)
+            end
+        end
+    end
+end
+
+-- Helper to refresh library tab
+function Axiora.UI.RefreshLibrary()
+     if Axiora.UI.MainPanel then
+        local contentContainer = Axiora.UI.MainPanel:FindFirstChild("ContentContainer")
+        if contentContainer then
+            local filesTab = contentContainer:FindFirstChild("Files")
+            if filesTab then
+                 filesTab:ClearAllChildren()
+                 Axiora.UI.BuildLibrary(filesTab)
+            end
+        end
+    end
+end
+
+-- Settings Builder
+function Axiora.UI.BuildSettings(parent)
+    local theme = Axiora.UI.Theme
+    
+    local list = Instance.new("UIListLayout")
+    list.Padding = UDim.new(0, 10)
+    list.Parent = parent
+    
+    local function addToggle(text, configKey)
+        local frame = Instance.new("Frame")
+        frame.BackgroundColor3 = theme.Surface
+        frame.BackgroundTransparency = 0.4
+        frame.Size = UDim2.new(1, 0, 0, 40)
+        frame.Parent = parent
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+        
+        local label = Instance.new("TextLabel")
+        label.Text = text
+        label.TextColor3 = theme.Text
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 12
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.new(0.7, 0, 1, 0)
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        local btn = Instance.new("TextButton")
+        local val = Axiora.Settings[configKey]
+        btn.Text = val and "ON" or "OFF"
+        btn.BackgroundColor3 = val and theme.Success or theme.Error
+        btn.Size = UDim2.new(0, 50, 0, 24)
+        btn.Position = UDim2.new(1, -60, 0.5, 0)
+        btn.AnchorPoint = Vector2.new(0, 0.5)
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 10
+        btn.Parent = frame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        
+        btn.MouseButton1Click:Connect(function()
+            Axiora.Settings[configKey] = not Axiora.Settings[configKey]
+            local newVal = Axiora.Settings[configKey]
+            btn.Text = newVal and "ON" or "OFF"
+            btn.BackgroundColor3 = newVal and theme.Success or theme.Error
+        end)
+    end
+    
+    addToggle("Mobile Mode", "IsMobile")
+    addToggle("Debug Info", "DebugMode")
+    addToggle("Auto Save", "AutoSave")
+    addToggle("Loop Playback", "LoopPlayback")
+    addToggle("Click Recovery", "ClickRecovery")
+    addToggle("3D Path Viz", "VisualizePath")
+end
+
 function Axiora.UI.CloseHub()
     if Axiora.UI.Hub then
         TweenService:Create(Axiora.UI.Hub, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {Position = UDim2.new(0,0,1,0)}):Play()
@@ -6414,674 +6552,492 @@ end
 -- TAB 1: COMMAND CENTER (Home)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
-function Axiora.UI.BuildCommandCenter(parent)
-    local theme = Axiora.UI.Theme
+-- Obsolete BuildCommandCenter removed.
+
+
+function Axiora.UI.Create()
+    -- Cleanup previous
+    if Axiora.UI.ScreenGui then
+        pcall(function() Axiora.UI.ScreenGui:Destroy() end)
+    end
+
+    local Players = game:GetService("Players")
+    local TweenService = game:GetService("TweenService")
+    local LP = getLocalPlayer()
+
+    -- Color utilities
+    local function rgb(r, g, b)
+        return Color3.fromRGB(r, g, b)
+    end
+
+    -- Create ScreenGui
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "AxioraModernGUI"
+    sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.Parent = LP and LP:FindFirstChild("PlayerGui") or game:GetService("CoreGui")
+    Axiora.UI.ScreenGui = sg
+
+    -- Main Frame (equivalent to the outer div)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(1, 0, 1, 0)
+    mainFrame.Position = UDim2.new(0, 0, 0, 0)
+    mainFrame.BackgroundTransparency = 1 
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = sg
+
+    -- Container (max-width equivalent) - 400x310
+    local container = Instance.new("Frame")
+    container.Name = "Container"
+    container.Size = UDim2.new(0, 400, 0, 310)
+    container.Position = UDim2.new(0.5, 0, 0.5, 0)
+    container.AnchorPoint = Vector2.new(0.5, 0.5)
+    container.BackgroundColor3 = rgb(2, 6, 23) -- slate-950
+    container.BorderSizePixel = 0
+    container.Parent = mainFrame
     
-    local controlsTab = Instance.new("Frame")
-    controlsTab.Name = "CommandCenter"
-    controlsTab.BackgroundTransparency = 1
-    controlsTab.Size = UDim2.new(1, 0, 1, 0) -- Will be driven by content
-    controlsTab.Parent = parent
-    
-    -- Auto Layout
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0, 10)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    layout.Parent = controlsTab
-    
-    -- Update canvas size automatically
-    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        if parent:IsA("ScrollingFrame") then
-            parent.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+    -- Expose Container
+    Axiora.UI.MainPanel = container
+
+    -- Gradient background for container
+    local containerGradient = Instance.new("UIGradient")
+    containerGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, rgb(2, 6, 23)), -- slate-950
+        ColorSequenceKeypoint.new(0.5, rgb(59, 7, 100)), -- purple-950
+        ColorSequenceKeypoint.new(1, rgb(2, 6, 23)) -- slate-950
+    }
+    containerGradient.Rotation = 135
+    containerGradient.Parent = container
+
+    local containerCorner = Instance.new("UICorner")
+    containerCorner.CornerRadius = UDim.new(0, 16)
+    containerCorner.Parent = container
+
+    -- Status Bar
+    local statusBar = Instance.new("Frame")
+    statusBar.Name = "StatusBar"
+    statusBar.Size = UDim2.new(1, -10, 0, 32)
+    statusBar.Position = UDim2.new(0, 5, 0, 5)
+    statusBar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
+    statusBar.BackgroundTransparency = 0.4 
+    statusBar.BorderSizePixel = 0
+    statusBar.Parent = container
+
+    local statusCorner = Instance.new("UICorner")
+    statusCorner.CornerRadius = UDim.new(0, 8)
+    statusCorner.Parent = statusBar
+
+    local statusStroke = Instance.new("UIStroke")
+    statusStroke.Color = rgb(51, 65, 85) -- slate-700/50
+    statusStroke.Transparency = 0.5
+    statusStroke.Thickness = 1
+    statusStroke.Parent = statusBar
+
+    -- Status indicator
+    local statusIndicator = Instance.new("Frame")
+    statusIndicator.Name = "StatusIndicator"
+    statusIndicator.Size = UDim2.new(0, 65, 0, 22)
+    statusIndicator.Position = UDim2.new(0, 5, 0.5, 0)
+    statusIndicator.AnchorPoint = Vector2.new(0, 0.5)
+    statusIndicator.BackgroundColor3 = rgb(51, 65, 85)
+    statusIndicator.BackgroundTransparency = 0.7
+    statusIndicator.BorderSizePixel = 0
+    statusIndicator.Parent = statusBar
+
+    local statusIndCorner = Instance.new("UICorner")
+    statusIndCorner.CornerRadius = UDim.new(0, 6)
+    statusIndCorner.Parent = statusIndicator
+
+    local statusDot = Instance.new("Frame")
+    statusDot.Name = "StatusDot"
+    statusDot.Size = UDim2.new(0, 5, 0, 5)
+    statusDot.Position = UDim2.new(0, 5, 0.5, 0)
+    statusDot.AnchorPoint = Vector2.new(0, 0.5)
+    statusDot.BackgroundColor3 = rgb(148, 163, 184)
+    statusDot.BorderSizePixel = 0
+    statusDot.Parent = statusIndicator
+    Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
+
+    -- Status text
+    local statusText = Instance.new("TextLabel")
+    statusText.Name = "StatusText"
+    statusText.Size = UDim2.new(1, -15, 1, 0)
+    statusText.Position = UDim2.new(0, 15, 0, 0)
+    statusText.BackgroundTransparency = 1
+    statusText.Text = "IDLE"
+    statusText.Font = Enum.Font.GothamBold
+    statusText.TextSize = 8
+    statusText.TextColor3 = rgb(226, 232, 240)
+    statusText.TextXAlignment = Enum.TextXAlignment.Left
+    statusText.Parent = statusIndicator
+
+    -- Node count
+    local nodeCountLabel = Instance.new("TextLabel")
+    nodeCountLabel.Name = "NodeCount"
+    nodeCountLabel.Size = UDim2.new(0, 60, 1, 0)
+    nodeCountLabel.Position = UDim2.new(0, 75, 0, 0)
+    nodeCountLabel.BackgroundTransparency = 1
+    nodeCountLabel.Text = "0 nodes"
+    nodeCountLabel.Font = Enum.Font.Code
+    nodeCountLabel.TextSize = 7
+    nodeCountLabel.TextColor3 = rgb(203, 213, 225)
+    nodeCountLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nodeCountLabel.Parent = statusBar
+
+    -- Sidebar
+    local sidebar = Instance.new("Frame")
+    sidebar.Name = "Sidebar"
+    sidebar.Size = UDim2.new(0, 90, 0, 258)
+    sidebar.Position = UDim2.new(0, 5, 0, 42)
+    sidebar.BackgroundColor3 = rgb(15, 23, 42)
+    sidebar.BackgroundTransparency = 0.4
+    sidebar.BorderSizePixel = 0
+    sidebar.Parent = container
+
+    local sidebarCorner = Instance.new("UICorner")
+    sidebarCorner.CornerRadius = UDim.new(0, 8)
+    sidebarCorner.Parent = sidebar
+
+    local sidebarStroke = Instance.new("UIStroke")
+    sidebarStroke.Color = rgb(51, 65, 85)
+    sidebarStroke.Transparency = 0.5
+    sidebarStroke.Thickness = 1
+    sidebarStroke.Parent = sidebar
+
+    -- Main Content Area (Using ScrollingFrame for dynamic content)
+    local mainContent = Instance.new("ScrollingFrame")
+    mainContent.Name = "MainContent"
+    mainContent.Size = UDim2.new(0, 295, 0, 258)
+    mainContent.Position = UDim2.new(0, 100, 0, 42)
+    mainContent.BackgroundColor3 = rgb(15, 23, 42)
+    mainContent.BackgroundTransparency = 0.4
+    mainContent.BorderSizePixel = 0
+    mainContent.CanvasSize = UDim2.new(0, 0, 0, 0) -- Dynamic
+    mainContent.ScrollBarThickness = 3
+    mainContent.ScrollBarImageColor3 = rgb(147, 51, 234)
+    mainContent.Parent = container
+
+    local contentCorner = Instance.new("UICorner")
+    contentCorner.CornerRadius = UDim.new(0, 8)
+    contentCorner.Parent = mainContent
+
+    local contentStroke = Instance.new("UIStroke")
+    contentStroke.Color = rgb(51, 65, 85)
+    contentStroke.Transparency = 0.5
+    contentStroke.Thickness = 1
+    contentStroke.Parent = mainContent
+
+    -- Navigation buttons
+    local activeTab = "control"
+    local navButtons = {
+        {id = "control", label = "Control", yPos = 5},
+        {id = "editor", label = "Editor", yPos = 32},
+        {id = "library", label = "Library", yPos = 59},
+        {id = "automation", label = "Auto", yPos = 86},
+        {id = "settings", label = "Settings", yPos = 113}
+    }
+
+    local function updateNavButtons()
+        for _, btnData in ipairs(navButtons) do
+            local btn = sidebar:FindFirstChild(btnData.id .. "Btn")
+            if btn then
+                if btnData.id == activeTab then
+                    btn.BackgroundColor3 = rgb(147, 51, 234)
+                    btn.BackgroundTransparency = 0
+                    btn.TextColor3 = rgb(255, 255, 255)
+                    local gradient = btn:FindFirstChild("UIGradient")
+                    if gradient then gradient.Enabled = true end
+                else
+                    btn.BackgroundColor3 = rgb(51, 65, 85)
+                    btn.BackgroundTransparency = 0.5
+                    btn.TextColor3 = rgb(148, 163, 184)
+                    local gradient = btn:FindFirstChild("UIGradient")
+                    if gradient then gradient.Enabled = false end
+                end
+            end
+        end
+        -- Toggle Panels
+        for _, child in pairs(mainContent:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("ScrollingFrame") then
+                local isVisible = (child.Name == activeTab .. "Panel")
+                child.Visible = isVisible
+                if isVisible then
+                    -- Reset scroll for clean partial view or dynamic sizing
+                    mainContent.CanvasPosition = Vector2.new(0,0) 
+                    -- Dynamic resize based on child content size if child is auto-sizing
+                    if child:FindFirstChild("UIListLayout") or child:FindFirstChild("UIGridLayout") then
+                        -- Builders handle resizing usually, but we ensure consistency
+                        if child.Size.Y.Offset > 0 then
+                            mainContent.CanvasSize = UDim2.new(0, 0, 0, child.Size.Y.Offset + 20)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    for _, btnData in ipairs(navButtons) do
+        local navBtn = Instance.new("TextButton")
+        navBtn.Name = btnData.id .. "Btn"
+        navBtn.Size = UDim2.new(1, -10, 0, 24)
+        navBtn.Position = UDim2.new(0, 5, 0, btnData.yPos)
+        navBtn.BackgroundColor3 = rgb(51, 65, 85)
+        navBtn.BackgroundTransparency = 0.5
+        navBtn.Text = btnData.label
+        navBtn.Font = Enum.Font.GothamBold
+        navBtn.TextSize = 8
+        navBtn.TextColor3 = rgb(148, 163, 184)
+        navBtn.BorderSizePixel = 0
+        navBtn.Parent = sidebar
+        
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 6)
+        btnCorner.Parent = navBtn
+        
+        local btnGradient = Instance.new("UIGradient")
+        btnGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, rgb(147, 51, 234)),
+            ColorSequenceKeypoint.new(1, rgb(8, 145, 178))
+        }
+        btnGradient.Rotation = 90
+        btnGradient.Enabled = false
+        btnGradient.Parent = navBtn
+        
+        navBtn.MouseButton1Click:Connect(function()
+            activeTab = btnData.id
+            updateNavButtons()
+        end)
+    end
+
+    -- Quick Actions (Visible and Wired)
+    local function createSidebarBtn(name, text, yPos, callback)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(1, -10, 0, 22)
+        btn.Position = UDim2.new(0, 5, 0, yPos)
+        btn.BackgroundColor3 = rgb(51, 65, 85)
+        btn.BackgroundTransparency = 0.7
+        btn.Text = text
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 7
+        btn.TextColor3 = rgb(203, 213, 225)
+        btn.BorderSizePixel = 0
+        btn.Parent = sidebar
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+        btn.MouseButton1Click:Connect(callback)
+        return btn
+    end
+
+    createSidebarBtn("CalibrateBtn", "Calibrate", 168, function()
+        if Axiora.Calibration and Axiora.Calibration.StartInteractiveCalibration then
+             Axiora.Calibration.StartInteractiveCalibration()
         end
     end)
     
-    -- 1. Playback Group
-    local playbackGroup = Instance.new("Frame")
-    playbackGroup.Name = "PlaybackGroup"
-    playbackGroup.BackgroundTransparency = 1
-    playbackGroup.Size = UDim2.new(1, 0, 0, 50)
-    playbackGroup.LayoutOrder = 1
-    playbackGroup.Parent = controlsTab
+    createSidebarBtn("LoadUrlBtn", "Load from URL", 196, function()
+        Axiora.Visuals.Notify("URL", "URL Loader coming soon", 2, "info")
+    end)
     
+    createSidebarBtn("MobileCalBtn", "Mobile Cal", 224, function()
+        Axiora.UI.CloseHub()
+        task.wait(0.2)
+        if Axiora.MobileCalibration then Axiora.MobileCalibration.RunCalibration() end
+    end)
+    
+    -- Control Panel
+    local controlPanel = Instance.new("Frame")
+    controlPanel.Name = "controlPanel"
+    controlPanel.Size = UDim2.new(1, 0, 1, 0)
+    controlPanel.BackgroundTransparency = 1
+    controlPanel.Visible = true
+    controlPanel.Parent = mainContent
+
+    -- Record Button
     local recordBtn = Instance.new("TextButton")
-    recordBtn.Name = "RecordToggle"
-    recordBtn.BackgroundColor3 = theme.Error
-    recordBtn.BackgroundTransparency = 0.15
-    recordBtn.Size = UDim2.new(0.48, 0, 1, 0)
-    recordBtn.Position = UDim2.new(0, 0, 0, 0)
-    recordBtn.Text = "⏺ RECORD"
-    recordBtn.TextColor3 = Color3.new(1,1,1)
+    recordBtn.Name = "RecordBtn"
+    recordBtn.Size = UDim2.new(0, 138, 0, 45)
+    recordBtn.Position = UDim2.new(0, 5, 0, 28)
+    recordBtn.BackgroundColor3 = rgb(239, 68, 68)
+    recordBtn.BackgroundTransparency = 0.8
+    recordBtn.Text = "RECORD"
     recordBtn.Font = Enum.Font.GothamBold
-    recordBtn.TextSize = 12
-    recordBtn.AutoButtonColor = false
-    recordBtn.Parent = playbackGroup
+    recordBtn.TextSize = 9
+    recordBtn.TextColor3 = rgb(252, 165, 165)
+    recordBtn.BorderSizePixel = 0
+    recordBtn.Parent = controlPanel
     Instance.new("UICorner", recordBtn).CornerRadius = UDim.new(0, 8)
-    
-    -- Red Gradient
-    local recGrad = Instance.new("UIGradient")
-    recGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 80, 80)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 0, 0))
-    })
-    recGrad.Rotation = 45
-    recGrad.Parent = recordBtn
-    
-    local playBtn = Instance.new("TextButton")
-    playBtn.Name = "PlayToggle"
-    playBtn.BackgroundColor3 = theme.Success
-    playBtn.BackgroundTransparency = 0.15
-    playBtn.Size = UDim2.new(0.48, 0, 1, 0)
-    playBtn.Position = UDim2.new(0.52, 0, 0, 0)
-    playBtn.Text = "▶ PLAY"
-    playBtn.TextColor3 = Color3.new(1,1,1)
-    playBtn.Font = Enum.Font.GothamBold
-    playBtn.TextSize = 12
-    playBtn.AutoButtonColor = false
-    playBtn.Parent = playbackGroup
-    Instance.new("UICorner", playBtn).CornerRadius = UDim.new(0, 8)
-    
-    -- Green Gradient
-    local playGrad = Instance.new("UIGradient")
-    playGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 255, 120)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 180, 60))
-    })
-    playGrad.Rotation = 45
-    playGrad.Parent = playBtn
     
     recordBtn.MouseButton1Click:Connect(function()
         if Axiora.State.Status == "RECORDING" then Axiora.Stop() else Axiora.Record() end
     end)
+
+    -- Play Button
+    local playBtn = Instance.new("TextButton")
+    playBtn.Name = "PlayBtn"
+    playBtn.Size = UDim2.new(0, 138, 0, 45)
+    playBtn.Position = UDim2.new(0, 152, 0, 28)
+    playBtn.BackgroundColor3 = rgb(34, 197, 94)
+    playBtn.BackgroundTransparency = 0.8
+    playBtn.Text = "PLAY"
+    playBtn.Font = Enum.Font.GothamBold
+    playBtn.TextSize = 9
+    playBtn.TextColor3 = rgb(134, 239, 172)
+    playBtn.BorderSizePixel = 0
+    playBtn.Parent = controlPanel
+    Instance.new("UICorner", playBtn).CornerRadius = UDim.new(0, 8)
     
     playBtn.MouseButton1Click:Connect(function()
-        if Axiora.State.Status == "PLAYING" then Axiora.Pause() 
-        elseif Axiora.State.Status == "PAUSED" then Axiora.Resume() 
-        else Axiora.Play(true) end
+         if Axiora.State.Status == "PLAYING" then Axiora.Pause() 
+         elseif Axiora.State.Status == "PAUSED" then Axiora.Resume() 
+         else Axiora.Play(true) end
     end)
-    
-    -- 2. Speed Group
-    local speedGroup = Instance.new("Frame")
-    speedGroup.Name = "SpeedGroup"
-    speedGroup.BackgroundColor3 = theme.Surface
-    speedGroup.BackgroundTransparency = 0.5
-    speedGroup.Size = UDim2.new(1, 0, 0, 40)
-    speedGroup.LayoutOrder = 2
-    speedGroup.Parent = controlsTab
-    Instance.new("UICorner", speedGroup).CornerRadius = UDim.new(0, 6)
-    
-    local spdLabel = Instance.new("TextLabel")
-    spdLabel.Text = "SPEED"
-    spdLabel.TextColor3 = theme.TextDim
-    spdLabel.Font = Enum.Font.GothamBold
-    spdLabel.TextSize = 10
-    spdLabel.Size = UDim2.new(0, 50, 1, 0)
-    spdLabel.BackgroundTransparency = 1
-    spdLabel.Parent = speedGroup
-    
-    local spdContainer = Instance.new("Frame")
-    spdContainer.BackgroundTransparency = 1
-    spdContainer.Size = UDim2.new(1, -60, 1, -10)
-    spdContainer.Position = UDim2.new(0, 55, 0, 5)
-    spdContainer.Parent = speedGroup
-    
-    local spdLayout = Instance.new("UIListLayout")
-    spdLayout.FillDirection = Enum.FillDirection.Horizontal
-    spdLayout.Padding = UDim.new(0, 5)
-    spdLayout.Parent = spdContainer
-    
-    for _, spd in ipairs({"0.5x", "1x", "1.5x", "2x"}) do
+
+    -- Speed Controls
+    local speedLabel = Instance.new("TextLabel")
+    speedLabel.Text = "Playback Speed"
+    speedLabel.Size = UDim2.new(1, -10, 0, 12)
+    speedLabel.Position = UDim2.new(0, 5, 0, 80)
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.TextColor3 = rgb(203, 213, 225)
+    speedLabel.Font = Enum.Font.GothamBold
+    speedLabel.TextSize = 8
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    speedLabel.Parent = controlPanel
+
+    local speeds = {"0.5x", "1.0x", "1.5x", "2.0x"}
+    for i, speed in ipairs(speeds) do
         local btn = Instance.new("TextButton")
-        btn.Text = spd
-        btn.BackgroundColor3 = Axiora.UI.CurrentSpeed == tonumber(spd:sub(1,-2)) and theme.Primary or theme.Surface
-        btn.BackgroundTransparency = 0.3
-        btn.TextColor3 = theme.Text
+        local val = tonumber(speed:sub(1,-2))
+        btn.Text = speed
+        btn.Size = UDim2.new(0, 68, 0, 24)
+        btn.Position = UDim2.new(0, 5 + (i-1) * 73, 0, 95)
+        btn.BackgroundColor3 = rgb(51, 65, 85)
+        btn.BackgroundTransparency = 0.7
+        btn.TextColor3 = rgb(203, 213, 225)
         btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 10
-        btn.Size = UDim2.new(0.22, 0, 1, 0)
-        btn.Parent = spdContainer
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        btn.TextSize = 9
+        btn.Parent = controlPanel
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
         
         btn.MouseButton1Click:Connect(function()
-            Axiora.SetSpeed(tonumber(spd:sub(1,-2)))
-            for _, c in ipairs(spdContainer:GetChildren()) do 
-                if c:IsA("TextButton") then c.BackgroundColor3 = theme.Surface end 
-            end
-            btn.BackgroundColor3 = theme.Primary
+            Axiora.SetSpeed(val)
         end)
     end
-    
-    -- 3. File Group
-    local fileGroup = Instance.new("Frame")
-    fileGroup.Name = "FileGroup"
-    fileGroup.BackgroundTransparency = 1
-    fileGroup.Size = UDim2.new(1, 0, 0, 32)
-    fileGroup.LayoutOrder = 3
-    fileGroup.Parent = controlsTab
-    
-    local function createBtn(name, icon, color, callback)
+
+    -- Save/Load
+    local function createSmallBtn(text, posX, callback)
         local btn = Instance.new("TextButton")
-        btn.BackgroundColor3 = color
-        btn.BackgroundTransparency = 0.2
-        btn.Text = icon .. " " .. name
-        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Text = text
+        btn.Size = UDim2.new(0, 138, 0, 28)
+        btn.Position = UDim2.new(0, posX, 0, 125)
+        btn.BackgroundColor3 = rgb(51, 65, 85)
+        btn.BackgroundTransparency = 0.7
+        btn.TextColor3 = rgb(226, 232, 240)
         btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 10
-        btn.Parent = fileGroup
+        btn.TextSize = 9
+        btn.Parent = controlPanel
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
         btn.MouseButton1Click:Connect(callback)
         return btn
     end
     
-    local save = createBtn("SAVE", "💾", theme.Info, function() Axiora.Save() end)
-    save.Size = UDim2.new(0.48, 0, 1, 0)
-    
-    local load = createBtn("LOAD", "📂", theme.Info, function() Axiora.UI.ShowLoadPicker() end)
-    load.Size = UDim2.new(0.48, 0, 1, 0)
-    load.Position = UDim2.new(0.52, 0, 0, 0) -- Manually positioned relative to group, or could use list layout
-    
-    -- 4. Tools Group (Calibration)
-    local calibrationBtn = Instance.new("TextButton")
-    calibrationBtn.Name = "CalibrateBtn"
-    calibrationBtn.BackgroundColor3 = theme.Warning
-    calibrationBtn.BackgroundTransparency = 0.2
-    calibrationBtn.Size = UDim2.new(1, 0, 0, 36)
-    calibrationBtn.Text = "🎯 CALIBRATE OFFSET"
-    calibrationBtn.TextColor3 = Color3.new(1,1,1)
-    calibrationBtn.Font = Enum.Font.GothamBold
-    calibrationBtn.TextSize = 11
-    calibrationBtn.LayoutOrder = 4
-    calibrationBtn.Parent = controlsTab
-    Instance.new("UICorner", calibrationBtn).CornerRadius = UDim.new(0, 6)
-    
-    calibrationBtn.MouseButton1Click:Connect(function()
-        Axiora.Calibration.StartInteractiveCalibration()
-    end)
-    
-    if UserInputService.TouchEnabled then
-        local mobBtn = calibrationBtn:Clone()
-        mobBtn.Name = "MobileCalBtn"
-        mobBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-        mobBtn.Text = "📱 FULL CALIBRATION"
-        mobBtn.LayoutOrder = 5
-        mobBtn.Parent = controlsTab
-        
-        mobBtn.MouseButton1Click:Connect(function()
-            Axiora.UI.CloseHub()
-            task.wait(0.2)
-            Axiora.MobileCalibration.RunCalibration()
+    createSmallBtn("Save", 5, function() Axiora.Save() end)
+    createSmallBtn("Load", 152, function() Axiora.UI.ShowLoadPicker() end)
+
+    -- Other Panels (Injected)
+    local function createPanel(name, builder)
+        local p = Instance.new("Frame")
+        p.Name = name
+        p.Size = UDim2.new(1, 0, 1, 0)
+        p.BackgroundTransparency = 1
+        p.Visible = false
+        p.Parent = mainContent
+        task.spawn(function()
+            if builder then builder(p) end
         end)
     end
     
-    -- 5. Viz Group
-    local vizBtn = Instance.new("TextButton")
-    vizBtn.Name = "VizBtn"
-    vizBtn.BackgroundColor3 = theme.Secondary
-    vizBtn.BackgroundTransparency = 0.5
-    vizBtn.Size = UDim2.new(1, 0, 0, 24)
-    vizBtn.Text = "👁️ TOGGLE 3D PATH"
-    vizBtn.TextColor3 = theme.TextDim
-    vizBtn.Font = Enum.Font.Gotham
-    vizBtn.TextSize = 10
-    vizBtn.LayoutOrder = 6
-    vizBtn.Parent = controlsTab
-    Instance.new("UICorner", vizBtn).CornerRadius = UDim.new(0, 6)
-    
-    vizBtn.MouseButton1Click:Connect(function() 
-        Axiora.Visualization3D.Toggle()
-        vizBtn.TextColor3 = Axiora.Visualization3D.Enabled and theme.Success or theme.TextDim
-    end)
-end
+    createPanel("editorPanel", Axiora.UI.BuildEditor)
+    createPanel("libraryPanel", Axiora.UI.BuildLibrary)
+    createPanel("automationPanel", Axiora.UI.BuildScripts)
+    createPanel("settingsPanel", Axiora.UI.BuildSettings)
 
-function Axiora.UI.Create()
-    if Axiora.UI.ScreenGui then
-        pcall(function() Axiora.UI.ScreenGui:Destroy() end)
-    end
-    
-    local theme = Axiora.Visuals.GetTheme()
-    
-    -- Mobile scaling
-    local isMobile = Axiora.Settings.IsMobile
-    local btnScale = isMobile and Axiora.Settings.MobileButtonScale or 1.0
-    local fontScale = isMobile and Axiora.Settings.MobileFontScale or 1.0
-    local minBtn = Axiora.Settings.MinButtonSize
-    
-    -- Panel size (larger on mobile for easier touch)
-    local panelWidth = isMobile and 360 or 340
-    local panelHeight = isMobile and 340 or 280
-    
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "AxioraUI_Compact"
-    sg.IgnoreGuiInset = true
-    sg.ResetOnSpawn = false
-    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    sg.DisplayOrder = 999
-    
-    local success = pcall(function()
-        sg.Parent = CoreGui
-    end)
-    if not success then
-        local LP = getLocalPlayer()
-        if LP and LP:FindFirstChild("PlayerGui") then
-            sg.Parent = LP.PlayerGui
-        end
-    end
-    
-    Axiora.UI.ScreenGui = sg
-    Axiora.UI.Theme = theme -- Expose theme globally for builders
-    -- FLOATING TOGGLE BUTTON (Always visible, larger on mobile)
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local toggleSize = isMobile and 56 or 44
+    -- Toggle Button
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Name = "ToggleButton"
-    toggleBtn.BackgroundColor3 = theme.Primary
-    toggleBtn.BackgroundTransparency = 0.1
-    toggleBtn.Size = UDim2.new(0, toggleSize, 0, toggleSize)
-    toggleBtn.Position = UDim2.new(0, 12, 0.5, 0)
-    toggleBtn.AnchorPoint = Vector2.new(0, 0.5)
-    toggleBtn.Text = "▶"
-    toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-    toggleBtn.Font = Enum.Font.GothamBlack
-    toggleBtn.TextSize = 18
-    toggleBtn.AutoButtonColor = false
-    toggleBtn.BorderSizePixel = 0
-    toggleBtn.ZIndex = 100
+    toggleBtn.Size = UDim2.new(0, 50, 0, 50)
+    toggleBtn.Position = UDim2.new(0, 10, 0, 10)
+    toggleBtn.BackgroundColor3 = rgb(15, 23, 42)
+    toggleBtn.BackgroundTransparency = 0.3
+    toggleBtn.Text = "✕"
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.TextSize = 24
+    toggleBtn.TextColor3 = rgb(167, 139, 250)
     toggleBtn.Parent = sg
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 12)
     
-    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
-    
-    -- Status color on toggle button
-    local function updateToggleColor()
-        if Axiora.State.Status == "RECORDING" then
-            toggleBtn.BackgroundColor3 = theme.Error
-            toggleBtn.Text = "⏺"
-        elseif Axiora.State.Status == "PLAYING" then
-            toggleBtn.BackgroundColor3 = theme.Success
-            toggleBtn.Text = "▶"
-        elseif Axiora.State.Status == "PAUSED" then
-            toggleBtn.BackgroundColor3 = theme.Warning
-            toggleBtn.Text = "⏸"
-        else
-            toggleBtn.BackgroundColor3 = theme.Primary
-            toggleBtn.Text = "▶"
-        end
-    end
-    
+    local isVisible = true
+    toggleBtn.MouseButton1Click:Connect(function()
+        isVisible = not isVisible
+        container.Visible = isVisible
+        toggleBtn.Text = isVisible and "✕" or "☰"
+        Axiora.UI.Open = isVisible
+    end)
     Axiora.UI.ToggleButton = toggleBtn
-    
-    -- Toggle button drag functionality
-    local toggleDragging = false
-    local toggleDragStart, toggleStartPos
-    
-    toggleBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            toggleDragging = true
-            toggleDragStart = UserInputService:GetMouseLocation()
-            toggleStartPos = toggleBtn.Position
-        end
-    end)
-    
-    toggleBtn.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            local movedDist = (UserInputService:GetMouseLocation() - toggleDragStart).Magnitude
-            if movedDist < 8 then
-                -- It was a click, not a drag - open panel
-                Axiora.UI.TogglePanel()
+
+    -- Status Loop
+    task.spawn(function()
+        while sg.Parent do
+            -- Update Status Text
+            statusText.Text = Axiora.State.Status
+            nodeCountLabel.Text = #Axiora.State.Buffer .. " nodes"
+            
+            -- Visuals based on status
+            if Axiora.State.Status == "RECORDING" then
+                statusIndicator.BackgroundColor3 = rgb(239, 68, 68)
+                statusDot.BackgroundColor3 = rgb(248, 113, 113)
+                recordBtn.Text = "STOP REC"
+                recordBtn.BackgroundColor3 = rgb(220, 38, 38)
+                recordBtn.BackgroundTransparency = 0
+            elseif Axiora.State.Status == "PLAYING" then
+                statusIndicator.BackgroundColor3 = rgb(34, 197, 94)
+                statusDot.BackgroundColor3 = rgb(74, 222, 128)
+                playBtn.Text = "STOP"
+                playBtn.BackgroundColor3 = rgb(21, 128, 61)
+                playBtn.BackgroundTransparency = 0
+            else
+                statusIndicator.BackgroundColor3 = rgb(51, 65, 85)
+                statusDot.BackgroundColor3 = rgb(148, 163, 184)
+                recordBtn.Text = "RECORD"
+                recordBtn.BackgroundColor3 = rgb(239, 68, 68)
+                recordBtn.BackgroundTransparency = 0.8
+                playBtn.Text = "PLAY"
+                playBtn.BackgroundColor3 = rgb(34, 197, 94)
+                playBtn.BackgroundTransparency = 0.8
             end
-            toggleDragging = false
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if toggleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local current = UserInputService:GetMouseLocation()
-            local delta = current - toggleDragStart
-            toggleBtn.Position = UDim2.new(
-                toggleStartPos.X.Scale, toggleStartPos.X.Offset + delta.X,
-                toggleStartPos.Y.Scale, toggleStartPos.Y.Offset + delta.Y
-            )
+            task.wait(0.2)
         end
     end)
 
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- MAIN PANEL (Responsive - larger on mobile for touch)
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local main = Instance.new("Frame")
-    main.Name = "MainPanel"
-    main.BackgroundColor3 = theme.Background
-    main.BackgroundTransparency = 0.05
-    main.Size = UDim2.new(0, panelWidth, 0, panelHeight)
-    main.Position = UDim2.new(0.5, 0, 0.5, 0)
-    main.AnchorPoint = Vector2.new(0.5, 0.5)
-    main.BorderSizePixel = 0
-    main.ClipsDescendants = true
-    main.Visible = true
-    main.Parent = sg
-    
-    Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
-    
-    -- Aesthetic Gradient
-    local mainGrad = Instance.new("UIGradient")
-    mainGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.new(1,1,1)),
-        ColorSequenceKeypoint.new(1, Color3.new(0.9,0.9,0.95))
-    })
-    mainGrad.Rotation = 45
-    mainGrad.Parent = main
-    
-    -- Expose main panel
-    Axiora.UI.MainPanel = main
-    
-    -- Toggle Panel Function
-    function Axiora.UI.TogglePanel()
-        main.Visible = not main.Visible
-        -- Optional: Hide toggle button when panel is open if desired, 
-        -- but "Always Visible" comment suggests keeping it.
-        -- Let's just animate it slightly or sound effect if we had one.
-    end
-    
-    local mainStroke = Instance.new("UIStroke")
-    mainStroke.Color = theme.Primary
-    mainStroke.Transparency = 0.5
-    mainStroke.Thickness = 1.5
-    mainStroke.Parent = main
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- HEADER (Compact)
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local header = Instance.new("Frame")
-    header.Name = "Header"
-    header.BackgroundColor3 = theme.Surface
-    header.BackgroundTransparency = 0.4
-    header.Size = UDim2.new(1, 0, 0, 36)
-    header.BorderSizePixel = 0
-    header.Parent = main
-    
-    -- Gradient accent bar
-    local accentBar = Instance.new("Frame")
-    accentBar.BackgroundColor3 = theme.Primary
-    accentBar.Size = UDim2.new(1, 0, 0, 2)
-    accentBar.BorderSizePixel = 0
-    accentBar.Parent = header
-    createGradient(accentBar, theme.Primary, theme.Secondary, 0)
-    
-    -- Title
-    local title = Instance.new("TextLabel")
-    title.BackgroundTransparency = 1
-    title.Size = UDim2.new(1, -60, 1, -2)
-    title.Position = UDim2.new(0, 12, 0, 2)
-    title.Text = "AXIORA"
-    title.TextColor3 = theme.Primary
-    title.Font = Enum.Font.GothamBlack
-    title.TextSize = 14
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Parent = header
-    
-    -- Close button
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.BackgroundColor3 = theme.Error
-    closeBtn.BackgroundTransparency = 0.85
-    closeBtn.Size = UDim2.new(0, 28, 0, 28)
-    closeBtn.Position = UDim2.new(1, -34, 0, 4)
-    closeBtn.Text = "✕"
-    closeBtn.TextColor3 = theme.Text
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 12
-    closeBtn.AutoButtonColor = false
-    closeBtn.BorderSizePixel = 0
-    closeBtn.Parent = header
-    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-    
-    closeBtn.MouseButton1Click:Connect(function()
-        Axiora.UI.TogglePanel()
-    end)
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- STATUS BAR (Compact)
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local statusBar = Instance.new("Frame")
-    statusBar.Name = "StatusBar"
-    statusBar.BackgroundColor3 = theme.Surface
-    statusBar.BackgroundTransparency = 0.6
-    statusBar.Size = UDim2.new(1, -20, 0, 28)
-    statusBar.Position = UDim2.new(0, 10, 0, 42)
-    statusBar.BorderSizePixel = 0
-    statusBar.Parent = main
-    Instance.new("UICorner", statusBar).CornerRadius = UDim.new(0, 6)
-    
-    local statusDot = Instance.new("Frame")
-    statusDot.Size = UDim2.new(0, 8, 0, 8)
-    statusDot.Position = UDim2.new(0, 10, 0.5, 0)
-    statusDot.AnchorPoint = Vector2.new(0, 0.5)
-    statusDot.BackgroundColor3 = theme.TextDim
-    statusDot.BorderSizePixel = 0
-    statusDot.Parent = statusBar
-    Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
-    
-    local statusText = Instance.new("TextLabel")
-    statusText.BackgroundTransparency = 1
-    statusText.Size = UDim2.new(0.4, -25, 1, 0)
-    statusText.Position = UDim2.new(0, 24, 0, 0)
-    statusText.Text = "IDLE"
-    statusText.TextColor3 = theme.Text
-    statusText.Font = Enum.Font.GothamBold
-    statusText.TextSize = 11
-    statusText.TextXAlignment = Enum.TextXAlignment.Left
-    statusText.Parent = statusBar
-    
-    local bufferText = Instance.new("TextLabel")
-    bufferText.BackgroundTransparency = 1
-    bufferText.Size = UDim2.new(0.5, -10, 1, 0)
-    bufferText.Position = UDim2.new(0.5, 0, 0, 0)
-    bufferText.Text = "0 nodes"
-    bufferText.TextColor3 = theme.TextDim
-    bufferText.Font = Enum.Font.Gotham
-    bufferText.TextSize = 10
-    bufferText.TextXAlignment = Enum.TextXAlignment.Right
-    bufferText.Parent = statusBar
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- TAB BAR
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local tabBar = Instance.new("Frame")
-    tabBar.Name = "TabBar"
-    tabBar.BackgroundTransparency = 1
-    tabBar.Size = UDim2.new(1, -20, 0, 44) -- Taller for mobile touch
-    tabBar.Position = UDim2.new(0, 10, 0, 76)
-    tabBar.Parent = main
-    
-    local tabNames = {"Home", "Editor", "Files", "Tools", "Scripts"}
-    local tabIcons = {Home="📊", Editor="✏️", Files="📁", Tools="🔧", Scripts="⚙️"}
-    local tabButtons = {}
-    local tabContents = {}
-    local activeTab = "Home"
-    
-    local tabIndicator = Instance.new("Frame")
-    tabIndicator.Name = "TabIndicator"
-    tabIndicator.BackgroundColor3 = theme.Primary
-    tabIndicator.Size = UDim2.new(0, panelWidth/5, 0, 2)
-    tabIndicator.Position = UDim2.new(0, 0, 1, -2)
-    tabIndicator.BorderSizePixel = 0
-    tabIndicator.Parent = tabBar
-    
-    for i, tabName in ipairs(tabNames) do
-        local tabBtn = Instance.new("TextButton")
-        tabBtn.Name = tabName
-        tabBtn.BackgroundTransparency = 1
-        tabBtn.Size = UDim2.new(1/5, 0, 1, -2)
-        tabBtn.Position = UDim2.new((i-1)/5, 0, 0, 0)
-        tabBtn.Text = tabIcons[tabName]
-        tabBtn.TextColor3 = i == 1 and theme.Primary or theme.TextDim
-        tabBtn.Font = Enum.Font.GothamBold
-        tabBtn.TextSize = 18
-        tabBtn.AutoButtonColor = false
-        tabBtn.BorderSizePixel = 0
-        tabBtn.Parent = tabBar
-        tabButtons[tabName] = tabBtn
-        
-        -- Tooltip/Name on hover could go here, but keeping it clean for mobile
-        
-        tabBtn.MouseButton1Click:Connect(function()
-            activeTab = tabName
-            for name, btn in pairs(tabButtons) do
-                btn.TextColor3 = name == tabName and theme.Primary or theme.TextDim
-            end
-            
-            -- Animate indicator
-            TweenService:Create(tabIndicator, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Position = UDim2.new((i-1)/5, 0, 1, -2)
-            }):Play()
-            
-            -- Switch content
-            for name, content in pairs(tabContents) do
-                content.Visible = name == tabName
-            end
-            
-            -- Refresh content if needed
-            if tabName == "Scripts" and Axiora.UI.RefreshScripts then
-                Axiora.UI.RefreshScripts() -- We'll add this helper
-            elseif tabName == "Files" and Axiora.UI.RefreshLibrary then
-                Axiora.UI.RefreshLibrary()
-            end
-        end)
-    end
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- TAB CONTENT CONTAINER
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- TAB CONTENT CONTAINER (SCROLLABLE)
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local contentContainer = Instance.new("ScrollingFrame")
-    contentContainer.Name = "ContentContainer"
-    contentContainer.BackgroundTransparency = 1
-    contentContainer.Size = UDim2.new(1, -20, 1, -136) -- Dynamic height
-    contentContainer.Position = UDim2.new(0, 10, 0, 126) -- Adjusted for taller tabs
-    contentContainer.CanvasSize = UDim2.new(0, 0, 0, 0) -- Auto-resizing will handle this
-    contentContainer.ScrollBarThickness = 4
-    contentContainer.ScrollBarImageColor3 = theme.Primary
-    contentContainer.Parent = main
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- INITIALIZE TABS
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local function initTab(name, builderFunc)
-        local container = Instance.new("Frame")
-        container.Name = name
-        container.BackgroundTransparency = 1
-        container.Size = UDim2.new(1, 0, 1, 0)
-        container.Visible = (name == "Home")
-        container.Parent = contentContainer
-        tabContents[name] = container
-        
-        if builderFunc then
-            task.spawn(function()
-                builderFunc(container)
-            end)
-        end
-    end
-    
-    initTab("Home", Axiora.UI.BuildCommandCenter)
-    initTab("Editor", Axiora.UI.BuildEditor)
-    initTab("Files", Axiora.UI.BuildLibrary)
-    initTab("Tools", Axiora.UI.BuildUtilities)
-    initTab("Scripts", Axiora.UI.BuildScripts)
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- STATUS UPDATE LOOP
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local statusThread = task.spawn(function()
-        while sg and sg.Parent do
-            statusText.Text = Axiora.State.Status
-            bufferText.Text = #Axiora.State.Buffer .. " nodes"
-            
-            -- Find buttons dynamically since they are now in sub-modules
-            local homeTab = tabContents["Home"]
-            local cmdCenter = homeTab and homeTab:FindFirstChild("CommandCenter")
-            
-            if cmdCenter then
-                local recBtn = cmdCenter:FindFirstChild("RecordToggle")
-                local playBtn = cmdCenter:FindFirstChild("PlayToggle")
-                
-                -- Update button visuals based on status
-                if Axiora.State.Status == "RECORDING" then
-                    statusDot.BackgroundColor3 = theme.Error
-                    if recBtn then
-                        recBtn.BackgroundColor3 = theme.Secondary
-                        local icon = recBtn:FindFirstChild("TextLabel")
-                        if icon then icon.Text = "⏹" end
-                    end
-                elseif Axiora.State.Status == "PLAYING" then
-                    statusDot.BackgroundColor3 = theme.Success
-                    if playBtn then
-                        local icon = playBtn:FindFirstChild("TextLabel")
-                        if icon then icon.Text = "⏸" end
-                    end
-                elseif Axiora.State.Status == "PAUSED" then
-                    statusDot.BackgroundColor3 = theme.Warning
-                    if playBtn then
-                        local icon = playBtn:FindFirstChild("TextLabel")
-                        if icon then icon.Text = "▶" end -- Resume icon
-                    end
-                else
-                    statusDot.BackgroundColor3 = theme.TextDim
-                    if recBtn then
-                        recBtn.BackgroundColor3 = theme.Error
-                        local icon = recBtn:FindFirstChild("TextLabel")
-                        if icon then icon.Text = "⏺" end
-                    end
-                    if playBtn then
-                        local icon = playBtn:FindFirstChild("TextLabel")
-                        if icon then icon.Text = "▶" end
-                    end
-                end
-            end
-            
-            pcall(updateToggleColor)
-            task.wait(0.25)
-        end
-    end)
-    table.insert(Axiora.State.Threads, statusThread)
-    
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- DRAGGING
-    -- ═══════════════════════════════════════════════════════════════════════
-    
-    local dragging = false
-    local dragStart, startPos
-    
-    header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    -- Draggable Logic
+    local dragging, dragInput, dragStart, startPos
+    statusBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            dragStart = UserInputService:GetMouseLocation()
-            startPos = main.Position
+            dragStart = input.Position
+            startPos = container.Position
         end
     end)
-    
-    header.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
+    statusBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
         end
     end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local current = UserInputService:GetMouseLocation()
-            local delta = current - dragStart
-            main.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            container.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
     
@@ -9626,6 +9582,7 @@ function Axiora.MobileCalibration.CreateOverlay()
     bg.Size = UDim2.new(1,0,1,0)
     bg.Parent = sg
     
+    local msg = Instance.new("TextLabel")
     msg.Name = "StatusMessage"
     msg.Text = "DON'T TOUCH - Calibrating..."
     msg.Size = UDim2.new(1,0,0,50)
