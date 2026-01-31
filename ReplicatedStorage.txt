@@ -34,10 +34,10 @@ mainFrame.BackgroundTransparency = 1 -- FIXED: Made transparent to remove black 
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
 
--- Container (max-width equivalent) - 400x350
+-- Container (max-width equivalent) - 400x310 (reduced from 350 since header removed)
 local container = Instance.new("Frame")
 container.Name = "Container"
-container.Size = UDim2.new(0, 400, 0, 350)
+container.Size = UDim2.new(0, 400, 0, 310)
 container.Position = UDim2.new(0.5, 0, 0.5, 0)
 container.AnchorPoint = Vector2.new(0.5, 0.5)
 container.BackgroundColor3 = rgb(2, 6, 23) -- slate-950
@@ -58,15 +58,16 @@ local containerCorner = Instance.new("UICorner")
 containerCorner.CornerRadius = UDim.new(0, 16)
 containerCorner.Parent = container
 
--- Header
+-- Header (completely hidden)
 local header = Instance.new("Frame")
 header.Name = "Header"
 header.Size = UDim2.new(0, 180, 0, 35)
 header.Position = UDim2.new(0.5, 0, 0, 5)
 header.AnchorPoint = Vector2.new(0.5, 0)
 header.BackgroundColor3 = rgb(88, 28, 135) -- purple-600/20 approximation
-header.BackgroundTransparency = 0.7 -- Less transparent to show purple
+header.BackgroundTransparency = 1 -- Fully transparent
 header.BorderSizePixel = 0
+header.Visible = false -- Hidden
 header.Parent = container
 
 local headerCorner = Instance.new("UICorner")
@@ -136,7 +137,7 @@ versionCorner.Parent = versionBadge
 local statusBar = Instance.new("Frame")
 statusBar.Name = "StatusBar"
 statusBar.Size = UDim2.new(1, -10, 0, 32)
-statusBar.Position = UDim2.new(0, 5, 0, 45)
+statusBar.Position = UDim2.new(0, 5, 0, 5) -- Moved up from 45
 statusBar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 statusBar.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
 statusBar.BorderSizePixel = 0
@@ -259,8 +260,8 @@ readyStroke.Parent = readyBadge
 -- Sidebar
 local sidebar = Instance.new("Frame")
 sidebar.Name = "Sidebar"
-sidebar.Size = UDim2.new(0, 90, 0, 250) -- Increased from 150
-sidebar.Position = UDim2.new(0, 5, 0, 82)
+sidebar.Size = UDim2.new(0, 90, 0, 258) -- Increased to fit new container
+sidebar.Position = UDim2.new(0, 5, 0, 42) -- Moved up from 82
 sidebar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 sidebar.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
 sidebar.BorderSizePixel = 0
@@ -405,8 +406,8 @@ urlCorner.Parent = loadUrlBtn
 -- Main Content Area
 mainContent = Instance.new("Frame")
 mainContent.Name = "MainContent"
-mainContent.Size = UDim2.new(0, 295, 0, 250) -- Increased from 150
-mainContent.Position = UDim2.new(0, 100, 0, 82)
+mainContent.Size = UDim2.new(0, 295, 0, 258) -- Increased to fit new container
+mainContent.Position = UDim2.new(0, 100, 0, 42) -- Moved up from 82
 mainContent.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 mainContent.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
 mainContent.BorderSizePixel = 0
@@ -596,8 +597,8 @@ loadStroke.Parent = loadBtn
 -- Advanced Options
 local advancedBox = Instance.new("Frame")
 advancedBox.Name = "AdvancedBox"
-advancedBox.Size = UDim2.new(1, -10, 0, 80) -- Increased from 70
-advancedBox.Position = UDim2.new(0, 5, 0, 160) -- Adjusted position
+advancedBox.Size = UDim2.new(1, -10, 0, 85) -- Slightly increased
+advancedBox.Position = UDim2.new(0, 5, 0, 165) -- Better position
 advancedBox.BackgroundColor3 = rgb(30, 41, 59) -- slate-800/30
 advancedBox.BackgroundTransparency = 0.7
 advancedBox.BorderSizePixel = 0
@@ -989,7 +990,7 @@ toggleButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Make GUI Draggable
+-- Make GUI Draggable (using status bar since header is hidden)
 local dragging = false
 local dragInput
 local dragStart
@@ -1000,7 +1001,7 @@ local function update(input)
 	container.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
 
-header.InputBegan:Connect(function(input)
+statusBar.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = true
 		dragStart = input.Position
@@ -1014,7 +1015,7 @@ header.InputBegan:Connect(function(input)
 	end
 end)
 
-header.InputChanged:Connect(function(input)
+statusBar.InputChanged:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 		dragInput = input
 	end
