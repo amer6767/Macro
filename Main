@@ -2029,28 +2029,30 @@ function Axiora.Visuals.Notify(title, message, duration, notifType)
 end
 
 -- Ripple effect for clicks
-function Axiora.Visuals.Ripple(x, y)
+function Axiora.Visuals.Ripple(x, y, color)
     if Axiora.Settings.PerformanceMode then return end
     if not Axiora.Visuals.ScreenGui then return end
     
-    local theme = Axiora.Visuals.GetTheme()
+    local theme = Axiora.Visuals.GetTheme and Axiora.Visuals.GetTheme() or {Primary = Color3.fromRGB(0, 255, 100)}
     
     local r = Instance.new("Frame")
     r.Position = UDim2.fromOffset(x, y)
     r.Size = UDim2.fromOffset(0, 0)
     r.AnchorPoint = Vector2.new(0.5, 0.5)
-    r.BackgroundColor3 = theme.Primary
+    r.BackgroundColor3 = color or theme.Primary
     r.BackgroundTransparency = 0.4
     r.BorderSizePixel = 0
-    r.ZIndex = 10
+    r.ZIndex = 100 -- High ZIndex to be visible on top
     r.Parent = Axiora.Visuals.ScreenGui
     
     Instance.new("UICorner", r).CornerRadius = UDim.new(1, 0)
     
-    local tween = TweenService:Create(r, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {
-        Size = UDim2.fromOffset(80, 80),
+    -- Small target size (15px) for precision
+    local tween = TweenService:Create(r, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {
+        Size = UDim2.fromOffset(15, 15),
         BackgroundTransparency = 1
     })
+    
     tween:Play()
     tween.Completed:Connect(function()
         pcall(function() r:Destroy() end)
@@ -7433,6 +7435,67 @@ function Axiora.UI.Create()
         {name = "Performance", key = "PerformanceMode"},
         {name = "Interactive Test Mode", key = "TestMode"}
     }
+
+    -- [NEW] Mobile Calibration Section (TextBox + Test Button)
+    local calibFrame = Instance.new("Frame")
+    calibFrame.Size = UDim2.new(1, -5, 0, 80)
+    calibFrame.BackgroundColor3 = rgb(30, 41, 59)
+    calibFrame.BackgroundTransparency = 0.7
+    calibFrame.Parent = settScroll
+    Instance.new("UICorner", calibFrame).CornerRadius = UDim.new(0, 6)
+
+    local calibTitle = Instance.new("TextLabel")
+    calibTitle.Text = "MOBILE CALIBRATION (X Offset)"
+    calibTitle.Size = UDim2.new(1, -10, 0, 20)
+    calibTitle.Position = UDim2.new(0, 5, 0, 5)
+    calibTitle.BackgroundTransparency = 1
+    calibTitle.TextColor3 = rgb(255, 255, 255)
+    calibTitle.Font = Enum.Font.GothamBold
+    calibTitle.TextSize = 10
+    calibTitle.TextXAlignment = Enum.TextXAlignment.Left
+    calibTitle.Parent = calibFrame
+
+    -- Offset Input (TextBox)
+    local offsetInput = Instance.new("TextBox")
+    offsetInput.Size = UDim2.new(0.6, 0, 0, 25)
+    offsetInput.Position = UDim2.new(0, 5, 0, 30)
+    offsetInput.BackgroundColor3 = rgb(15, 23, 42)
+    offsetInput.TextColor3 = rgb(255, 255, 255)
+    offsetInput.Text = tostring(Axiora.Settings.MobileXOffset or 0)
+    offsetInput.Font = Enum.Font.Gotham
+    offsetInput.TextSize = 12
+    offsetInput.Parent = calibFrame
+    Instance.new("UICorner", offsetInput).CornerRadius = UDim.new(0, 4)
+
+    offsetInput.FocusLost:Connect(function()
+        local num = tonumber(offsetInput.Text)
+        if num then
+            Axiora.Settings.MobileXOffset = num
+            Axiora.Visuals.Notify("Calibration", "X Offset set to: " .. num, 2, "info")
+        else
+            offsetInput.Text = tostring(Axiora.Settings.MobileXOffset or 0)
+        end
+    end)
+
+    -- Test Click Button
+    local testBtn = Instance.new("TextButton")
+    testBtn.Text = "TEST CLICK"
+    testBtn.Size = UDim2.new(0.35, 0, 0, 25)
+    testBtn.Position = UDim2.new(0.63, 0, 0, 30)
+    testBtn.BackgroundColor3 = rgb(59, 130, 246)
+    testBtn.TextColor3 = Color3.new(1,1,1)
+    testBtn.Font = Enum.Font.GothamBold
+    testBtn.TextSize = 10
+    testBtn.Parent = calibFrame
+    Instance.new("UICorner", testBtn).CornerRadius = UDim.new(0, 4)
+
+    testBtn.MouseButton1Click:Connect(function()
+        if Axiora.Calibration.PerformTestClick then
+            Axiora.Calibration.PerformTestClick(0.5, 0.5) -- Click Center
+        end
+    end)
+
+    -- (End Calibration Section)
 
     for i, sett in ipairs(settingsData) do
         local frame = Instance.new("Frame")
