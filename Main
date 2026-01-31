@@ -10096,7 +10096,7 @@ function Axiora.UI.RefreshLibrary()
         if tab then
             tab:ClearAllChildren()
             Axiora.UI.BuildLibrary(tab)
-        
+        end
     end
 end
 
