@@ -950,4 +950,4 @@ local function init()
     print("✅ Script Explorer v" .. Config.Version .. " loaded!")
 end
 
-init() name all issues like you have beeen using it fro month
+init()
