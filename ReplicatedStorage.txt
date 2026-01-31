@@ -40,8 +40,23 @@ container.Name = "Container"
 container.Size = UDim2.new(0, 400, 0, 400)
 container.Position = UDim2.new(0.5, 0, 0.5, 0)
 container.AnchorPoint = Vector2.new(0.5, 0.5)
-container.BackgroundTransparency = 1
+container.BackgroundColor3 = rgb(2, 6, 23) -- slate-950
+container.BorderSizePixel = 0
 container.Parent = mainFrame
+
+-- Gradient background for container
+local containerGradient = Instance.new("UIGradient")
+containerGradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, rgb(2, 6, 23)), -- slate-950
+	ColorSequenceKeypoint.new(0.5, rgb(59, 7, 100)), -- purple-950
+	ColorSequenceKeypoint.new(1, rgb(2, 6, 23)) -- slate-950
+}
+containerGradient.Rotation = 135
+containerGradient.Parent = container
+
+local containerCorner = Instance.new("UICorner")
+containerCorner.CornerRadius = UDim.new(0, 16)
+containerCorner.Parent = container
 
 -- Header
 local header = Instance.new("Frame")
@@ -50,7 +65,7 @@ header.Size = UDim2.new(0, 180, 0, 35)
 header.Position = UDim2.new(0.5, 0, 0, 5)
 header.AnchorPoint = Vector2.new(0.5, 0)
 header.BackgroundColor3 = rgb(88, 28, 135) -- purple-600/20 approximation
-header.BackgroundTransparency = 0.8
+header.BackgroundTransparency = 0.7 -- Less transparent to show purple
 header.BorderSizePixel = 0
 header.Parent = container
 
@@ -119,7 +134,7 @@ statusBar.Name = "StatusBar"
 statusBar.Size = UDim2.new(1, -10, 0, 32)
 statusBar.Position = UDim2.new(0, 5, 0, 45)
 statusBar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
-statusBar.BackgroundTransparency = 0.6
+statusBar.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
 statusBar.BorderSizePixel = 0
 statusBar.Parent = container
 
@@ -243,7 +258,7 @@ sidebar.Name = "Sidebar"
 sidebar.Size = UDim2.new(0, 90, 0, 275)
 sidebar.Position = UDim2.new(0, 5, 0, 82)
 sidebar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
-sidebar.BackgroundTransparency = 0.6
+sidebar.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
 sidebar.BorderSizePixel = 0
 sidebar.Parent = container
 
@@ -386,7 +401,7 @@ mainContent.Name = "MainContent"
 mainContent.Size = UDim2.new(0, 295, 0, 275)
 mainContent.Position = UDim2.new(0, 100, 0, 82)
 mainContent.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
-mainContent.BackgroundTransparency = 0.6
+mainContent.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
 mainContent.BorderSizePixel = 0
 mainContent.Parent = container
 
