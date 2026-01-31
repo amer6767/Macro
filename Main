@@ -221,6 +221,9 @@ Axiora.Settings = {
     -- Buffer Library
     UseNativeBuffers = false, -- Enable binary buffers for memory savings
     
+    -- Mobile Resolution Settings
+    ResolutionOverride = "Native", -- Native, 1220x2712, 1080x2400, etc.
+
     -- Debug
     DebugPathfinding = false, -- Visualize pathfinding waypoints
     
@@ -320,7 +323,17 @@ function Axiora.Math.UpdateScreenMetrics()
     local success = pcall(function()
         local cam = Workspace.CurrentCamera
         if cam then
-            Axiora.Math.Screen.Viewport = cam.ViewportSize
+            local override = Axiora.Settings.ResolutionOverride
+            if override and override ~= "Native" then
+                local w, h = override:match("(%d+)x(%d+)")
+                if w and h then
+                    Axiora.Math.Screen.Viewport = Vector2.new(tonumber(w), tonumber(h))
+                else
+                     Axiora.Math.Screen.Viewport = cam.ViewportSize
+                end
+            else
+                Axiora.Math.Screen.Viewport = cam.ViewportSize
+            end
         end
         
         if GuiService and GuiService.GetGuiInset then
@@ -7431,6 +7444,77 @@ function Axiora.UI.Create()
             end
         end)
     end
+
+    -- Resolution Selector
+    local resFrame = Instance.new("Frame")
+    resFrame.Size = UDim2.new(1, -5, 0, 75)
+    resFrame.BackgroundColor3 = rgb(30, 41, 59)
+    resFrame.BackgroundTransparency = 0.7
+    resFrame.BorderSizePixel = 0
+    resFrame.Parent = settScroll
+    Instance.new("UICorner", resFrame).CornerRadius = UDim.new(0, 6)
+
+    local resLabel = Instance.new("TextLabel")
+    resLabel.Size = UDim2.new(1, -10, 0, 20)
+    resLabel.Position = UDim2.new(0, 10, 0, 5)
+    resLabel.BackgroundTransparency = 1
+    resLabel.Text = "Resolution Override"
+    resLabel.Font = Enum.Font.GothamBold
+    resLabel.TextSize = 9
+    resLabel.TextColor3 = rgb(226, 232, 240)
+    resLabel.TextXAlignment = Enum.TextXAlignment.Left
+    resLabel.Parent = resFrame
+
+    local resContainer = Instance.new("ScrollingFrame")
+    resContainer.Size = UDim2.new(1, -10, 0, 35)
+    resContainer.Position = UDim2.new(0, 5, 0, 30)
+    resContainer.BackgroundTransparency = 1
+    resContainer.BorderSizePixel = 0
+    resContainer.ScrollBarThickness = 2
+    resContainer.CanvasSize = UDim2.new(0,0,0,0)
+    resContainer.AutomaticCanvasSize = Enum.AutomaticSize.X -- Auto resize
+    resContainer.Parent = resFrame
+    
+    local resList = Instance.new("UIListLayout")
+    resList.FillDirection = Enum.FillDirection.Horizontal
+    resList.SortOrder = Enum.SortOrder.LayoutOrder
+    resList.Padding = UDim.new(0, 5)
+    resList.Parent = resContainer
+
+    local resolutions = {"Native", "1220x2712", "1080x2400", "1440x3200", "2532x1170"}
+    
+    for _, res in ipairs(resolutions) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 80, 1, 0)
+        -- Highlight if currently selected
+        local isSelected = (Axiora.Settings.ResolutionOverride == res)
+        btn.BackgroundColor3 = isSelected and rgb(34, 197, 94) or rgb(51, 65, 85)
+        btn.Text = res
+        btn.TextColor3 = rgb(255,255,255)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 10
+        btn.Parent = resContainer
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        
+        btn.MouseButton1Click:Connect(function()
+             Axiora.Settings.ResolutionOverride = res
+             Axiora.Math.UpdateScreenMetrics()
+             
+             -- Update all buttons colors
+             for _, child in ipairs(resContainer:GetChildren()) do
+                if child:IsA("GuiButton") then
+                    if child.Text == res then
+                         TweenService:Create(child, TweenInfo.new(0.2), {BackgroundColor3 = rgb(34, 197, 94)}):Play()
+                    else
+                         TweenService:Create(child, TweenInfo.new(0.2), {BackgroundColor3 = rgb(51, 65, 85)}):Play()
+                    end
+                end
+             end
+             if Axiora.Visuals and Axiora.Visuals.Notify then
+                 Axiora.Visuals.Notify("Settings", "Resolution: " .. res, 2, "success")
+             end
+        end)
+    end
     
     settScroll.CanvasSize = UDim2.new(0, 0, 0, settList.AbsoluteContentSize.Y + 10)
 
@@ -10432,18 +10516,18 @@ function Axiora.Init()
         Axiora.MobileCalibration.StartMonitoring()
         
         -- Auto-calibrate on first run
-        task.delay(2, function()
-            -- Attempt to load existing calibration
-            local loaded = false
-            if Axiora.Calibration.LoadCalibration then
-                loaded = Axiora.Calibration.LoadCalibration()
-            end
-            
-            if not loaded and Axiora.MobileCalibration.RunCalibration then
-                Axiora.Visuals.Notify("Axiora", "Mobile device detected - Starting calibration", 4, "info")
-                Axiora.MobileCalibration.RunCalibration()
-            end
-        end)
+        -- task.delay(2, function()
+        --     -- Attempt to load existing calibration
+        --     local loaded = false
+        --     if Axiora.Calibration.LoadCalibration then
+        --         loaded = Axiora.Calibration.LoadCalibration()
+        --     end
+        --     
+        --     if not loaded and Axiora.MobileCalibration.RunCalibration then
+        --         Axiora.Visuals.Notify("Axiora", "Mobile device detected - Starting calibration", 4, "info")
+        --         Axiora.MobileCalibration.RunCalibration()
+        --     end
+        -- end)
     end
     
     -- Try to load saved markers
