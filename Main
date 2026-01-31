@@ -5585,131 +5585,22 @@ function Axiora.UI.Toggle()
 end
 
 function Axiora.UI.OpenHub()
-    if Axiora.UI.Hub then Axiora.UI.Hub:Destroy() end
-    
-    local sg = Axiora.UI.ScreenGui or Axiora.UI.Primitives.CreateScreenGui()
-    local theme = Axiora.UI.Theme
-    
+    -- Call the new modern GUI instead of the old Neural Hub
+    Axiora.UI.Create()
     Axiora.UI.Open = true
-    
-    -- Main Container
-    local hub = Instance.new("Frame")
-    hub.Name = "NeuralHub"
-    hub.BackgroundColor3 = theme.Deep
-    hub.BackgroundTransparency = 0.05
-    hub.AnchorPoint = Vector2.new(0.5, 0.5) -- Center pivot
-    hub.Size = UDim2.new(0.5, 0, 0.6, 0) -- Responsive: 50% Width, 60% Height
-    hub.Position = UDim2.new(0.5, 0, 1.5, 0) -- Start off screen (bottom)
-    hub.Parent = sg
-    
-    -- Background Particles
-    -- (TODO: Particle emitter inside GUI if possible, or just raw frames)
-    
-    -- Header
-    local header = Instance.new("Frame")
-    header.BackgroundColor3 = theme.Surface
-    header.BackgroundTransparency = 0.2
-    header.Size = UDim2.new(1, 0, 0, 60)
-    header.Parent = hub
-    
-    Axiora.UI.Primitives.CreateNeonText(header, "AXIORA NEURAL HUB", 18, theme.Primary).Position = UDim2.new(0, 20, 0, 20)
-    
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.Size = UDim2.new(0, 50, 0, 60)
-    closeBtn.Position = UDim2.new(1, -50, 0, 0)
-    closeBtn.Text = "✕"
-    closeBtn.TextColor3 = theme.Error
-    closeBtn.TextSize = 24
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.Parent = header
-    closeBtn.MouseButton1Click:Connect(function()
-        Axiora.UI.CloseHub()
-    end)
-    
-    -- Slide Up Animation
-    TweenService:Create(hub, TweenInfo.new(0.4, Enum.EasingStyle.Quart), {Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
-    
-    Axiora.UI.Hub = hub
-    
-    -- Tab Container
-    local contentArea = Instance.new("Frame")
-    contentArea.Name = "ContentArea"
-    contentArea.BackgroundTransparency = 1
-    contentArea.Size = UDim2.new(1, 0, 1, -140) -- Space for Header + Nav
-    contentArea.Position = UDim2.new(0, 0, 0, 60)
-    contentArea.Parent = hub
-    
-    Axiora.UI.ContentArea = contentArea
-    
-    -- Bottom Navigation (Portrait Mode)
-    local navBar = Instance.new("Frame")
-    navBar.Name = "NavBar"
-    navBar.BackgroundColor3 = theme.Surface
-    navBar.BackgroundTransparency = 0.1
-    navBar.Size = UDim2.new(1, -40, 0, 60)
-    navBar.Position = UDim2.new(0.5, 0, 1, -20)
-    navBar.AnchorPoint = Vector2.new(0.5, 1)
-    navBar.Parent = hub
-    
-    Instance.new("UICorner", navBar).CornerRadius = UDim.new(1, 0)
-    
-    local navLayout = Instance.new("UIListLayout")
-    navLayout.FillDirection = Enum.FillDirection.Horizontal
-    navLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    navLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    navLayout.Padding = UDim.new(0, 10)
-    navLayout.Parent = navBar
-    
-    -- Tab Definitions
-    local tabs = {
-        {Id = 1, Icon = "📊", Name = "Home"},
-        {Id = 2, Icon = "✏️", Name = "Editor"},
-        {Id = 3, Icon = "📁", Name = "Files"},
-        {Id = 4, Icon = "🔧", Name = "Tools"},
-        {Id = 5, Icon = "⚙️", Name = "Scripts"}
-    }
-    
-    for _, tab in ipairs(tabs) do
-        local btn = Instance.new("TextButton")
-        btn.Name = "Tab_" .. tab.Id
-        btn.BackgroundColor3 = theme.Deep
-        btn.BackgroundTransparency = 0.5
-        btn.Size = UDim2.new(0, 50, 0, 50)
-        btn.Text = tab.Icon
-        btn.TextSize = 24
-        btn.TextColor3 = theme.Secondary
-        btn.AutoButtonColor = false
-        btn.Parent = navBar
-        
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
-        
-        btn.MouseButton1Click:Connect(function()
-            Axiora.UI.SwitchTab(tab.Id)
-        end)
-    end
-    
-    -- Initial Tab Load
-    Axiora.UI.SwitchTab(1)
 end
-
 function Axiora.UI.CloseHub()
-    if not Axiora.UI.Hub then return end
-    
+    -- Close the new modern GUI
     Axiora.UI.Open = false
     
-    -- Slide Down Animation
-    local tween = TweenService:Create(Axiora.UI.Hub, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-        Position = UDim2.new(0.5, 0, 1.5, 0)
-    })
-    tween:Play()
+    if Axiora.UI.MainPanel then
+        Axiora.UI.MainPanel.Visible = false
+    end
     
-    tween.Completed:Connect(function()
-        if Axiora.UI.Hub then
-            Axiora.UI.Hub:Destroy()
-            Axiora.UI.Hub = nil
-        end
-    end)
+    if Axiora.UI.ToggleButton then
+        Axiora.UI.ToggleButton.Text = "☰"
+        Axiora.UI.ToggleButton.TextSize = 20
+    end
 end
 
 function Axiora.UI.SwitchTab(tabId)
