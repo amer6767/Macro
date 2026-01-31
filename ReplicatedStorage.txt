@@ -34,10 +34,10 @@ mainFrame.BackgroundTransparency = 1 -- FIXED: Made transparent to remove black 
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
 
--- Container (max-width equivalent) - 400x400
+-- Container (max-width equivalent) - 400x250 (reduced height)
 local container = Instance.new("Frame")
 container.Name = "Container"
-container.Size = UDim2.new(0, 400, 0, 400)
+container.Size = UDim2.new(0, 400, 0, 250)
 container.Position = UDim2.new(0.5, 0, 0.5, 0)
 container.AnchorPoint = Vector2.new(0.5, 0.5)
 container.BackgroundColor3 = rgb(2, 6, 23) -- slate-950
@@ -109,19 +109,21 @@ title.TextSize = 14
 title.TextColor3 = rgb(167, 139, 250) -- purple-400
 title.Parent = header
 
--- Version badge
+-- Version badge (hidden)
 local versionBadge = Instance.new("TextLabel")
 versionBadge.Name = "VersionBadge"
 versionBadge.Size = UDim2.new(0, 30, 0, 14)
 versionBadge.Position = UDim2.new(0, 145, 0.5, 0)
 versionBadge.AnchorPoint = Vector2.new(0, 0.5)
 versionBadge.BackgroundColor3 = rgb(88, 28, 135) -- purple-900/30
-versionBadge.BackgroundTransparency = 0.7
+versionBadge.BackgroundTransparency = 1 -- Hidden
 versionBadge.Text = "v6.0"
 versionBadge.Font = Enum.Font.Code
 versionBadge.TextSize = 8
 versionBadge.TextColor3 = rgb(216, 180, 254) -- purple-300/60
+versionBadge.TextTransparency = 1 -- Hidden
 versionBadge.BorderSizePixel = 0
+versionBadge.Visible = false -- Hidden
 versionBadge.Parent = header
 
 local versionCorner = Instance.new("UICorner")
@@ -255,7 +257,7 @@ readyStroke.Parent = readyBadge
 -- Sidebar
 local sidebar = Instance.new("Frame")
 sidebar.Name = "Sidebar"
-sidebar.Size = UDim2.new(0, 90, 0, 275)
+sidebar.Size = UDim2.new(0, 90, 0, 150) -- Reduced from 275
 sidebar.Position = UDim2.new(0, 5, 0, 82)
 sidebar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 sidebar.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
@@ -348,7 +350,7 @@ for _, btnData in ipairs(navButtons) do
 	end)
 end
 
--- Quick Actions
+-- Quick Actions (hidden to fit smaller height)
 local quickActionsLabel = Instance.new("TextLabel")
 quickActionsLabel.Name = "QuickActionsLabel"
 quickActionsLabel.Size = UDim2.new(1, -10, 0, 12)
@@ -359,6 +361,7 @@ quickActionsLabel.Font = Enum.Font.GothamBold
 quickActionsLabel.TextSize = 6
 quickActionsLabel.TextColor3 = rgb(100, 116, 139) -- slate-500
 quickActionsLabel.TextXAlignment = Enum.TextXAlignment.Left
+quickActionsLabel.Visible = false
 quickActionsLabel.Parent = sidebar
 
 local calibrateBtn = Instance.new("TextButton")
@@ -372,6 +375,7 @@ calibrateBtn.Font = Enum.Font.Gotham
 calibrateBtn.TextSize = 7
 calibrateBtn.TextColor3 = rgb(203, 213, 225) -- slate-300
 calibrateBtn.BorderSizePixel = 0
+calibrateBtn.Visible = false
 calibrateBtn.Parent = sidebar
 
 local calibCorner = Instance.new("UICorner")
@@ -389,6 +393,7 @@ loadUrlBtn.Font = Enum.Font.Gotham
 loadUrlBtn.TextSize = 7
 loadUrlBtn.TextColor3 = rgb(203, 213, 225) -- slate-300
 loadUrlBtn.BorderSizePixel = 0
+loadUrlBtn.Visible = false
 loadUrlBtn.Parent = sidebar
 
 local urlCorner = Instance.new("UICorner")
@@ -398,7 +403,7 @@ urlCorner.Parent = loadUrlBtn
 -- Main Content Area
 mainContent = Instance.new("Frame")
 mainContent.Name = "MainContent"
-mainContent.Size = UDim2.new(0, 295, 0, 275)
+mainContent.Size = UDim2.new(0, 295, 0, 150) -- Reduced from 275
 mainContent.Position = UDim2.new(0, 100, 0, 82)
 mainContent.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 mainContent.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
@@ -438,7 +443,7 @@ controlTitle.Parent = controlPanel
 -- Record Button
 local recordBtn = Instance.new("TextButton")
 recordBtn.Name = "RecordBtn"
-recordBtn.Size = UDim2.new(0, 138, 0, 42)
+recordBtn.Size = UDim2.new(0, 138, 0, 32) -- Reduced from 42
 recordBtn.Position = UDim2.new(0, 5, 0, 28)
 recordBtn.BackgroundColor3 = rgb(239, 68, 68) -- red-500/20
 recordBtn.BackgroundTransparency = 0.8
@@ -462,7 +467,7 @@ recordStroke.Parent = recordBtn
 -- Play Button
 local playBtn = Instance.new("TextButton")
 playBtn.Name = "PlayBtn"
-playBtn.Size = UDim2.new(0, 138, 0, 42)
+playBtn.Size = UDim2.new(0, 138, 0, 32) -- Reduced from 42
 playBtn.Position = UDim2.new(0, 152, 0, 28)
 playBtn.BackgroundColor3 = rgb(34, 197, 94) -- green-500/20
 playBtn.BackgroundTransparency = 0.8
@@ -483,7 +488,7 @@ playStroke.Transparency = 0.5
 playStroke.Thickness = 1
 playStroke.Parent = playBtn
 
--- Speed Control Label
+-- Speed Control Label (hidden to save space)
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Name = "SpeedLabel"
 speedLabel.Size = UDim2.new(1, -10, 0, 12)
@@ -494,9 +499,10 @@ speedLabel.Font = Enum.Font.GothamBold
 speedLabel.TextSize = 8
 speedLabel.TextColor3 = rgb(203, 213, 225) -- slate-300
 speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+speedLabel.Visible = false
 speedLabel.Parent = controlPanel
 
--- Speed buttons
+-- Speed buttons (hidden to save space)
 local speeds = {"0.5x", "1.0x", "1.5x", "2.0x"}
 for i, speed in ipairs(speeds) do
 	local speedBtn = Instance.new("TextButton")
@@ -516,6 +522,7 @@ for i, speed in ipairs(speeds) do
 	speedBtn.Font = Enum.Font.GothamBold
 	speedBtn.TextSize = 9
 	speedBtn.BorderSizePixel = 0
+	speedBtn.Visible = false
 	speedBtn.Parent = controlPanel
 	
 	local speedCorner = Instance.new("UICorner")
@@ -542,8 +549,8 @@ end
 -- Save/Load buttons
 local saveBtn = Instance.new("TextButton")
 saveBtn.Name = "SaveBtn"
-saveBtn.Size = UDim2.new(0, 138, 0, 28)
-saveBtn.Position = UDim2.new(0, 5, 0, 127)
+saveBtn.Size = UDim2.new(0, 138, 0, 22) -- Reduced height
+saveBtn.Position = UDim2.new(0, 5, 0, 48) -- Adjusted position
 saveBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 saveBtn.BackgroundTransparency = 0.7
 saveBtn.Text = "Save"
@@ -565,8 +572,8 @@ saveStroke.Parent = saveBtn
 
 local loadBtn = Instance.new("TextButton")
 loadBtn.Name = "LoadBtn"
-loadBtn.Size = UDim2.new(0, 138, 0, 28)
-loadBtn.Position = UDim2.new(0, 152, 0, 127)
+loadBtn.Size = UDim2.new(0, 138, 0, 22) -- Reduced height
+loadBtn.Position = UDim2.new(0, 152, 0, 48) -- Adjusted position
 loadBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 loadBtn.BackgroundTransparency = 0.7
 loadBtn.Text = "Load"
@@ -589,8 +596,8 @@ loadStroke.Parent = loadBtn
 -- Advanced Options
 local advancedBox = Instance.new("Frame")
 advancedBox.Name = "AdvancedBox"
-advancedBox.Size = UDim2.new(1, -10, 0, 100)
-advancedBox.Position = UDim2.new(0, 5, 0, 163)
+advancedBox.Size = UDim2.new(1, -10, 0, 70) -- Reduced from 100
+advancedBox.Position = UDim2.new(0, 5, 0, 75) -- Adjusted position
 advancedBox.BackgroundColor3 = rgb(30, 41, 59) -- slate-800/30
 advancedBox.BackgroundTransparency = 0.7
 advancedBox.BorderSizePixel = 0
@@ -618,8 +625,8 @@ advLabel.TextColor3 = rgb(148, 163, 184) -- slate-400
 advLabel.TextXAlignment = Enum.TextXAlignment.Left
 advLabel.Parent = advancedBox
 
--- Toggle switches
-local toggles = {"Loop Playback", "Click Recovery", "3D Path Visualization"}
+-- Toggle switches (reduced to 2 items to fit)
+local toggles = {"Loop Playback", "Click Recovery"}
 for i, toggleName in ipairs(toggles) do
 	local toggleLabel = Instance.new("TextLabel")
 	toggleLabel.Name = toggleName:gsub(" ", "")
@@ -933,5 +940,79 @@ end)
 -- Initialize
 updateNavButtons()
 updateStatus()
+
+-- Toggle Button (in top left of screen)
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ToggleButton"
+toggleButton.Size = UDim2.new(0, 40, 0, 40)
+toggleButton.Position = UDim2.new(0, 10, 0, 10)
+toggleButton.BackgroundColor3 = rgb(147, 51, 234) -- purple-600
+toggleButton.Text = "X"
+toggleButton.Font = Enum.Font.GothamBold
+toggleButton.TextSize = 18
+toggleButton.TextColor3 = rgb(255, 255, 255)
+toggleButton.BorderSizePixel = 0
+toggleButton.Parent = screenGui
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.Parent = toggleButton
+
+local toggleGradient = Instance.new("UIGradient")
+toggleGradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, rgb(147, 51, 234)), -- purple-600
+	ColorSequenceKeypoint.new(1, rgb(8, 145, 178)) -- cyan-600
+}
+toggleGradient.Rotation = 135
+toggleGradient.Parent = toggleButton
+
+-- Toggle button functionality
+local isGuiVisible = true
+toggleButton.MouseButton1Click:Connect(function()
+	isGuiVisible = not isGuiVisible
+	container.Visible = isGuiVisible
+	if isGuiVisible then
+		toggleButton.Text = "X"
+	else
+		toggleButton.Text = "☰"
+	end
+end)
+
+-- Make GUI Draggable
+local dragging = false
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+	local delta = input.Position - dragStart
+	container.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = container.Position
+		
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+header.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		dragInput = input
+	end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		update(input)
+	end
+end)
 
 print("Axiora Modern GUI loaded successfully!")
