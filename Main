@@ -10182,21 +10182,7 @@ function Axiora.Init()
     
     -- Mobile Full Architecture
     if UserInputService.TouchEnabled then
-        Axiora.MobileCalibration.StartMonitoring()
-        
-        -- Auto-calibrate on first run
-        -- task.delay(2, function()
-        --     -- Attempt to load existing calibration
-        --     local loaded = false
-        --     if Axiora.Calibration.LoadCalibration then
-        --         loaded = Axiora.Calibration.LoadCalibration()
-        --     end
-        --     
-        --     if not loaded and Axiora.MobileCalibration.RunCalibration then
-        --         Axiora.Visuals.Notify("Axiora", "Mobile device detected - Starting calibration", 4, "info")
-        --         Axiora.MobileCalibration.RunCalibration()
-        --     end
-        -- end)
+        -- MobileCalibration removed (Manual X Offset used instead)
     end
     
     -- Try to load saved markers
