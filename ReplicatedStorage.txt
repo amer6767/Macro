@@ -34,10 +34,10 @@ mainFrame.BackgroundTransparency = 1 -- FIXED: Made transparent to remove black 
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
 
--- Container (max-width equivalent) - 400x250 (reduced height)
+-- Container (max-width equivalent) - 400x350
 local container = Instance.new("Frame")
 container.Name = "Container"
-container.Size = UDim2.new(0, 400, 0, 250)
+container.Size = UDim2.new(0, 400, 0, 350)
 container.Position = UDim2.new(0.5, 0, 0.5, 0)
 container.AnchorPoint = Vector2.new(0.5, 0.5)
 container.BackgroundColor3 = rgb(2, 6, 23) -- slate-950
@@ -79,7 +79,7 @@ headerStroke.Transparency = 0.7
 headerStroke.Thickness = 1
 headerStroke.Parent = header
 
--- Pulse indicator
+-- Pulse indicator (hidden)
 local pulseIndicator = Instance.new("Frame")
 pulseIndicator.Name = "PulseIndicator"
 pulseIndicator.Size = UDim2.new(0, 6, 0, 6)
@@ -87,6 +87,7 @@ pulseIndicator.Position = UDim2.new(0, 10, 0.5, 0)
 pulseIndicator.AnchorPoint = Vector2.new(0, 0.5)
 pulseIndicator.BackgroundColor3 = rgb(34, 211, 238) -- cyan-400
 pulseIndicator.BorderSizePixel = 0
+pulseIndicator.Visible = false
 pulseIndicator.Parent = header
 
 local pulseCorner = Instance.new("UICorner")
@@ -97,7 +98,7 @@ pulseCorner.Parent = pulseIndicator
 local pulseTween = TweenService:Create(pulseIndicator, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {BackgroundTransparency = 0.5})
 pulseTween:Play()
 
--- Title
+-- Title (hidden)
 local title = Instance.new("TextLabel")
 title.Name = "Title"
 title.Size = UDim2.new(0, 120, 1, 0)
@@ -107,6 +108,7 @@ title.Text = "AXIORA"
 title.Font = Enum.Font.GothamBold
 title.TextSize = 14
 title.TextColor3 = rgb(167, 139, 250) -- purple-400
+title.Visible = false
 title.Parent = header
 
 -- Version badge (hidden)
@@ -257,7 +259,7 @@ readyStroke.Parent = readyBadge
 -- Sidebar
 local sidebar = Instance.new("Frame")
 sidebar.Name = "Sidebar"
-sidebar.Size = UDim2.new(0, 90, 0, 150) -- Reduced from 275
+sidebar.Size = UDim2.new(0, 90, 0, 250) -- Increased from 150
 sidebar.Position = UDim2.new(0, 5, 0, 82)
 sidebar.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 sidebar.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
@@ -403,7 +405,7 @@ urlCorner.Parent = loadUrlBtn
 -- Main Content Area
 mainContent = Instance.new("Frame")
 mainContent.Name = "MainContent"
-mainContent.Size = UDim2.new(0, 295, 0, 150) -- Reduced from 275
+mainContent.Size = UDim2.new(0, 295, 0, 250) -- Increased from 150
 mainContent.Position = UDim2.new(0, 100, 0, 82)
 mainContent.BackgroundColor3 = rgb(15, 23, 42) -- slate-900/40
 mainContent.BackgroundTransparency = 0.4 -- Less transparent to show purple gradient
@@ -443,7 +445,7 @@ controlTitle.Parent = controlPanel
 -- Record Button
 local recordBtn = Instance.new("TextButton")
 recordBtn.Name = "RecordBtn"
-recordBtn.Size = UDim2.new(0, 138, 0, 32) -- Reduced from 42
+recordBtn.Size = UDim2.new(0, 138, 0, 45) -- Increased from 32
 recordBtn.Position = UDim2.new(0, 5, 0, 28)
 recordBtn.BackgroundColor3 = rgb(239, 68, 68) -- red-500/20
 recordBtn.BackgroundTransparency = 0.8
@@ -467,7 +469,7 @@ recordStroke.Parent = recordBtn
 -- Play Button
 local playBtn = Instance.new("TextButton")
 playBtn.Name = "PlayBtn"
-playBtn.Size = UDim2.new(0, 138, 0, 32) -- Reduced from 42
+playBtn.Size = UDim2.new(0, 138, 0, 45) -- Increased from 32
 playBtn.Position = UDim2.new(0, 152, 0, 28)
 playBtn.BackgroundColor3 = rgb(34, 197, 94) -- green-500/20
 playBtn.BackgroundTransparency = 0.8
@@ -488,21 +490,20 @@ playStroke.Transparency = 0.5
 playStroke.Thickness = 1
 playStroke.Parent = playBtn
 
--- Speed Control Label (hidden to save space)
+-- Speed Control Label
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Name = "SpeedLabel"
 speedLabel.Size = UDim2.new(1, -10, 0, 12)
-speedLabel.Position = UDim2.new(0, 5, 0, 78)
+speedLabel.Position = UDim2.new(0, 5, 0, 80)
 speedLabel.BackgroundTransparency = 1
 speedLabel.Text = "Playback Speed"
 speedLabel.Font = Enum.Font.GothamBold
 speedLabel.TextSize = 8
 speedLabel.TextColor3 = rgb(203, 213, 225) -- slate-300
 speedLabel.TextXAlignment = Enum.TextXAlignment.Left
-speedLabel.Visible = false
 speedLabel.Parent = controlPanel
 
--- Speed buttons (hidden to save space)
+-- Speed buttons
 local speeds = {"0.5x", "1.0x", "1.5x", "2.0x"}
 for i, speed in ipairs(speeds) do
 	local speedBtn = Instance.new("TextButton")
@@ -522,7 +523,6 @@ for i, speed in ipairs(speeds) do
 	speedBtn.Font = Enum.Font.GothamBold
 	speedBtn.TextSize = 9
 	speedBtn.BorderSizePixel = 0
-	speedBtn.Visible = false
 	speedBtn.Parent = controlPanel
 	
 	local speedCorner = Instance.new("UICorner")
@@ -549,8 +549,8 @@ end
 -- Save/Load buttons
 local saveBtn = Instance.new("TextButton")
 saveBtn.Name = "SaveBtn"
-saveBtn.Size = UDim2.new(0, 138, 0, 22) -- Reduced height
-saveBtn.Position = UDim2.new(0, 5, 0, 48) -- Adjusted position
+saveBtn.Size = UDim2.new(0, 138, 0, 28) -- Increased from 22
+saveBtn.Position = UDim2.new(0, 5, 0, 125) -- Adjusted position
 saveBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 saveBtn.BackgroundTransparency = 0.7
 saveBtn.Text = "Save"
@@ -572,8 +572,8 @@ saveStroke.Parent = saveBtn
 
 local loadBtn = Instance.new("TextButton")
 loadBtn.Name = "LoadBtn"
-loadBtn.Size = UDim2.new(0, 138, 0, 22) -- Reduced height
-loadBtn.Position = UDim2.new(0, 152, 0, 48) -- Adjusted position
+loadBtn.Size = UDim2.new(0, 138, 0, 28) -- Increased from 22
+loadBtn.Position = UDim2.new(0, 152, 0, 125) -- Adjusted position
 loadBtn.BackgroundColor3 = rgb(51, 65, 85) -- slate-700/30
 loadBtn.BackgroundTransparency = 0.7
 loadBtn.Text = "Load"
@@ -596,8 +596,8 @@ loadStroke.Parent = loadBtn
 -- Advanced Options
 local advancedBox = Instance.new("Frame")
 advancedBox.Name = "AdvancedBox"
-advancedBox.Size = UDim2.new(1, -10, 0, 70) -- Reduced from 100
-advancedBox.Position = UDim2.new(0, 5, 0, 75) -- Adjusted position
+advancedBox.Size = UDim2.new(1, -10, 0, 80) -- Increased from 70
+advancedBox.Position = UDim2.new(0, 5, 0, 160) -- Adjusted position
 advancedBox.BackgroundColor3 = rgb(30, 41, 59) -- slate-800/30
 advancedBox.BackgroundTransparency = 0.7
 advancedBox.BorderSizePixel = 0
@@ -625,13 +625,13 @@ advLabel.TextColor3 = rgb(148, 163, 184) -- slate-400
 advLabel.TextXAlignment = Enum.TextXAlignment.Left
 advLabel.Parent = advancedBox
 
--- Toggle switches (reduced to 2 items to fit)
-local toggles = {"Loop Playback", "Click Recovery"}
+-- Toggle switches (all 3 now fit)
+local toggles = {"Loop Playback", "Click Recovery", "3D Path Visualization"}
 for i, toggleName in ipairs(toggles) do
 	local toggleLabel = Instance.new("TextLabel")
 	toggleLabel.Name = toggleName:gsub(" ", "")
 	toggleLabel.Size = UDim2.new(1, -40, 0, 14)
-	toggleLabel.Position = UDim2.new(0, 5, 0, 15 + (i-1) * 26)
+	toggleLabel.Position = UDim2.new(0, 5, 0, 18 + (i-1) * 22)
 	toggleLabel.BackgroundTransparency = 1
 	toggleLabel.Text = toggleName
 	toggleLabel.Font = Enum.Font.Gotham
@@ -643,7 +643,7 @@ for i, toggleName in ipairs(toggles) do
 	local toggleSwitch = Instance.new("Frame")
 	toggleSwitch.Name = toggleName:gsub(" ", "") .. "Switch"
 	toggleSwitch.Size = UDim2.new(0, 28, 0, 14)
-	toggleSwitch.Position = UDim2.new(1, -33, 0, 15 + (i-1) * 26)
+	toggleSwitch.Position = UDim2.new(1, -33, 0, 18 + (i-1) * 22)
 	toggleSwitch.BackgroundColor3 = rgb(51, 65, 85) -- slate-700
 	if i == 2 then
 		toggleSwitch.BackgroundColor3 = rgb(147, 51, 234) -- purple-600
@@ -754,8 +754,8 @@ for i, macroName in ipairs(macros) do
 	
 	local macroCard = Instance.new("Frame")
 	macroCard.Name = macroName:gsub(" ", "")
-	macroCard.Size = UDim2.new(0, 138, 0, 58)
-	macroCard.Position = UDim2.new(0, 5 + col * 147, 0, 30 + row * 68)
+	macroCard.Size = UDim2.new(0, 138, 0, 55) -- Slightly reduced height
+	macroCard.Position = UDim2.new(0, 5 + col * 147, 0, 28 + row * 65) -- Better spacing
 	macroCard.BackgroundColor3 = rgb(30, 41, 59) -- slate-800/30
 	macroCard.BackgroundTransparency = 0.7
 	macroCard.BorderSizePixel = 0
@@ -941,27 +941,36 @@ end)
 updateNavButtons()
 updateStatus()
 
--- Toggle Button (in top left of screen)
+-- Toggle Button (improved design)
 local toggleButton = Instance.new("TextButton")
 toggleButton.Name = "ToggleButton"
-toggleButton.Size = UDim2.new(0, 40, 0, 40)
+toggleButton.Size = UDim2.new(0, 50, 0, 50)
 toggleButton.Position = UDim2.new(0, 10, 0, 10)
-toggleButton.BackgroundColor3 = rgb(147, 51, 234) -- purple-600
-toggleButton.Text = "X"
+toggleButton.BackgroundColor3 = rgb(15, 23, 42) -- slate-900
+toggleButton.BackgroundTransparency = 0.3
+toggleButton.Text = "✕"
 toggleButton.Font = Enum.Font.GothamBold
-toggleButton.TextSize = 18
-toggleButton.TextColor3 = rgb(255, 255, 255)
+toggleButton.TextSize = 24
+toggleButton.TextColor3 = rgb(167, 139, 250) -- purple-400
 toggleButton.BorderSizePixel = 0
 toggleButton.Parent = screenGui
 
 local toggleCorner = Instance.new("UICorner")
-toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.CornerRadius = UDim.new(0, 12)
 toggleCorner.Parent = toggleButton
+
+-- Toggle button border glow
+local toggleStroke = Instance.new("UIStroke")
+toggleStroke.Color = rgb(168, 85, 247) -- purple-500
+toggleStroke.Transparency = 0.3
+toggleStroke.Thickness = 2
+toggleStroke.Parent = toggleButton
 
 local toggleGradient = Instance.new("UIGradient")
 toggleGradient.Color = ColorSequence.new{
-	ColorSequenceKeypoint.new(0, rgb(147, 51, 234)), -- purple-600
-	ColorSequenceKeypoint.new(1, rgb(8, 145, 178)) -- cyan-600
+	ColorSequenceKeypoint.new(0, rgb(2, 6, 23)), -- slate-950
+	ColorSequenceKeypoint.new(0.5, rgb(59, 7, 100)), -- purple-950
+	ColorSequenceKeypoint.new(1, rgb(2, 6, 23)) -- slate-950
 }
 toggleGradient.Rotation = 135
 toggleGradient.Parent = toggleButton
@@ -972,9 +981,11 @@ toggleButton.MouseButton1Click:Connect(function()
 	isGuiVisible = not isGuiVisible
 	container.Visible = isGuiVisible
 	if isGuiVisible then
-		toggleButton.Text = "X"
+		toggleButton.Text = "✕"
+		toggleButton.TextSize = 24
 	else
 		toggleButton.Text = "☰"
+		toggleButton.TextSize = 20
 	end
 end)
 
