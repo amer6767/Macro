@@ -6390,7 +6390,14 @@ end
 
 -- Calibration Builder
 function Axiora.UI.BuildCalibration(parent)
-    local theme = Axiora.UI.Theme
+    -- Fallback theme to prevent crash if global theme is missing
+    local theme = Axiora.UI.Theme or {}
+    theme.Text = theme.Text or Color3.fromRGB(255, 255, 255)
+    theme.Secondary = theme.Secondary or Color3.fromRGB(148, 163, 184)
+    theme.Surface = theme.Surface or Color3.fromRGB(30, 41, 59)
+    theme.Background = theme.Background or Color3.fromRGB(15, 23, 42)
+    theme.Primary = theme.Primary or Color3.fromRGB(147, 51, 234)
+    theme.Tertiary = theme.Tertiary or Color3.fromRGB(71, 85, 105)
     
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -10, 0, 30)
@@ -6788,13 +6795,13 @@ function Axiora.UI.Create()
     local mainContent
 
     -- Navigation buttons
-    local activeTab = "control"
+    local activeTab = "calibration" -- Default start tab
     local navButtons = {
-        {id = "control", label = "Control", yPos = 5},
-        {id = "editor", label = "Editor", yPos = 32},
-        {id = "library", label = "Library", yPos = 59},
-        {id = "automation", label = "Auto", yPos = 86},
-        {id = "calibration", label = "Calib", yPos = 113},
+        {id = "calibration", label = "Calib", yPos = 5},
+        {id = "control", label = "Control", yPos = 32},
+        {id = "editor", label = "Editor", yPos = 59},
+        {id = "library", label = "Library", yPos = 86},
+        {id = "automation", label = "Auto", yPos = 113},
         {id = "settings", label = "Settings", yPos = 140}
     }
 
