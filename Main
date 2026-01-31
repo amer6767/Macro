@@ -1081,8 +1081,8 @@ function Axiora.Record()
             local clickPos = UserInputService:GetMouseLocation()
             
             if input.UserInputType == Enum.UserInputType.Touch and input.Position then
-                local inset = Axiora.Math.Screen.GuiInset
-                clickPos = Vector2.new(input.Position.X + inset.X, input.Position.Y + inset.Y)
+                -- Touch Position is absolute. Use directly.
+                clickPos = Vector2.new(input.Position.X, input.Position.Y)
             end
             
             local rel = Axiora.Math.GetRelativeInput(clickPos.X, clickPos.Y)
@@ -6388,6 +6388,98 @@ function Axiora.UI.RefreshLibrary()
     end
 end
 
+-- Calibration Builder
+function Axiora.UI.BuildCalibration(parent)
+    local theme = Axiora.UI.Theme
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -10, 0, 30)
+    title.Position = UDim2.new(0, 5, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "CALIBRATION"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 14
+    title.TextColor3 = theme.Text
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = parent
+    
+    local desc = Instance.new("TextLabel")
+    desc.Size = UDim2.new(1, -10, 0, 30)
+    desc.Position = UDim2.new(0, 5, 0, 30)
+    desc.BackgroundTransparency = 1
+    desc.Text = "Adjust Offset until Red Dot (Script) aligns with Green Dot (Touch)."
+    desc.Font = Enum.Font.Gotham
+    desc.TextSize = 10
+    desc.TextColor3 = theme.Secondary
+    desc.TextWrapped = true
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.Parent = parent
+
+    -- Controls Container
+    local controls = Instance.new("Frame")
+    controls.Size = UDim2.new(1, -10, 0, 40)
+    controls.Position = UDim2.new(0, 5, 0, 65)
+    controls.BackgroundColor3 = theme.Surface
+    controls.BackgroundTransparency = 0.5
+    controls.Parent = parent
+    Instance.new("UICorner", controls).CornerRadius = UDim.new(0, 6)
+    
+    local offLabel = Axiora.UI.Primitives.CreateNeonText(controls, "X Offset:", 11, theme.Text)
+    offLabel.Position = UDim2.new(0, 10, 0, 0)
+    offLabel.Size = UDim2.new(0, 60, 1, 0)
+    
+    local offInput = Instance.new("TextBox")
+    offInput.Size = UDim2.new(0, 60, 0, 24)
+    offInput.Position = UDim2.new(0, 70, 0.5, 0)
+    offInput.AnchorPoint = Vector2.new(0, 0.5)
+    offInput.BackgroundColor3 = theme.Background
+    offInput.TextColor3 = theme.Text
+    offInput.Text = tostring(Axiora.Settings.MobileXOffset or 0)
+    offInput.Font = Enum.Font.GothamBold
+    offInput.TextSize = 11
+    offInput.Parent = controls
+    Instance.new("UICorner", offInput).CornerRadius = UDim.new(0, 4)
+    
+    offInput.FocusLost:Connect(function()
+        local n = tonumber(offInput.Text)
+        if n then 
+            Axiora.Settings.MobileXOffset = n
+            Axiora.Visuals.Notify("Calibration", "Saved: " .. n, 1)
+        end
+    end)
+    
+    local testBtn = Instance.new("TextButton")
+    testBtn.Text = "TEST CLICK"
+    testBtn.Size = UDim2.new(0, 80, 0, 24)
+    testBtn.Position = UDim2.new(1, -90, 0.5, 0)
+    testBtn.AnchorPoint = Vector2.new(0, 0.5)
+    testBtn.BackgroundColor3 = theme.Primary
+    testBtn.TextColor3 = Color3.white
+    testBtn.Font = Enum.Font.GothamBold
+    testBtn.TextSize = 10
+    testBtn.Parent = controls
+    Instance.new("UICorner", testBtn).CornerRadius = UDim.new(0, 4)
+    
+    testBtn.MouseButton1Click:Connect(function()
+       Axiora.Calibration.PerformTestClick(0.5, 0.6) -- Slightly below center
+    end)
+    
+    -- Gray Test Area
+    local testArea = Instance.new("TextButton") -- Button so we can tap it
+    testArea.Text = "TAP HERE TO TEST OFFSET"
+    testArea.TextColor3 = theme.Tertiary
+    testArea.TextSize = 10
+    testArea.Size = UDim2.new(1, -20, 0, 100)
+    testArea.Position = UDim2.new(0, 10, 0, 120)
+    testArea.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    testArea.Parent = parent
+    Instance.new("UICorner", testArea).CornerRadius = UDim.new(0, 8)
+    
+    testArea.MouseButton1Click:Connect(function()
+        -- Just purely for visual feedback, the InputBegan listener handles the dots
+    end)
+end
+
 -- Settings Builder
 function Axiora.UI.BuildSettings(parent)
     local theme = Axiora.UI.Theme
@@ -6702,7 +6794,8 @@ function Axiora.UI.Create()
         {id = "editor", label = "Editor", yPos = 32},
         {id = "library", label = "Library", yPos = 59},
         {id = "automation", label = "Auto", yPos = 86},
-        {id = "settings", label = "Settings", yPos = 113}
+        {id = "calibration", label = "Calib", yPos = 113},
+        {id = "settings", label = "Settings", yPos = 140}
     }
 
     local function updateNavButtons()
@@ -7387,6 +7480,16 @@ function Axiora.UI.Create()
         end
     end)
 
+    -- Calibration Panel
+    local calibrationPanel = Instance.new("Frame")
+    calibrationPanel.Name = "calibrationPanel"
+    calibrationPanel.Size = UDim2.new(1, 0, 1, 0)
+    calibrationPanel.BackgroundTransparency = 1
+    calibrationPanel.Visible = false
+    calibrationPanel.Parent = mainContent
+    
+    Axiora.UI.BuildCalibration(calibrationPanel)
+
     -- Settings Panel
     local settingsPanel = Instance.new("Frame")
     settingsPanel.Name = "settingsPanel"
@@ -7436,66 +7539,7 @@ function Axiora.UI.Create()
         {name = "Interactive Test Mode", key = "TestMode"}
     }
 
-    -- [NEW] Mobile Calibration Section (TextBox + Test Button)
-    local calibFrame = Instance.new("Frame")
-    calibFrame.Size = UDim2.new(1, -5, 0, 80)
-    calibFrame.BackgroundColor3 = rgb(30, 41, 59)
-    calibFrame.BackgroundTransparency = 0.7
-    calibFrame.Parent = settScroll
-    Instance.new("UICorner", calibFrame).CornerRadius = UDim.new(0, 6)
-
-    local calibTitle = Instance.new("TextLabel")
-    calibTitle.Text = "MOBILE CALIBRATION (X Offset)"
-    calibTitle.Size = UDim2.new(1, -10, 0, 20)
-    calibTitle.Position = UDim2.new(0, 5, 0, 5)
-    calibTitle.BackgroundTransparency = 1
-    calibTitle.TextColor3 = rgb(255, 255, 255)
-    calibTitle.Font = Enum.Font.GothamBold
-    calibTitle.TextSize = 10
-    calibTitle.TextXAlignment = Enum.TextXAlignment.Left
-    calibTitle.Parent = calibFrame
-
-    -- Offset Input (TextBox)
-    local offsetInput = Instance.new("TextBox")
-    offsetInput.Size = UDim2.new(0.6, 0, 0, 25)
-    offsetInput.Position = UDim2.new(0, 5, 0, 30)
-    offsetInput.BackgroundColor3 = rgb(15, 23, 42)
-    offsetInput.TextColor3 = rgb(255, 255, 255)
-    offsetInput.Text = tostring(Axiora.Settings.MobileXOffset or 0)
-    offsetInput.Font = Enum.Font.Gotham
-    offsetInput.TextSize = 12
-    offsetInput.Parent = calibFrame
-    Instance.new("UICorner", offsetInput).CornerRadius = UDim.new(0, 4)
-
-    offsetInput.FocusLost:Connect(function()
-        local num = tonumber(offsetInput.Text)
-        if num then
-            Axiora.Settings.MobileXOffset = num
-            Axiora.Visuals.Notify("Calibration", "X Offset set to: " .. num, 2, "info")
-        else
-            offsetInput.Text = tostring(Axiora.Settings.MobileXOffset or 0)
-        end
-    end)
-
-    -- Test Click Button
-    local testBtn = Instance.new("TextButton")
-    testBtn.Text = "TEST CLICK"
-    testBtn.Size = UDim2.new(0.35, 0, 0, 25)
-    testBtn.Position = UDim2.new(0.63, 0, 0, 30)
-    testBtn.BackgroundColor3 = rgb(59, 130, 246)
-    testBtn.TextColor3 = Color3.new(1,1,1)
-    testBtn.Font = Enum.Font.GothamBold
-    testBtn.TextSize = 10
-    testBtn.Parent = calibFrame
-    Instance.new("UICorner", testBtn).CornerRadius = UDim.new(0, 4)
-
-    testBtn.MouseButton1Click:Connect(function()
-        if Axiora.Calibration.PerformTestClick then
-            Axiora.Calibration.PerformTestClick(0.5, 0.5) -- Click Center
-        end
-    end)
-
-    -- (End Calibration Section)
+    -- (Calibration moved to dedicated tab)
 
     for i, sett in ipairs(settingsData) do
         local frame = Instance.new("Frame")
