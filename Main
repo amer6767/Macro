@@ -222,7 +222,7 @@ Axiora.Settings = {
     UseNativeBuffers = false, -- Enable binary buffers for memory savings
     
     -- Mobile Correction Settings
-    FixXAxis = false, -- Adds Y-inset to X-axis if true
+    MobileXOffset = 0, -- Manual pixel offset for X-axis
 
     -- Debug
     DebugPathfinding = false, -- Visualize pathfinding waypoints
@@ -372,9 +372,9 @@ function Axiora.Math.GetAbsoluteInput(relX, relY)
     x = x + inset.X
     y = y + inset.Y
     
-    -- Fix X Axis: Apply Y-inset to X-axis if enabled
-    if Axiora.Settings.FixXAxis then
-        x = x + inset.Y -- Should be approx 32-36px
+    -- Manual Mobile X Offset
+    if Axiora.Settings.MobileXOffset and Axiora.Settings.MobileXOffset ~= 0 then
+        x = x + Axiora.Settings.MobileXOffset
     end
     
     -- Apply user calibration offset
@@ -7382,7 +7382,11 @@ function Axiora.UI.Create()
         {name = "Show HUD", key = "HUDEnabled"},
         {name = "Click Effects", key = "ClickRipple"},
         {name = "Compact Mode", key = "CompactMode"},
-        {name = "Fix X Axis (Mobile)", key = "FixXAxis"}
+        {name = "Smart Rec", key = "SmartRecording"},
+        {name = "Rec UI Clicks", key = "RecordUIClicks"},
+        {name = "Auto Save", key = "AutoSave"},
+        {name = "Click Recovery", key = "ClickRecoveryEnabled"},
+        {name = "Performance", key = "PerformanceMode"}
     }
 
     for i, sett in ipairs(settingsData) do
@@ -7440,6 +7444,67 @@ function Axiora.UI.Create()
             end
         end)
     end
+
+    -- Calibration Section
+    local calibFrame = Instance.new("Frame")
+    calibFrame.Size = UDim2.new(1, -5, 0, 85)
+    calibFrame.BackgroundColor3 = rgb(30, 41, 59)
+    calibFrame.BackgroundTransparency = 0.7
+    calibFrame.Parent = settScroll
+    Instance.new("UICorner", calibFrame).CornerRadius = UDim.new(0, 6)
+
+    local calibTitle = Instance.new("TextLabel")
+    calibTitle.Size = UDim2.new(1, -10, 0, 20)
+    calibTitle.Position = UDim2.new(0, 10, 0, 5)
+    calibTitle.BackgroundTransparency = 1
+    calibTitle.Text = "Mobile Calibration (X Input)"
+    calibTitle.Font = Enum.Font.GothamBold
+    calibTitle.TextSize = 9
+    calibTitle.TextColor3 = rgb(148, 163, 184)
+    calibTitle.TextXAlignment = Enum.TextXAlignment.Left
+    calibTitle.Parent = calibFrame
+
+    -- X Offset Input
+    local xInput = Instance.new("TextBox")
+    xInput.Size = UDim2.new(0.4, 0, 0, 30)
+    xInput.Position = UDim2.new(0, 10, 0, 35)
+    xInput.BackgroundColor3 = rgb(15, 23, 42)
+    xInput.Text = tostring(Axiora.Settings.MobileXOffset or 0)
+    xInput.TextColor3 = rgb(255, 255, 255)
+    xInput.Font = Enum.Font.Code
+    xInput.TextSize = 11
+    xInput.Parent = calibFrame
+    Instance.new("UICorner", xInput).CornerRadius = UDim.new(0, 4)
+
+    xInput.FocusLost:Connect(function()
+        local num = tonumber(xInput.Text)
+        if num then
+            Axiora.Settings.MobileXOffset = num
+            if Axiora.Visuals and Axiora.Visuals.Notify then
+                Axiora.Visuals.Notify("Settings", "X Offset Set to " .. num, 2, "info")
+            end
+        else
+            xInput.Text = tostring(Axiora.Settings.MobileXOffset or 0)
+        end
+    end)
+
+    -- Test Click Button
+    local testBtn = Instance.new("TextButton")
+    testBtn.Size = UDim2.new(0.5, -20, 0, 30)
+    testBtn.Position = UDim2.new(0.5, 5, 0, 35)
+    testBtn.BackgroundColor3 = rgb(147, 51, 234)
+    testBtn.Text = "Test Click Center"
+    testBtn.TextColor3 = rgb(255, 255, 255)
+    testBtn.Font = Enum.Font.GothamBold
+    testBtn.TextSize = 10
+    testBtn.Parent = calibFrame
+    Instance.new("UICorner", testBtn).CornerRadius = UDim.new(0, 4)
+
+    testBtn.MouseButton1Click:Connect(function()
+        if Axiora.Calibration.PerformTestClick then
+            Axiora.Calibration.PerformTestClick(0.5, 0.5)
+        end
+    end)
     
     settScroll.CanvasSize = UDim2.new(0, 0, 0, settList.AbsoluteContentSize.Y + 10)
 
@@ -10051,332 +10116,11 @@ function Axiora.Calibration.PerformTestClick(relX, relY)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- SECTION 32: MOBILE CALIBRATION ARCHITECTURE
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 32: MOBILE CALIBRATION ARCHITECTURE (REMOVED)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
-Axiora.MobileCalibration = {
-    Enabled = false,
-    Profiles = {}, 
-    CurrentOrientation = "portrait",
-    ScreenGrid = {},
-    SafeZones = {},
-    Overlay = nil,
-    IsCalibrating = false,
-    OverrideOffsets = nil, -- Runtime offsets from calibration
-    RuntimeValidation = {
-        Active = false,
-        Failures = 0,
-        LastClick = 0
-    }
-}
-
--- PHASE 1: AUTOMATIC ENVIRONMENT PROFILING
-function Axiora.MobileCalibration.GetDeviceFingerprint()
-    local viewport = workspace.CurrentCamera.ViewportSize
-    local orientation = viewport.X > viewport.Y and "landscape" or "portrait"
-    
-    local safeInsets = {Top=0, Bottom=0, Left=0, Right=0}
-    pcall(function()
-        local guiService = game:GetService("GuiService")
-        local insets = guiService:GetGuiInset() 
-        safeInsets.Top = insets.Y
-    end)
-    
-    return {
-        ScreenSize = {X = viewport.X, Y = viewport.Y},
-        Orientation = orientation,
-        SafeInsets = safeInsets,
-        Timestamp = os.time(),
-        RobloxControls = { -- Approximate
-            Jump = {X = viewport.X - 100, Y = viewport.Y - 100},
-            Stick = {X = 100, Y = viewport.Y - 100}
-        }
-    }
-end
-
-function Axiora.MobileCalibration.GenerateGrid()
-    local vp = workspace.CurrentCamera.ViewportSize
-    local safe = {Top=50, Bottom=50, Left=20, Right=20}
-    
-    local width = vp.X - safe.Left - safe.Right
-    local height = vp.Y - safe.Top - safe.Bottom
-    
-    local colW = width / 3
-    local rowH = height / 3
-    
-    local zones = {}
-    local rows = {"T", "M", "B"} 
-    local cols = {"L", "C", "R"} 
-    
-    for r, rowName in ipairs(rows) do
-        for c, colName in ipairs(cols) do
-            local zoneName = rowName .. colName
-            local CenterX = safe.Left + (c-1)*colW + colW/2
-            local CenterY = safe.Top + (r-1)*rowH + rowH/2
-            
-            -- Exclusion Logic
-            local isExcluded = false
-            if zoneName == "BL" or zoneName == "BR" then isExcluded = true end -- Stick/Jump
-            if zoneName == "TL" then isExcluded = true end -- Chat
-            
-            zones[zoneName] = {
-                Center = Vector2.new(CenterX, CenterY),
-                Excluded = isExcluded
-            }
-        end
-    end
-    Axiora.MobileCalibration.ScreenGrid = zones
-end
-
--- PHASE 2: VISUAL TOUCH FEEDBACK CALIBRATION
-function Axiora.MobileCalibration.CreateOverlay()
-    if Axiora.MobileCalibration.Overlay then Axiora.MobileCalibration.Overlay:Destroy() end
-    
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "AxioraCalibration"
-    sg.DisplayOrder = 10000
-    if getLocalPlayer() and getLocalPlayer().PlayerGui then
-        sg.Parent = getLocalPlayer().PlayerGui
-    else
-        pcall(function() sg.Parent = game:GetService("CoreGui") end)
-    end
-    
-    local bg = Instance.new("Frame")
-    bg.Name = "Overlay"
-    bg.BackgroundColor3 = Color3.new(0,0,0)
-    bg.BackgroundTransparency = 0.3
-    bg.Size = UDim2.new(1,0,1,0)
-    bg.Parent = sg
-    
-    local msg = Instance.new("TextLabel")
-    msg.Name = "StatusMessage"
-    msg.Text = "DON'T TOUCH - Calibrating..."
-    msg.Size = UDim2.new(1,0,0,50)
-    msg.Position = UDim2.new(0,0,0,50)
-    msg.BackgroundTransparency = 1
-    msg.TextColor3 = Color3.new(1,1,1)
-    msg.Font = Enum.Font.GothamBold
-    msg.TextSize = 24
-    msg.Parent = bg
-    
-    Axiora.MobileCalibration.Overlay = sg
-    return bg, msg
-end
-
-function Axiora.MobileCalibration.SpawnTarget(posS, size)
-    local target = Instance.new("Frame")
-    target.Name = "Target"
-    target.Size = UDim2.new(0, size, 0, size)
-    target.Position = UDim2.new(0, posS.X - size/2, 0, posS.Y - size/2)
-    target.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-    target.Parent = Axiora.MobileCalibration.Overlay:FindFirstChild("Overlay")
-    
-    Instance.new("UICorner", target).CornerRadius = UDim.new(1,0)
-    
-    -- Pulse Animation
-    task.spawn(function()
-        local ts = game:GetService("TweenService")
-        local t = ts:Create(target, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, -1, true), {BackgroundColor3 = Color3.fromRGB(200, 100, 255)})
-        t:Play()
-    end)
-    return target
-end
-
-function Axiora.MobileCalibration.RunCalibration()
-    if Axiora.MobileCalibration.IsCalibrating then return end
-    Axiora.MobileCalibration.IsCalibrating = true
-    
-    local profile = Axiora.MobileCalibration.GetDeviceFingerprint()
-    Axiora.MobileCalibration.GenerateGrid()
-    local bg, msg = Axiora.MobileCalibration.CreateOverlay()
-    
-    -- PHASE 2B: AUTO-TOUCH SEQUENCE
-    local zonesToTest = {"MC", "TC", "BC", "ML", "MR"} -- Priority order
-    local results = {}
-    local offsetSumX, offsetSumY, count = 0, 0, 0
-    
-    local VIM = game:GetService("VirtualInputManager")
-    if not VIM then
-        Axiora.Visuals.Notify("Calibration", "VirtualInputManager missing", 3, "error")
-        Axiora.MobileCalibration.IsCalibrating = false
-        Axiora.MobileCalibration.Overlay:Destroy()
-        return
-    end
-    
-    for _, zoneName in ipairs(zonesToTest) do
-        local zone = Axiora.MobileCalibration.ScreenGrid[zoneName]
-        if zone and not zone.Excluded then
-            local targetPos = zone.Center
-            local targetVis = Axiora.MobileCalibration.SpawnTarget(targetPos, 100)
-            
-            task.wait(0.5) -- Wait for visual
-            
-            -- Spiral Search: (0,0), (0,-20), (0,20), (-20,0), (20,0), (-20,-20)...
-            local offsets = {
-                Vector2.new(0,0), Vector2.new(0,-20), Vector2.new(0,20), 
-                Vector2.new(-20,0), Vector2.new(20,0), Vector2.new(-20,-20)
-            }
-            local bestOffset = nil
-            
-            for _, off in ipairs(offsets) do
-                local hit = false
-                local conn = targetVis.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        hit = true
-                    end
-                end)
-                
-                -- Send Touch at Target + Offset
-                pcall(function()
-                    VIM:SendMouseButtonEvent(targetPos.X + off.X, targetPos.Y + off.Y, 0, true, game, 1)
-                    task.wait(0.05)
-                    VIM:SendMouseButtonEvent(targetPos.X + off.X, targetPos.Y + off.Y, 0, false, game, 1)
-                end)
-                task.wait(0.1)
-                conn:Disconnect()
-                
-                if hit then
-                    -- If we touched (X+Off) and hit Target (X), then Input system is shifted by -Off?
-                    -- Actually we simply record the offset that worked.
-                    -- To hit X, we need to add Off.
-                    bestOffset = off
-                    targetVis.BackgroundColor3 = Color3.new(0,1,0) -- Green
-                    break
-                end
-            end
-            
-            if not bestOffset then
-                targetVis.BackgroundColor3 = Color3.new(1,0,0) -- Red
-            else
-                results[zoneName] = bestOffset
-                offsetSumX = offsetSumX + bestOffset.X
-                offsetSumY = offsetSumY + bestOffset.Y
-                count = count + 1
-            end
-            
-            task.wait(0.5)
-            targetVis:Destroy()
-        end
-    end
-    
-    local avgX = count > 0 and (offsetSumX/count) or 0
-    local avgY = count > 0 and (offsetSumY/count) or 0
-    
-    -- PHASE 3: VERIFICATION
-    -- Create 3 Buttons
-    local verifyFrame = Instance.new("Frame", bg)
-    verifyFrame.Size = UDim2.new(0, 300, 0, 100)
-    verifyFrame.Position = UDim2.new(0.5, -150, 0.5, -50)
-    verifyFrame.BackgroundTransparency = 1
-    
-    local btn1 = Instance.new("TextButton", verifyFrame)
-    btn1.Size = UDim2.new(0,80,0,80) 
-    btn1.Position = UDim2.new(0,0,0,10)
-    btn1.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    btn1.Text = "1"
-    
-    local btn2 = Instance.new("TextButton", verifyFrame)
-    btn2.Size = UDim2.new(0,80,0,80)
-    btn2.Position = UDim2.new(0.5,-40,0,10)
-    btn2.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    btn2.Text = "2"
-    
-    local btn3 = Instance.new("TextButton", verifyFrame)
-    btn3.Size = UDim2.new(0,80,0,80)
-    btn3.Position = UDim2.new(1,-80,0,10)
-    btn3.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    btn3.Text = "3"
-    
-    local info = msg
-    info.Text = "Verifying: Watch Middle Button"
-    
-    task.wait(1)
-    
-    -- Auto-Touch Button 2 (using calculated avg offset)
-    local b2Abs = btn2.AbsolutePosition + btn2.AbsoluteSize/2
-    local touchPos = b2Abs + Vector2.new(avgX, avgY)
-    
-    local b2Lit = false
-    btn2.InputBegan:Connect(function() b2Lit = true btn2.BackgroundColor3 = Color3.new(0,1,0) end)
-    
-    pcall(function()
-        VIM:SendMouseButtonEvent(touchPos.X, touchPos.Y, 0, true, game, 1)
-        task.wait(0.05)
-        VIM:SendMouseButtonEvent(touchPos.X, touchPos.Y, 0, false, game, 1)
-    end)
-    task.wait(0.5)
-    
-    if b2Lit then
-        info.Text = "Success! Saving profile..."
-        task.wait(1)
-        
-        -- Save
-        Axiora.MobileCalibration.Profiles[profile.Orientation] = {
-            Offset = {X = avgX, Y = avgY},
-            Timestamp = os.time(),
-            Confidence = 1.0
-        }
-        Axiora.Calibration.SetOffsets(avgX, avgY)
-        Axiora.Visuals.Notify("Calibration", "Saved " .. profile.Orientation .. " profile", 3, "success")
-    else
-        info.Text = "Verification Failed."
-        Axiora.Visuals.Notify("Calibration", "Verification failed", 3, "error")
-    end
-    
-    Axiora.MobileCalibration.Overlay:Destroy()
-    Axiora.MobileCalibration.IsCalibrating = false
-end
-
--- PHASE 4: ORIENTATION DETECTION
-function Axiora.MobileCalibration.StartMonitoring()
-    Axiora.MobileCalibration.Enabled = true
-    
-    -- Orientation Listener
-    Axiora.State.Connections.Orientation = UserInputService.DeviceRotationChanged:Connect(function()
-        local fp = Axiora.MobileCalibration.GetDeviceFingerprint()
-        if fp.Orientation ~= Axiora.MobileCalibration.CurrentOrientation then
-            Axiora.MobileCalibration.CurrentOrientation = fp.Orientation
-            -- Swap Profile
-            local prof = Axiora.MobileCalibration.Profiles[fp.Orientation]
-            if prof then
-                Axiora.Calibration.SetOffsets(prof.Offset.X, prof.Offset.Y)
-                Axiora.Visuals.Notify("Device", "Switched to " .. fp.Orientation .. " profile", 2, "info")
-            else
-                Axiora.Visuals.Notify("Device", "New orientation - Please calibrate", 3, "warning")
-            end
-        end
-    end)
-    
-    -- PHASE 5: KEYBOARD COMPENSATION
-    Axiora.State.Connections.Keyboard = UserInputService:GetPropertyChangedSignal("OnScreenKeyboardVisible"):Connect(function()
-        local visible = UserInputService.OnScreenKeyboardVisible
-        if visible then
-            local size = UserInputService.OnScreenKeyboardSize
-            -- Adjust Y offset? Usually Roblox handles GuiInset for keyboard, but 
-            -- if content is pushed up, we might need dynamic offset.
-            -- Implementation pending user feedback on specific keyboard behavior.
-        end
-    end)
-    
-    -- PHASE 6: RUNTIME VALIDATION (Click Verification)
-    if getLocalPlayer() and getLocalPlayer().PlayerGui then
-        for _, gui in ipairs(getLocalPlayer().PlayerGui:GetDescendants()) do
-            if gui:IsA("GuiButton") then
-                gui.Activated:Connect(function()
-                    Axiora.MobileCalibration.RuntimeValidation.LastClick = os.clock()
-                end)
-            end
-        end
-        
-        getLocalPlayer().PlayerGui.DescendantAdded:Connect(function(gui)
-            if gui:IsA("GuiButton") then
-                gui.Activated:Connect(function()
-                    Axiora.MobileCalibration.RuntimeValidation.LastClick = os.clock()
-                end)
-            end
-        end)
-    end
-end
+-- Cleanup: Mobile Calibration removed in favor of manual X-Offset adjustment.
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SECTION 33: MAIN INITIALIZATION
