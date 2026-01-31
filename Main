@@ -10179,25 +10179,10 @@ function Axiora.Init()
     -- Initialize file system
     Axiora.Files.Init()
     
-    -- Check if calibration is needed (first run or environment changed)
-    local needsCalibration = Axiora.Calibration.CheckNeeded()
-    
-    if needsCalibration then
-        -- Defer calibration until after UI is ready (Robust Wait)
-        task.spawn(function()
-            local waitTime = 0
-            while not (Axiora.UI.ScreenGui or Axiora.Visuals.ScreenGui) and waitTime < 5 do
-                task.wait(0.2)
-                waitTime = waitTime + 0.2
-            end
-            
-            if Axiora.Calibration.StartInteractiveCalibration then
-                Axiora.Calibration.StartInteractiveCalibration()
-            end
-        end)
-    end
-    
     -- Mobile Full Architecture
+    if UserInputService.TouchEnabled then
+        -- MobileCalibration removed (Manual X Offset used instead)
+    end
     if UserInputService.TouchEnabled then
         -- MobileCalibration removed (Manual X Offset used instead)
     end
