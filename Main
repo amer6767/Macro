@@ -6917,48 +6917,55 @@ function Axiora.UI.Create()
     advLabel.Parent = advancedBox
 
     -- Toggle switches
-    local toggles = {"Loop Playback", "Click Recovery", "3D Path Visualization"}
-    local toggleStates = {false, true, false}
-    for i, toggleName in ipairs(toggles) do
+    -- Functional toggles linked to Axiora.Settings
+    local toggleData = {
+        {name = "Loop Playback", key = "LoopPlayback"},
+        {name = "Click Recovery", key = "ClickRecovery"},
+        {name = "3D Path Viz", key = "PathVisualization"}
+    }
+    for i, toggle in ipairs(toggleData) do
+        local isOn = Axiora.Settings[toggle.key] or false
+        
         local toggleLabel = Instance.new("TextLabel")
-        toggleLabel.Name = toggleName:gsub(" ", "")
+        toggleLabel.Name = toggle.key .. "Label"
         toggleLabel.Size = UDim2.new(1, -40, 0, 14)
         toggleLabel.Position = UDim2.new(0, 5, 0, 18 + (i-1) * 22)
         toggleLabel.BackgroundTransparency = 1
-        toggleLabel.Text = toggleName
+        toggleLabel.Text = toggle.name
         toggleLabel.Font = Enum.Font.Gotham
         toggleLabel.TextSize = 8
         toggleLabel.TextColor3 = rgb(203, 213, 225)
         toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
         toggleLabel.Parent = advancedBox
 
-        local toggleSwitch = Instance.new("Frame")
-        toggleSwitch.Name = toggleName:gsub(" ", "") .. "Switch"
-        toggleSwitch.Size = UDim2.new(0, 28, 0, 14)
-        toggleSwitch.Position = UDim2.new(1, -33, 0, 18 + (i-1) * 22)
-        toggleSwitch.BackgroundColor3 = toggleStates[i] and rgb(147, 51, 234) or rgb(51, 65, 85)
-        toggleSwitch.BorderSizePixel = 0
-        toggleSwitch.Parent = advancedBox
-        Instance.new("UICorner", toggleSwitch).CornerRadius = UDim.new(1, 0)
-
-        if toggleStates[i] then
-            local switchGradient = Instance.new("UIGradient")
-            switchGradient.Color = ColorSequence.new{
-                ColorSequenceKeypoint.new(0, rgb(147, 51, 234)),
-                ColorSequenceKeypoint.new(1, rgb(8, 145, 178))
-            }
-            switchGradient.Rotation = 90
-            switchGradient.Parent = toggleSwitch
-        end
+        local toggleBtn = Instance.new("TextButton")
+        toggleBtn.Name = toggle.key .. "Switch"
+        toggleBtn.Size = UDim2.new(0, 28, 0, 14)
+        toggleBtn.Position = UDim2.new(1, -33, 0, 18 + (i-1) * 22)
+        toggleBtn.BackgroundColor3 = isOn and rgb(147, 51, 234) or rgb(51, 65, 85)
+        toggleBtn.BorderSizePixel = 0
+        toggleBtn.Text = ""
+        toggleBtn.Parent = advancedBox
+        Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
 
         local switchKnob = Instance.new("Frame")
         switchKnob.Name = "Knob"
         switchKnob.Size = UDim2.new(0, 12, 0, 12)
-        switchKnob.Position = toggleStates[i] and UDim2.new(0, 15, 0, 1) or UDim2.new(0, 1, 0, 1)
+        switchKnob.Position = isOn and UDim2.new(0, 15, 0, 1) or UDim2.new(0, 1, 0, 1)
         switchKnob.BackgroundColor3 = rgb(255, 255, 255)
         switchKnob.BorderSizePixel = 0
-        switchKnob.Parent = toggleSwitch
+        switchKnob.Parent = toggleBtn
         Instance.new("UICorner", switchKnob).CornerRadius = UDim.new(1, 0)
+
+        toggleBtn.MouseButton1Click:Connect(function()
+            Axiora.Settings[toggle.key] = not Axiora.Settings[toggle.key]
+            local on = Axiora.Settings[toggle.key]
+            TweenService:Create(toggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = on and rgb(147, 51, 234) or rgb(51, 65, 85)}):Play()
+            TweenService:Create(switchKnob, TweenInfo.new(0.2), {Position = on and UDim2.new(0, 15, 0, 1) or UDim2.new(0, 1, 0, 1)}):Play()
+            if Axiora.Visuals and Axiora.Visuals.Notify then
+                Axiora.Visuals.Notify("Settings", toggle.name .. (on and " ON" or " OFF"), 1, "info")
+            end
+        end)
     end
 
     -- Other panels
@@ -6980,28 +6987,111 @@ function Axiora.UI.Create()
     editorTitle.TextXAlignment = Enum.TextXAlignment.Left
     editorTitle.Parent = editorPanel
 
-    local editorPlaceholder = Instance.new("Frame")
-    editorPlaceholder.Size = UDim2.new(1, -10, 0, 200)
-    editorPlaceholder.Position = UDim2.new(0, 5, 0, 30)
-    editorPlaceholder.BackgroundColor3 = rgb(30, 41, 59)
-    editorPlaceholder.BackgroundTransparency = 0.5
-    editorPlaceholder.BorderSizePixel = 0
-    editorPlaceholder.Parent = editorPanel
-    Instance.new("UICorner", editorPlaceholder).CornerRadius = UDim.new(0, 6)
-    local editorStroke = Instance.new("UIStroke")
-    editorStroke.Color = rgb(51, 65, 85)
-    editorStroke.Transparency = 0.5
-    editorStroke.Thickness = 1
-    editorStroke.Parent = editorPlaceholder
+    local editorScroll = Instance.new("ScrollingFrame")
+    editorScroll.Size = UDim2.new(1, -10, 1, -35)
+    editorScroll.Position = UDim2.new(0, 5, 0, 28)
+    editorScroll.BackgroundTransparency = 1
+    editorScroll.BorderSizePixel = 0
+    editorScroll.ScrollBarThickness = 4
+    editorScroll.ScrollBarImageColor3 = rgb(147, 51, 234)
+    editorScroll.Parent = editorPanel
 
-    local editorText = Instance.new("TextLabel")
-    editorText.Size = UDim2.new(1, 0, 1, 0)
-    editorText.BackgroundTransparency = 1
-    editorText.Text = "Node editor interface here"
-    editorText.Font = Enum.Font.Gotham
-    editorText.TextSize = 10
-    editorText.TextColor3 = rgb(148, 163, 184)
-    editorText.Parent = editorPlaceholder
+    local editorList = Instance.new("UIListLayout")
+    editorList.SortOrder = Enum.SortOrder.LayoutOrder
+    editorList.Padding = UDim.new(0, 4)
+    editorList.Parent = editorScroll
+
+    local function refreshEditor()
+        for _, child in pairs(editorScroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+
+        local nodes = Axiora.State and Axiora.State.Buffer or {}
+        
+        if #nodes == 0 then
+            local empty = Instance.new("TextLabel")
+            empty.Size = UDim2.new(1, 0, 0, 40)
+            empty.BackgroundTransparency = 1
+            empty.Text = "No nodes recorded"
+            empty.Font = Enum.Font.Gotham
+            empty.TextSize = 10
+            empty.TextColor3 = rgb(148, 163, 184)
+            empty.Parent = editorScroll
+        else
+            for i, node in ipairs(nodes) do
+                local nodeFrame = Instance.new("Frame")
+                nodeFrame.Size = UDim2.new(1, -5, 0, 24)
+                nodeFrame.BackgroundColor3 = rgb(30, 41, 59)
+                nodeFrame.BackgroundTransparency = 0.6
+                nodeFrame.BorderSizePixel = 0
+                nodeFrame.Parent = editorScroll
+                Instance.new("UICorner", nodeFrame).CornerRadius = UDim.new(0, 4)
+
+                local idxLabel = Instance.new("TextLabel")
+                idxLabel.Size = UDim2.new(0, 20, 1, 0)
+                idxLabel.BackgroundTransparency = 1
+                idxLabel.Text = tostring(i)
+                idxLabel.Font = Enum.Font.Code
+                idxLabel.TextSize = 8
+                idxLabel.TextColor3 = rgb(100, 116, 139)
+                idxLabel.Parent = nodeFrame
+
+                local typeLabel = Instance.new("TextLabel")
+                typeLabel.Size = UDim2.new(0, 60, 1, 0)
+                typeLabel.Position = UDim2.new(0, 25, 0, 0)
+                typeLabel.BackgroundTransparency = 1
+                typeLabel.Text = node.Type or "Move"
+                typeLabel.Font = Enum.Font.GothamBold
+                typeLabel.TextSize = 9
+                typeLabel.TextColor3 = rgb(226, 232, 240)
+                typeLabel.TextXAlignment = Enum.TextXAlignment.Left
+                typeLabel.Parent = nodeFrame
+                
+                -- Dynamic icon color based on type
+                local colorBar = Instance.new("Frame")
+                colorBar.Size = UDim2.new(0, 2, 0.8, 0)
+                colorBar.Position = UDim2.new(0, 2, 0.1, 0)
+                colorBar.BorderSizePixel = 0
+                if node.Type == "Click" then
+                    colorBar.BackgroundColor3 = rgb(239, 68, 68)
+                elseif node.Type == "Key" then
+                    colorBar.BackgroundColor3 = rgb(234, 179, 8)
+                else
+                    colorBar.BackgroundColor3 = rgb(59, 130, 246)
+                end
+                colorBar.Parent = nodeFrame
+            end
+        end
+        editorScroll.CanvasSize = UDim2.new(0, 0, 0, editorList.AbsoluteContentSize.Y + 10)
+    end
+    Axiora.UI.RefreshEditor = refreshEditor
+    refreshEditor()
+
+    -- Footer
+    local footer = Instance.new("TextLabel")
+    footer.Name = "Footer"
+    footer.Size = UDim2.new(1, 0, 0, 16)
+    footer.Position = UDim2.new(0, 0, 1, -20)
+    footer.BackgroundTransparency = 1
+    footer.Text = "Axiora v6.0 • Idle • Uptime: 0m"
+    footer.Font = Enum.Font.Code
+    footer.TextSize = 7
+    footer.TextColor3 = rgb(100, 116, 139)
+    footer.Parent = container
+
+    -- Live uptime loop
+    task.spawn(function()
+        local startTime = os.time()
+        while screenGui.Parent do
+            local elapsed = os.time() - startTime
+            local m = math.floor(elapsed / 60)
+            local s = elapsed % 60
+            local status = Axiora.State.Status or "IDLE"
+            footer.Text = string.format("Axiora v6.0 • %s • Uptime: %dm %ds", status, m, s)
+            task.wait(1)
+        end
+    end)
+
 
     -- Library Panel
     local libraryPanel = Instance.new("Frame")
@@ -7022,47 +7112,95 @@ function Axiora.UI.Create()
     libraryTitle.TextXAlignment = Enum.TextXAlignment.Left
     libraryTitle.Parent = libraryPanel
 
-    local macros = {"Farming Route", "PvP Combo", "Auto Craft", "Boss Fight"}
-    for i, macroName in ipairs(macros) do
-        local row = math.floor((i-1) / 2)
-        local col = (i-1) % 2
-        local macroCard = Instance.new("Frame")
-        macroCard.Name = macroName:gsub(" ", "")
-        macroCard.Size = UDim2.new(0, 138, 0, 55)
-        macroCard.Position = UDim2.new(0, 5 + col * 147, 0, 28 + row * 65)
-        macroCard.BackgroundColor3 = rgb(30, 41, 59)
-        macroCard.BackgroundTransparency = 0.7
-        macroCard.BorderSizePixel = 0
-        macroCard.Parent = libraryPanel
-        Instance.new("UICorner", macroCard).CornerRadius = UDim.new(0, 6)
-        local macroStroke = Instance.new("UIStroke")
-        macroStroke.Color = rgb(51, 65, 85)
-        macroStroke.Transparency = 0.5
-        macroStroke.Thickness = 1
-        macroStroke.Parent = macroCard
+    -- Scrolling container for saves
+    local libScroll = Instance.new("ScrollingFrame")
+    libScroll.Name = "LibraryScroll"
+    libScroll.Size = UDim2.new(1, -10, 1, -35)
+    libScroll.Position = UDim2.new(0, 5, 0, 28)
+    libScroll.BackgroundTransparency = 1
+    libScroll.BorderSizePixel = 0
+    libScroll.ScrollBarThickness = 4
+    libScroll.ScrollBarImageColor3 = rgb(147, 51, 234)
+    libScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    libScroll.Parent = libraryPanel
 
-        local macroTitle = Instance.new("TextLabel")
-        macroTitle.Size = UDim2.new(1, -10, 0, 16)
-        macroTitle.Position = UDim2.new(0, 5, 0, 32)
-        macroTitle.BackgroundTransparency = 1
-        macroTitle.Text = macroName
-        macroTitle.Font = Enum.Font.GothamBold
-        macroTitle.TextSize = 9
-        macroTitle.TextColor3 = rgb(255, 255, 255)
-        macroTitle.TextXAlignment = Enum.TextXAlignment.Left
-        macroTitle.Parent = macroCard
+    local libGrid = Instance.new("UIGridLayout")
+    libGrid.CellSize = UDim2.new(0.48, 0, 0, 55)
+    libGrid.CellPadding = UDim2.new(0.02, 0, 0, 8)
+    libGrid.Parent = libScroll
 
-        local macroInfo = Instance.new("TextLabel")
-        macroInfo.Size = UDim2.new(1, -10, 0, 10)
-        macroInfo.Position = UDim2.new(0, 5, 0, 46)
-        macroInfo.BackgroundTransparency = 1
-        macroInfo.Text = "Last modified: 2h ago"
-        macroInfo.Font = Enum.Font.Gotham
-        macroInfo.TextSize = 7
-        macroInfo.TextColor3 = rgb(148, 163, 184)
-        macroInfo.TextXAlignment = Enum.TextXAlignment.Left
-        macroInfo.Parent = macroCard
+    -- Load real saves from Axiora
+    local function refreshLibrary()
+        for _, child in pairs(libScroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        
+        local saves = Axiora.ListSaves and Axiora.ListSaves() or {}
+        
+        if #saves == 0 then
+            local noSaves = Instance.new("TextLabel")
+            noSaves.Size = UDim2.new(1, 0, 0, 50)
+            noSaves.BackgroundTransparency = 1
+            noSaves.Text = "No saved macros yet.\nRecord and save to see them here."
+            noSaves.Font = Enum.Font.Gotham
+            noSaves.TextSize = 9
+            noSaves.TextColor3 = rgb(148, 163, 184)
+            noSaves.Parent = libScroll
+        else
+            for i, saveName in ipairs(saves) do
+                local macroCard = Instance.new("TextButton")
+                macroCard.Name = saveName
+                macroCard.BackgroundColor3 = rgb(30, 41, 59)
+                macroCard.BackgroundTransparency = 0.7
+                macroCard.BorderSizePixel = 0
+                macroCard.Text = ""
+                macroCard.Parent = libScroll
+                Instance.new("UICorner", macroCard).CornerRadius = UDim.new(0, 6)
+                local macroStroke = Instance.new("UIStroke")
+                macroStroke.Color = rgb(51, 65, 85)
+                macroStroke.Transparency = 0.5
+                macroStroke.Thickness = 1
+                macroStroke.Parent = macroCard
+
+                local macroTitle = Instance.new("TextLabel")
+                macroTitle.Size = UDim2.new(1, -10, 0, 16)
+                macroTitle.Position = UDim2.new(0, 5, 0, 5)
+                macroTitle.BackgroundTransparency = 1
+                macroTitle.Text = saveName
+                macroTitle.Font = Enum.Font.GothamBold
+                macroTitle.TextSize = 9
+                macroTitle.TextColor3 = rgb(255, 255, 255)
+                macroTitle.TextXAlignment = Enum.TextXAlignment.Left
+                macroTitle.TextTruncate = Enum.TextTruncate.AtEnd
+                macroTitle.Parent = macroCard
+
+                local loadLabel = Instance.new("TextLabel")
+                loadLabel.Size = UDim2.new(1, -10, 0, 10)
+                loadLabel.Position = UDim2.new(0, 5, 0, 40)
+                loadLabel.BackgroundTransparency = 1
+                loadLabel.Text = "Tap to load"
+                loadLabel.Font = Enum.Font.Gotham
+                loadLabel.TextSize = 7
+                loadLabel.TextColor3 = rgb(148, 163, 184)
+                loadLabel.TextXAlignment = Enum.TextXAlignment.Left
+                loadLabel.Parent = macroCard
+
+                macroCard.MouseButton1Click:Connect(function()
+                    if Axiora.Load then
+                        Axiora.Load(saveName)
+                        if Axiora.Visuals and Axiora.Visuals.Notify then
+                            Axiora.Visuals.Notify("Library", "Loaded: " .. saveName, 2, "success")
+                        end
+                    end
+                end)
+            end
+        end
+        
+        libScroll.CanvasSize = UDim2.new(0, 0, 0, libGrid.AbsoluteContentSize.Y + 10)
     end
+    
+    refreshLibrary()
+    Axiora.UI.RefreshLibrary = refreshLibrary
 
     -- Automation Panel
     local automationPanel = Instance.new("Frame")
@@ -7102,6 +7240,99 @@ function Axiora.UI.Create()
     newRuleGradient.Rotation = 90
     newRuleGradient.Parent = newRuleBtn
 
+    local autoScroll = Instance.new("ScrollingFrame")
+    autoScroll.Name = "AutoScroll"
+    autoScroll.Size = UDim2.new(1, -10, 1, -35)
+    autoScroll.Position = UDim2.new(0, 5, 0, 28)
+    autoScroll.BackgroundTransparency = 1
+    autoScroll.BorderSizePixel = 0
+    autoScroll.ScrollBarThickness = 4
+    autoScroll.ScrollBarImageColor3 = rgb(147, 51, 234)
+    autoScroll.Parent = automationPanel
+
+    local autoList = Instance.new("UIListLayout")
+    autoList.SortOrder = Enum.SortOrder.LayoutOrder
+    autoList.Padding = UDim.new(0, 6)
+    autoList.Parent = autoScroll
+
+    local function refreshAutomation()
+        for _, child in pairs(autoScroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+
+        local rules = Axiora.Automation and Axiora.Automation.Rules or {}
+        
+        if #rules == 0 then
+            local empty = Instance.new("TextLabel")
+            empty.Size = UDim2.new(1, 0, 0, 40)
+            empty.BackgroundTransparency = 1
+            empty.Text = "No rules active.\nCreate a rule to automate tasks."
+            empty.Font = Enum.Font.Gotham
+            empty.TextSize = 9
+            empty.TextColor3 = rgb(148, 163, 184)
+            empty.Parent = autoScroll
+        else
+            for i, rule in ipairs(rules) do
+                local ruleFrame = Instance.new("Frame")
+                ruleFrame.Size = UDim2.new(1, -5, 0, 35)
+                ruleFrame.BackgroundColor3 = rgb(30, 41, 59)
+                ruleFrame.BackgroundTransparency = 0.6
+                ruleFrame.BorderSizePixel = 0
+                ruleFrame.Parent = autoScroll
+                Instance.new("UICorner", ruleFrame).CornerRadius = UDim.new(0, 6)
+
+                local rTitle = Instance.new("TextLabel")
+                rTitle.Size = UDim2.new(1, -40, 0, 14)
+                rTitle.Position = UDim2.new(0, 5, 0, 5)
+                rTitle.BackgroundTransparency = 1
+                rTitle.Text = rule.Name or ("Rule " .. i)
+                rTitle.Font = Enum.Font.GothamBold
+                rTitle.TextSize = 9
+                rTitle.TextColor3 = rgb(226, 232, 240)
+                rTitle.TextXAlignment = Enum.TextXAlignment.Left
+                rTitle.Parent = ruleFrame
+
+                local rDesc = Instance.new("TextLabel")
+                rDesc.Size = UDim2.new(1, -40, 0, 10)
+                rDesc.Position = UDim2.new(0, 5, 0, 20)
+                rDesc.BackgroundTransparency = 1
+                rDesc.Text = (rule.Trigger or "Unknown") .. " -> " .. (rule.Action or "Unknown")
+                rDesc.Font = Enum.Font.Code
+                rDesc.TextSize = 7
+                rDesc.TextColor3 = rgb(148, 163, 184)
+                rDesc.TextXAlignment = Enum.TextXAlignment.Left
+                rDesc.Parent = ruleFrame
+
+                local delBtn = Instance.new("TextButton")
+                delBtn.Size = UDim2.new(0, 25, 0, 25)
+                delBtn.Position = UDim2.new(1, -30, 0.5, 0)
+                delBtn.AnchorPoint = Vector2.new(0, 0.5)
+                delBtn.BackgroundColor3 = rgb(51, 65, 85)
+                delBtn.BackgroundTransparency = 1
+                delBtn.Text = "🗑️"
+                delBtn.TextSize = 12
+                delBtn.Parent = ruleFrame
+                
+                delBtn.MouseButton1Click:Connect(function()
+                     table.remove(rules, i)
+                     refreshAutomation()
+                     if Axiora.Automation.SaveRules then Axiora.Automation.SaveRules() end
+                end)
+            end
+        end
+        autoScroll.CanvasSize = UDim2.new(0, 0, 0, autoList.AbsoluteContentSize.Y + 10)
+    end
+    Axiora.UI.RefreshAutomation = refreshAutomation
+    refreshAutomation()
+
+    newRuleBtn.MouseButton1Click:Connect(function()
+        if Axiora.UI.CreateRuleModal then
+            Axiora.UI.CreateRuleModal(screenGui, refreshAutomation)
+        else
+             Axiora.Visuals.Notify("Error", "Rule Editor module missing", 2, "error")
+        end
+    end)
+
     -- Settings Panel
     local settingsPanel = Instance.new("Frame")
     settingsPanel.Name = "settingsPanel"
@@ -7120,6 +7351,88 @@ function Axiora.UI.Create()
     settingsTitle.TextColor3 = rgb(255, 255, 255)
     settingsTitle.TextXAlignment = Enum.TextXAlignment.Left
     settingsTitle.Parent = settingsPanel
+
+    local settScroll = Instance.new("ScrollingFrame")
+    settScroll.Name = "SettingsScroll"
+    settScroll.Size = UDim2.new(1, -10, 1, -35)
+    settScroll.Position = UDim2.new(0, 5, 0, 28)
+    settScroll.BackgroundTransparency = 1
+    settScroll.BorderSizePixel = 0
+    settScroll.ScrollBarThickness = 4
+    settScroll.ScrollBarImageColor3 = rgb(147, 51, 234)
+    settScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    settScroll.Parent = settingsPanel
+
+    local settList = Instance.new("UIListLayout")
+    settList.SortOrder = Enum.SortOrder.LayoutOrder
+    settList.Padding = UDim.new(0, 8)
+    settList.Parent = settScroll
+
+    local settingsData = {
+        {name = "Anti-AFK", key = "AntiAFK"},
+        {name = "Auto Rejoin", key = "AutoRestartEnabled"},
+        {name = "Show HUD", key = "HUDEnabled"},
+        {name = "Click Effects", key = "ClickRipple"},
+        {name = "Compact Mode", key = "CompactMode"}
+    }
+
+    for i, sett in ipairs(settingsData) do
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -5, 0, 40)
+        frame.BackgroundColor3 = rgb(30, 41, 59)
+        frame.BackgroundTransparency = 0.7
+        frame.BorderSizePixel = 0
+        frame.Parent = settScroll
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.7, 0, 1, 0)
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = sett.name
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 9
+        label.TextColor3 = rgb(226, 232, 240)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+
+        local toggleParams = {
+            isOn = Axiora.Settings[sett.key] or false
+        }
+
+        local toggleBtn = Instance.new("TextButton")
+        toggleBtn.Size = UDim2.new(0, 40, 0, 20)
+        toggleBtn.Position = UDim2.new(1, -50, 0.5, 0)
+        toggleBtn.AnchorPoint = Vector2.new(0, 0.5)
+        toggleBtn.BackgroundColor3 = toggleParams.isOn and rgb(34, 197, 94) or rgb(51, 65, 85)
+        toggleBtn.Text = ""
+        toggleBtn.Parent = frame
+        Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 16, 0, 16)
+        knob.Position = toggleParams.isOn and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+        knob.AnchorPoint = Vector2.new(0, 0.5)
+        knob.BackgroundColor3 = rgb(255, 255, 255)
+        knob.BorderSizePixel = 0
+        knob.Parent = toggleBtn
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+        toggleBtn.MouseButton1Click:Connect(function()
+            Axiora.Settings[sett.key] = not Axiora.Settings[sett.key]
+            local on = Axiora.Settings[sett.key]
+            
+            TweenService:Create(toggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = on and rgb(34, 197, 94) or rgb(51, 65, 85)}):Play()
+            TweenService:Create(knob, TweenInfo.new(0.2), {Position = on and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)}):Play()
+            
+            -- Apply immediate effects
+            if sett.key == "AntiAFK" and Axiora.Security then
+                if on then Axiora.Security.EnableAntiAFK() else Axiora.Security.DisableAntiAFK() end
+            end
+        end)
+    end
+    
+    settScroll.CanvasSize = UDim2.new(0, 0, 0, settList.AbsoluteContentSize.Y + 10)
 
     -- Footer
     local footer = Instance.new("TextLabel")
