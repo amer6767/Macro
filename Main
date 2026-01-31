@@ -364,35 +364,28 @@ function Axiora.Math.GetAbsoluteInput(relX, relY)
     
     if viewport.X < 10 then viewport = Vector2.new(1920, 1080) end
     
-    -- Convert relative to viewport coordinates
+    -- 1. Convert relative (0-1) to Viewport Coordinates
     local x = relX * viewport.X
     local y = relY * viewport.Y
     
-    -- Add GUI inset back (GetRelativeInput subtracted it during recording)
+    -- 2. Restore GUI Inset (GetRelativeInput subtracted it)
     x = x + inset.X
     y = y + inset.Y
     
-    -- Manual Mobile X Offset
-    if Axiora.Settings.MobileXOffset and Axiora.Settings.MobileXOffset ~= 0 then
-        x = x + Axiora.Settings.MobileXOffset
-    end
+    -- 3. Apply Manual X Offset (The Shift)
+    local xOffset = Axiora.Settings.MobileXOffset or 0
+    x = x + xOffset
     
-    -- Apply user calibration offset
+    -- 4. Apply Legacy Offset (if any still exists)
     x = x + (Axiora.Settings.XOffset or 0)
     y = y + (Axiora.Settings.YOffset or 0)
     
-    -- Apply DPI scale if detected (for high-DPI displays)
+    -- 5. Apply DPI Scale (if > 1.0)
     local dpiScale = Axiora.Settings.DPIScale or 1.0
     if dpiScale ~= 1.0 then
         x = x * dpiScale
         y = y * dpiScale
     end
-    
-    -- Clamp to valid screen range
-    local totalWidth = (viewport.X + inset.X) * dpiScale
-    local totalHeight = (viewport.Y + inset.Y) * dpiScale
-    x = math.clamp(x, 0, totalWidth)
-    y = math.clamp(y, 0, totalHeight)
     
     return Vector2.new(x, y)
 end
@@ -9593,10 +9586,10 @@ function Axiora.Gyro.StartTracking()
             t = Axiora.NodeTypes.GYRO,
             d = Axiora.Recording.GetElapsedTime and Axiora.Recording.GetElapsedTime() or 0,
             rotation = {
-                x = rotation.X,
-                y = rotation.Y,
-                z = rotation.Z,
-                w = rotation.W
+                x = rotation.Position.X,
+                y = rotation.Position.Y,
+                z = rotation.Position.Z,
+                w = cframe and select(2, cframe:ToEulerAnglesXYZ()) or 0 -- Approximate quaternion W or usage from CFrame
             }
         }
         table.insert(Axiora.State.Buffer, node)
@@ -10049,19 +10042,28 @@ function Axiora.Calibration.PerformTestClick(relX, relY)
     relX = relX or 0.5
     relY = relY or 0.5
     
-    -- Get absolute position with current offsets
+    -- Calculate targeted screen position
     local abs = Axiora.Math.GetAbsoluteInput(relX, relY)
     
-    -- Visual indicator
+    -- Visual Feedback: Show where we are clicking
     if Axiora.Visuals and Axiora.Visuals.Ripple then
-        Axiora.Visuals.Ripple(abs.X, abs.Y, Color3.fromRGB(255, 200, 50))
+        Axiora.Visuals.Ripple(abs.X, abs.Y, Color3.fromRGB(255, 0, 0)) -- Red for Simulated Click
     end
     
-    -- Perform click
-    Axiora.Input.Click(abs.X, abs.Y)
+    -- Send actual Input
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(abs.X, abs.Y, 0, true, game, 1)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(abs.X, abs.Y, 0, false, game, 1)
+        end)
+    else
+        -- Fallback
+        Axiora.Input.Click(abs.X, abs.Y)
+    end
     
     Axiora.Visuals.Notify("Test Click", 
-        string.format("Clicked at (%.0f, %.0f)", abs.X, abs.Y), 
+        string.format("Simulated at (%.0f, %.0f)", abs.X, abs.Y), 
         2, "info")
     
     return abs
