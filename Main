@@ -409,6 +409,12 @@ function Axiora.Math.GetRelativeInput(absX, absY)
     -- but we want viewport-relative coordinates
     local viewX = absX - inset.X
     local viewY = absY - inset.Y
+
+    -- Sync Recording with Mobile X Offset
+    -- If we add Offset during playback, we must subtract it here to maintain identity.
+    if Axiora.Settings.MobileXOffset and Axiora.Settings.MobileXOffset ~= 0 then
+        viewX = viewX - Axiora.Settings.MobileXOffset
+    end
     
     -- Convert to 0-1 range relative to viewport
     return {
