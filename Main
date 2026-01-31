@@ -1024,6 +1024,51 @@ function Axiora.Record()
     
     -- Input recording (clicks and keys)
     Axiora.State.Connections.Input = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        -- Test Mode Interception
+        if Axiora.Settings.TestMode then
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                local pos = UserInputService:GetMouseLocation()
+                local inset = Axiora.Math.Screen.GuiInset
+                
+                -- Visual 1: Raw Touch (Blue)
+                if Axiora.Visuals.Ripple then
+                    Axiora.Visuals.Ripple(pos.X, pos.Y, Color3.new(0,0.5,1)) 
+                end
+                
+                -- Visual 2: Calculated/Offset Position (Red)
+                -- Determine what the script 'sees' after offset
+                local adjustedX = pos.X
+                if input.UserInputType == Enum.UserInputType.Touch then
+                   adjustedX = adjustedX + inset.X -- Add Inset X (Mobile quirk)
+                   if Axiora.Settings.MobileXOffset then
+                       adjustedX = adjustedX + Axiora.Settings.MobileXOffset
+                   end
+                end
+                
+                if Axiora.Visuals.Ripple then
+                    Axiora.Visuals.Ripple(adjustedX, pos.Y, Color3.new(1,0,0))
+                end
+                
+                Axiora.Visuals.Notify("Test Mode", string.format("Touch: %.0f -> %.0f", pos.X, adjustedX), 1, "info")
+            end
+            return -- Stop recording in test mode
+        end
+
+        -- Filter: Ignore clicks on Axiora Main Panel (Controls)
+        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and 
+           Axiora.UI and Axiora.UI.MainPanel and Axiora.UI.MainPanel.Visible then
+            local pos = UserInputService:GetMouseLocation()
+            local panelParam = Axiora.UI.MainPanel.AbsolutePosition
+            local panelSize = Axiora.UI.MainPanel.AbsoluteSize
+            
+            -- Simple AABB check
+            if pos.X >= panelParam.X and pos.X <= (panelParam.X + panelSize.X) and
+               pos.Y >= panelParam.Y and pos.Y <= (panelParam.Y + panelSize.Y) then
+               -- Click is inside Main Panel -> Ignore it
+               return
+            end
+        end
+
         if gameProcessed and not Axiora.Settings.RecordUIClicks then return end
         
         local now = os.clock()
@@ -7386,7 +7431,8 @@ function Axiora.UI.Create()
         {name = "Rec UI Clicks", key = "RecordUIClicks"},
         {name = "Auto Save", key = "AutoSave"},
         {name = "Click Recovery", key = "ClickRecoveryEnabled"},
-        {name = "Performance", key = "PerformanceMode"}
+        {name = "Performance", key = "PerformanceMode"},
+        {name = "Interactive Test Mode", key = "TestMode"}
     }
 
     for i, sett in ipairs(settingsData) do
@@ -9967,112 +10013,12 @@ function Axiora.AIClickRecovery.SmartClick(x, y, validator)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- SECTION 31: ENHANCED CALIBRATION (Y-Axis + DPI + Test Click)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 31: ENHANCED CALIBRATION (REMOVED)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
--- Extend existing calibration with Y-axis support
-Axiora.Calibration.DPIScale = 1.0
-Axiora.Calibration.TestClickEnabled = true
-
--- DPI detection (estimate based on screen size)
--- Interactive calibration for X/Y offsets
-function Axiora.Calibration.StartInteractiveCalibration()
-    -- Hide main panel if open
-    if Axiora.UI.ScreenGui and Axiora.UI.MainPanel and Axiora.UI.MainPanel.Visible then
-        Axiora.UI.TogglePanel()
-    end
-    
-    local theme = Axiora.UI.Theme or {Primary = Color3.fromRGB(0, 255, 100)}
-    
-    -- Create overlay
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "CalibrationOverlay"
-    sg.IgnoreGuiInset = true
-    sg.DisplayOrder = 10000
-    if getLocalPlayer() and getLocalPlayer().PlayerGui then
-        sg.Parent = getLocalPlayer().PlayerGui
-    else
-        pcall(function() sg.Parent = game:GetService("CoreGui") end)
-    end
-    
-    local bg = Instance.new("Frame")
-    bg.BackgroundColor3 = Color3.new(0,0,0)
-    bg.BackgroundTransparency = 0.3
-    bg.Size = UDim2.new(1,0,1,0)
-    bg.Parent = sg
-    
-    local msg = Instance.new("TextLabel")
-    msg.Text = "CLICK THE CENTER OF THE TARGET"
-    msg.Size = UDim2.new(1,0,0,50)
-    msg.Position = UDim2.new(0,0,0,100)
-    msg.BackgroundTransparency = 1
-    msg.TextColor3 = Color3.new(1,1,1)
-    msg.Font = Enum.Font.GothamBold
-    msg.TextSize = 24
-    msg.Parent = bg
-    
-    -- Spawn target at known location (center of screen)
-    local vp = workspace.CurrentCamera.ViewportSize
-    local targetX, targetY = vp.X / 2, vp.Y / 2
-    
-    local target = Instance.new("ImageButton")
-    target.BackgroundColor3 = theme.Primary
-    target.BackgroundTransparency = 0.5
-    target.Size = UDim2.new(0, 40, 0, 40)
-    target.Position = UDim2.fromOffset(targetX - 20, targetY - 20)
-    target.Parent = bg
-    Instance.new("UICorner", target).CornerRadius = UDim.new(1,0)
-    
-    local crosshair = Instance.new("TextLabel")
-    crosshair.BackgroundTransparency = 1
-    crosshair.Size = UDim2.new(1,0,1,0)
-    crosshair.Text = "+"
-    crosshair.TextColor3 = Color3.new(1,1,1)
-    crosshair.TextSize = 24
-    crosshair.Parent = target
-    
-    target.MouseButton1Click:Connect(function()
-        local mouse = UserInputService:GetMouseLocation()
-        
-        -- Calculate difference between where we put the button and where the mouse reported being
-        -- Ideally they are identical. If mouse reports (500, 500) but button is at (500, 500), offset is 0.
-        -- If mouse reports (500, 536) [topbar offset?] but button is visual at 500,500...
-        
-        local offsetX = mouse.X - targetX
-        local offsetY = mouse.Y - targetY
-        
-        -- Save settings
-        Axiora.Settings.XOffset = math.floor(offsetX)
-        Axiora.Settings.YOffset = math.floor(offsetY)
-        
-        if Axiora.Save then Axiora.Save() end
-        
-        if Axiora.Visuals and Axiora.Visuals.Notify then
-            Axiora.Visuals.Notify("Calibration", 
-                string.format("Offsets saved: X=%d, Y=%d", offsetX, offsetY), 
-                3, "success")
-        end
-        
-        sg:Destroy()
-        task.wait(0.5)
-        -- Reopen panel
-        if Axiora.UI.TogglePanel then Axiora.UI.TogglePanel() end
-    end)
-    
-    -- Cancel button
-    local cancelBtn = Instance.new("TextButton")
-    cancelBtn.Text = "CANCEL"
-    cancelBtn.Size = UDim2.new(0, 100, 0, 40)
-    cancelBtn.Position = UDim2.new(0.5, -50, 0.8, 0)
-    cancelBtn.BackgroundColor3 = theme.Primary
-    cancelBtn.Parent = bg
-    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0,8)
-    
-    cancelBtn.MouseButton1Click:Connect(function()
-        sg:Destroy()
-        if Axiora.UI.TogglePanel then Axiora.UI.TogglePanel() end
-    end)
-end
+-- Cleanup: Interactive calibration removed.
+-- (Interactive Calibration Logic Removed)
 
 -- DPI detection (estimate based on screen size)
 function Axiora.Calibration.DetectDPI()
@@ -10144,7 +10090,7 @@ function Axiora.UI.RefreshLibrary()
         if tab then
             tab:ClearAllChildren()
             Axiora.UI.BuildLibrary(tab)
-        end
+        
     end
 end
 
