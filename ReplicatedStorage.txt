@@ -48,7 +48,7 @@ local Config = {
     },
     
     Services = {"Workspace", "ReplicatedStorage", "ReplicatedFirst", "Players", 
-                "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "Chat"},
+                "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "Chat", "ServerScriptService"},
 }
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -937,6 +937,16 @@ local function init()
     
     -- Build tree
     Explorer.buildTree()
+
+    -- Auto-Refresh Loop
+    task.spawn(function()
+        while State.gui and State.gui.Parent do
+            task.wait(5)
+            if State.mainFrame and State.mainFrame.Visible then
+                 Explorer.buildTree(searchBox.Text)
+            end
+        end
+    end)
     
     -- Animate in
     State.mainFrame.Size = UDim2.new(0, 0, 0, 0)
