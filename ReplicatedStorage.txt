@@ -92,6 +92,7 @@ local State = {
     highlight = nil,
     billboard = nil,
     favorites = {},
+    expanded = {},
     filters = { scripts = true, modules = true, locals = true, all = true },
 }
 
@@ -587,32 +588,45 @@ function Explorer.createNode(instance, parent, indent, order)
     UI.list(childrenFrame, 2)
     
     local isExpanded, childrenLoaded = false, false
+    local fullPath = instance:GetFullName()
+    
+    local function loadChildren()
+        if childrenLoaded then return end
+        childrenLoaded = true
+        local children = instance:GetChildren()
+        table.sort(children, function(a, b)
+            local aScore = a:IsA("BaseScript") and 0 or (a:IsA("Folder") and 1 or 2)
+            local bScore = b:IsA("BaseScript") and 0 or (b:IsA("Folder") and 1 or 2)
+            return aScore == bScore and a.Name < b.Name or aScore < bScore
+        end)
+        
+        for i, child in ipairs(children) do
+            pcall(Explorer.createNode, child, childrenFrame, indent + 1, i)
+        end
+    end
+
+    local function updateVisuals()
+        childrenFrame.Visible = isExpanded
+        expand = isExpanded and Config.Icons.Expand or Config.Icons.Collapse
+        btn.Text = "  " .. expand .. " " .. icon .. " " .. instance.Name .. 
+                   " <font color=\"#666\">[" .. instance.ClassName .. "]</font>" ..
+                   (hasChildren and " <font color=\"#555\">(" .. childCount .. ")</font>" or "")
+    end
+    
+    if State.expanded[fullPath] then
+        isExpanded = true
+        updateVisuals()
+        if hasChildren then loadChildren() end
+    end
     
     btn.MouseButton1Click:Connect(function()
         Explorer.selectItem(instance)
         
         if hasChildren then
             isExpanded = not isExpanded
-            childrenFrame.Visible = isExpanded
-            
-            expand = isExpanded and Config.Icons.Expand or Config.Icons.Collapse
-            btn.Text = "  " .. expand .. " " .. icon .. " " .. instance.Name .. 
-                       " <font color=\"#666\">[" .. instance.ClassName .. "]</font>" ..
-                       " <font color=\"#555\">(" .. childCount .. ")</font>"
-            
-            if isExpanded and not childrenLoaded then
-                childrenLoaded = true
-                local children = instance:GetChildren()
-                table.sort(children, function(a, b)
-                    local aScore = a:IsA("BaseScript") and 0 or (a:IsA("Folder") and 1 or 2)
-                    local bScore = b:IsA("BaseScript") and 0 or (b:IsA("Folder") and 1 or 2)
-                    return aScore == bScore and a.Name < b.Name or aScore < bScore
-                end)
-                
-                for i, child in ipairs(children) do
-                    pcall(Explorer.createNode, child, childrenFrame, indent + 1, i)
-                end
-            end
+            State.expanded[fullPath] = isExpanded
+            updateVisuals()
+            if isExpanded then loadChildren() end
         end
     end)
 end
@@ -637,7 +651,7 @@ function Explorer.buildTree(query)
             
             local childCount = 0
             pcall(function() childCount = #service:GetChildren() end)
-            if childCount == 0 then continue end
+            -- Removed empty check to show all services including ServerScriptService
             
             order = order + 1
             
@@ -666,21 +680,34 @@ function Explorer.buildTree(query)
             UI.list(serviceChildren, 2)
             
             local serviceExpanded, serviceLoaded = false, false
-            
-            serviceBtn.MouseButton1Click:Connect(function()
-                serviceExpanded = not serviceExpanded
+
+            local function loadServiceChildren()
+                if serviceLoaded then return end
+                serviceLoaded = true
+                local children = service:GetChildren()
+                table.sort(children, function(a, b) return a.Name < b.Name end)
+                
+                for i, child in ipairs(children) do
+                    pcall(Explorer.createNode, child, serviceChildren, 1, i)
+                end
+            end
+
+            local function updateServiceVisuals()
                 serviceChildren.Visible = serviceExpanded
                 serviceBtn.Text = "  " .. (serviceExpanded and "▼" or "▶") .. " 📂 " .. serviceName .. " <font color=\"#555\">(" .. childCount .. ")</font>"
-                
-                if serviceExpanded and not serviceLoaded then
-                    serviceLoaded = true
-                    local children = service:GetChildren()
-                    table.sort(children, function(a, b) return a.Name < b.Name end)
-                    
-                    for i, child in ipairs(children) do
-                        pcall(Explorer.createNode, child, serviceChildren, 1, i)
-                    end
-                end
+            end
+            
+            if State.expanded[serviceName] then
+                serviceExpanded = true
+                updateServiceVisuals()
+                loadServiceChildren()
+            end
+
+            serviceBtn.MouseButton1Click:Connect(function()
+                serviceExpanded = not serviceExpanded
+                State.expanded[serviceName] = serviceExpanded
+                updateServiceVisuals()
+                if serviceExpanded then loadServiceChildren() end
             end)
         end
     end
@@ -938,15 +965,7 @@ local function init()
     -- Build tree
     Explorer.buildTree()
 
-    -- Auto-Refresh Loop
-    task.spawn(function()
-        while State.gui and State.gui.Parent do
-            task.wait(5)
-            if State.mainFrame and State.mainFrame.Visible then
-                 Explorer.buildTree(searchBox.Text)
-            end
-        end
-    end)
+    -- Auto-Refresh Loop removed as per user request
     
     -- Animate in
     State.mainFrame.Size = UDim2.new(0, 0, 0, 0)
