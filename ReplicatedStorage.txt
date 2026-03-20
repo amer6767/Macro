@@ -1,105 +1,519 @@
-
---[[
-    ╔═══════════════════════════════════════════════════════════════════════════╗
-    ║                    SCRIPT EXPLORER v10.1 CLEAN EDITION                    ║
-    ║                        Modular • Optimized • Clean                        ║
-    ╠═══════════════════════════════════════════════════════════════════════════╣
-    ║  • Proper modular architecture (UI, State, Scanner, Decompiler)           ║
-    ║  • No code duplication - DRY principles                                   ║
-    ║  • Consistent executor support checks                                     ║
-    ║  • Optimized loops and memory usage                                       ║
-    ║  • Clean state management                                                 ║
-    ║  • UI Factory pattern                                                     ║
-    ╚═══════════════════════════════════════════════════════════════════════════╝
-]]
+————————————————————————————————————————————————————————————
+-- FILE 1: Config_Executor_State.lua
+————————————————————————————————————————————————————————————
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                              MODULE: Config                                ║
+-- ║                     MODULE: Config — v12.1 MODERN                         ║
+-- ║                     UNC Standard · 2026 Rewrite                           ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local Config = {
-    Version = "10.1 CLEAN",
-    Window = { Width = 0.75, Height = 0.88 },
-    Tree = { PanelWidth = 0.6, ItemHeight = 34, IndentSize = 18, MaxNodes = 5000, MaxDepth = 40 },
-    Search = { Debounce = 0.5, MinChars = 2, MaxResults = 80 },
-    
+    Version = "12.1 MODERN",
+    Build = "UNC-2026",
+
+    Window = {
+        Width = 0.78,
+        Height = 0.88,
+        MinWidth = 420,
+        MinHeight = 300,
+        Draggable = true,
+        Resizable = true,
+    },
+
+    Tree = {
+        PanelWidth = 0.55,
+        ItemHeight = 32,
+        IndentSize = 16,
+        MaxNodes = 8000,
+        MaxDepth = 50,
+        LazyLoadThreshold = 100,
+    },
+
+    Search = {
+        Debounce = 0.35,
+        MinChars = 2,
+        MaxResults = 150,
+        FuzzyMatch = true,
+    },
+
+    Decompiler = {
+        Timeout = 30,
+        MaxSourceLength = 2000000,
+        ShowBytecodeHash = true,
+    },
+
+    SaveInstance = {
+        SafeMode = true,
+        KillAllScripts = true,
+        Decompile = true,
+        IgnoreNotArchivable = true,
+        IncludeBytecode = false,
+        RemovePlayerCharacters = true,
+    },
+
     Colors = {
-        Background = Color3.fromRGB(18, 20, 26),
-        Panel = Color3.fromRGB(26, 30, 40),
-        Item = Color3.fromRGB(36, 42, 56),
-        Accent = Color3.fromRGB(0, 150, 255),
-        Text = Color3.fromRGB(235, 235, 240),
-        Muted = Color3.fromRGB(120, 130, 150),
-        LocalScript = Color3.fromRGB(255, 195, 70),
-        Script = Color3.fromRGB(255, 95, 95),
-        ModuleScript = Color3.fromRGB(95, 255, 145),
-        Folder = Color3.fromRGB(255, 215, 90),
-        Service = Color3.fromRGB(120, 190, 255),
-        Success = Color3.fromRGB(75, 255, 120),
-        Error = Color3.fromRGB(255, 90, 90),
-        Highlight = Color3.fromRGB(0, 255, 200),
+        Background     = Color3.fromRGB(12, 14, 18),
+        BackgroundAlt  = Color3.fromRGB(18, 20, 26),
+        Panel          = Color3.fromRGB(22, 26, 35),
+        PanelHover     = Color3.fromRGB(30, 36, 48),
+        Item           = Color3.fromRGB(32, 38, 52),
+        ItemHover      = Color3.fromRGB(42, 50, 68),
+        Accent         = Color3.fromRGB(59, 130, 246),
+        AccentHover    = Color3.fromRGB(96, 165, 250),
+        AccentMuted    = Color3.fromRGB(37, 99, 235),
+        Text           = Color3.fromRGB(240, 240, 245),
+        TextSecondary  = Color3.fromRGB(160, 170, 190),
+        Muted          = Color3.fromRGB(100, 110, 130),
+        Border         = Color3.fromRGB(45, 55, 72),
+        LocalScript    = Color3.fromRGB(250, 204, 21),
+        Script         = Color3.fromRGB(239, 68, 68),
+        ModuleScript   = Color3.fromRGB(34, 197, 94),
+        Folder         = Color3.fromRGB(251, 191, 36),
+        Service        = Color3.fromRGB(96, 165, 250),
+        Success        = Color3.fromRGB(34, 197, 94),
+        Warning        = Color3.fromRGB(234, 179, 8),
+        Error          = Color3.fromRGB(239, 68, 68),
+        Highlight      = Color3.fromRGB(0, 255, 200),
+        GlassBg        = Color3.fromRGB(15, 17, 22),
+        GlassStroke    = Color3.fromRGB(55, 65, 85),
     },
-    
+
     Icons = {
-        LocalScript = "📜", Script = "📄", ModuleScript = "📦", Folder = "📁",
-        Model = "🧱", Part = "🔷", Tool = "🔧", Sound = "🔊", RemoteEvent = "📡",
-        RemoteFunction = "📞", ScreenGui = "🖥️", Frame = "🔲", Default = "📎",
-        Expand = "▼", Collapse = "▶", Copy = "📋", Refresh = "🔄", Star = "⭐",
+        LocalScript    = "📜",
+        Script         = "📄",
+        ModuleScript   = "📦",
+        Folder         = "📁",
+        Model          = "🧱",
+        Part           = "🔷",
+        Tool           = "🔧",
+        Sound          = "🔊",
+        RemoteEvent    = "📡",
+        RemoteFunction = "📞",
+        ScreenGui      = "🖥️",
+        Frame          = "🔲",
+        Default        = "📎",
+        Expand         = "▾",
+        Collapse       = "▸",
+        Copy           = "📋",
+        Refresh        = "⟳",
+        Star           = "★",
+        Search         = "🔍",
+        Save           = "💾",
+        Run            = "▶",
+        Hash           = "#️⃣",
+        Env            = "🔬",
+        GC             = "♻️",
+        Registry       = "📚",
+        Modules        = "📡",
+        Running        = "⚡",
     },
-    
-    Services = {"Workspace", "ReplicatedStorage", "ReplicatedFirst", "Players", 
-                "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "Chat", "ServerScriptService"},
+
+    Services = {
+        "Workspace", "ReplicatedStorage", "ReplicatedFirst", "Players",
+        "StarterGui", "StarterPack", "StarterPlayer", "Lighting",
+        "Chat", "ServerScriptService", "ServerStorage",
+        "SoundService", "TextChatService", "MaterialService",
+    },
 }
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                              MODULE: Executor                              ║
+-- ║                   MODULE: Executor — UNC Standard                         ║
+-- ║     Modern detection: NO getfenv(), uses direct global pcall checks      ║
+-- ║     GC-based analysis: getgc + getupvalues + getconstants fallbacks      ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local Executor = {}
 
+-- ── Function Detection ──────────────────────────────────────────────────────
+-- Modern approach: try to reference the global directly inside pcall.
+-- Avoids getfenv() which is unreliable on many modern executors.
+
+local _funcCache = {}
+
 function Executor.has(funcName)
-    return type(getfenv()[funcName]) == "function"
+    if _funcCache[funcName] ~= nil then
+        return _funcCache[funcName]
+    end
+
+    local found = false
+
+    -- Method 1: Direct global lookup (works on most modern executors)
+    local ok1, result1 = pcall(function()
+        local fn = rawget(_G, funcName)
+        if type(fn) == "function" then return true end
+        return false
+    end)
+    if ok1 and result1 then found = true end
+
+    -- Method 2: Try getgenv() if available (UNC standard location)
+    if not found then
+        local ok2, result2 = pcall(function()
+            local genv = getgenv and getgenv()
+            if genv and type(genv[funcName]) == "function" then return true end
+            return false
+        end)
+        if ok2 and result2 then found = true end
+    end
+
+    -- Method 3: getfenv(0) as last resort
+    if not found then
+        local ok3, result3 = pcall(function()
+            local env = getfenv(0)
+            if env and type(env[funcName]) == "function" then return true end
+            return false
+        end)
+        if ok3 and result3 then found = true end
+    end
+
+    -- Method 4: Direct pcall on the name (handles identityless globals)
+    if not found then
+        local ok4, result4 = pcall(function()
+            return type(loadstring("return type(" .. funcName .. ")")() == "function")
+        end)
+        if ok4 and result4 then found = true end
+    end
+
+    _funcCache[funcName] = found
+    return found
 end
 
-function Executor.call(funcName, ...)
-    if not Executor.has(funcName) then return nil end
-    local success, result = pcall(getfenv()[funcName], ...)
-    return success and result or nil
+-- ── Safe Function Resolve ───────────────────────────────────────────────────
+-- Finds the actual function reference from any available environment
+
+function Executor.resolve(funcName)
+    -- Direct globals
+    local ok1, fn1 = pcall(function() return rawget(_G, funcName) end)
+    if ok1 and type(fn1) == "function" then return fn1 end
+
+    -- getgenv
+    local ok2, fn2 = pcall(function()
+        if getgenv then return getgenv()[funcName] end
+    end)
+    if ok2 and type(fn2) == "function" then return fn2 end
+
+    -- getfenv(0)
+    local ok3, fn3 = pcall(function() return getfenv(0)[funcName] end)
+    if ok3 and type(fn3) == "function" then return fn3 end
+
+    return nil
 end
+
+-- ── Safe Call ───────────────────────────────────────────────────────────────
+
+function Executor.safeCall(funcName, ...)
+    local fn = Executor.resolve(funcName)
+    if not fn then return false, "Function '" .. funcName .. "' not found" end
+    local ok, result = pcall(fn, ...)
+    return ok, result
+end
+
+-- ── UNC Environment Detection ───────────────────────────────────────────────
+
+function Executor.detectCapabilities()
+    -- Clear cache to re-detect
+    _funcCache = {}
+
+    local funcsToCheck = {
+        "getgenv", "getrenv", "getsenv", "getgc", "getreg",
+        "decompile", "getscriptclosure", "getscriptbytecode", "getscripthash",
+        "getloadedmodules", "getrunningscripts", "saveinstance",
+        "setclipboard", "firesignal", "hookfunction",
+        "iscclosure", "newcclosure",
+        -- Debug/analysis functions
+        "getupvalues", "getconstants", "getprotos",
+        "debug.getupvalue", "getupvalue",
+    }
+
+    local caps = {}
+    for _, name in ipairs(funcsToCheck) do
+        local cleanName = name:gsub("%.", "_")
+        caps["has_" .. cleanName] = Executor.has(name)
+    end
+
+    -- Special check for Drawing library
+    local okDraw, _ = pcall(function() return type(Drawing) == "table" and Drawing.new end)
+    caps.hasDrawing = okDraw
+
+    return caps
+end
+
+Executor.Capabilities = nil
+Executor.UNCScore = 0
+Executor.UNCTotal = 20
+
+function Executor.init()
+    Executor.Capabilities = Executor.detectCapabilities()
+    local count = 0
+    for _, v in pairs(Executor.Capabilities) do
+        if v then count = count + 1 end
+    end
+    Executor.UNCScore = count
+    return Executor.Capabilities
+end
+
+-- ── Clipboard (UNC: setclipboard) ───────────────────────────────────────────
 
 function Executor.clipboard(text)
-    local fn = Executor.has("setclipboard") and setclipboard 
-            or Executor.has("toclipboard") and toclipboard
-    if fn then pcall(fn, text) return true end
+    local fn = Executor.resolve("setclipboard") or Executor.resolve("toclipboard")
+    if fn then
+        local ok = pcall(fn, text)
+        return ok
+    end
     return false
 end
 
+-- ── UNC Environment Access ──────────────────────────────────────────────────
+
+function Executor.getExecutorGlobals()
+    local fn = Executor.resolve("getgenv")
+    if fn then
+        local ok, env = pcall(fn)
+        if ok then return env end
+    end
+    return nil
+end
+
+function Executor.getGameEnvironment()
+    local fn = Executor.resolve("getrenv")
+    if fn then
+        local ok, env = pcall(fn)
+        if ok then return env end
+    end
+    return nil
+end
+
+function Executor.getScriptEnvironment(scriptInstance)
+    local fn = Executor.resolve("getsenv")
+    if fn then
+        local ok, env = pcall(fn, scriptInstance)
+        if ok and env then return env end
+    end
+    return nil
+end
+
+function Executor.getGarbageCollector(includeTable)
+    local fn = Executor.resolve("getgc")
+    if fn then
+        local ok, gc = pcall(fn, includeTable ~= false)
+        if ok then return gc end
+    end
+    return {}
+end
+
+function Executor.getRegistry()
+    local fn = Executor.resolve("getreg")
+    if fn then
+        local ok, reg = pcall(fn)
+        if ok then return reg end
+    end
+    return {}
+end
+
+-- ── UNC Script Discovery ───────────────────────────────────────────────────
+
+function Executor.getLoadedModules()
+    local fn = Executor.resolve("getloadedmodules")
+    if fn then
+        local ok, modules = pcall(fn)
+        if ok then return modules end
+    end
+    return {}
+end
+
+function Executor.getRunningScripts()
+    local fn = Executor.resolve("getrunningscripts")
+    if fn then
+        local ok, scripts = pcall(fn)
+        if ok then return scripts end
+    end
+    return {}
+end
+
+-- ── UNC Script Analysis ────────────────────────────────────────────────────
+
+function Executor.getScriptBytecode(scriptInstance)
+    local fn = Executor.resolve("getscriptbytecode")
+    if fn then
+        local ok, bytecode = pcall(fn, scriptInstance)
+        if ok and bytecode then return bytecode end
+    end
+    return nil
+end
+
+function Executor.getScriptHash(scriptInstance)
+    local fn = Executor.resolve("getscripthash")
+    if fn then
+        local ok, hash = pcall(fn, scriptInstance)
+        if ok and hash then return hash end
+    end
+    return nil
+end
+
+function Executor.getScriptClosure(scriptInstance)
+    local fn = Executor.resolve("getscriptclosure")
+    if fn then
+        local ok, closure = pcall(fn, scriptInstance)
+        if ok and closure then return closure end
+    end
+    return nil
+end
+
+-- ── Closure Analysis (getupvalues / getconstants / getprotos) ───────────────
+-- These are the GC-based fallback tools. When decompile() fails completely,
+-- we can still extract variable names/values and string constants from closures.
+
+function Executor.getUpvalues(fn)
+    -- Try UNC getupvalues
+    local resolver = Executor.resolve("getupvalues") or Executor.resolve("debug.getupvalues")
+    if resolver then
+        local ok, upvals = pcall(resolver, fn)
+        if ok and upvals then return upvals end
+    end
+    -- Try debug.getupvalue iteration
+    local results = {}
+    local idx = 1
+    while true do
+        local ok, name, val = pcall(debug.getupvalue, fn, idx)
+        if not ok or name == nil then break end
+        results[idx] = { name = name, value = val }
+        idx = idx + 1
+    end
+    if #results > 0 then return results end
+    return nil
+end
+
+function Executor.getConstants(fn)
+    local resolver = Executor.resolve("getconstants")
+    if resolver then
+        local ok, consts = pcall(resolver, fn)
+        if ok and consts then return consts end
+    end
+    return nil
+end
+
+function Executor.getProtos(fn)
+    local resolver = Executor.resolve("getprotos")
+    if resolver then
+        local ok, protos = pcall(resolver, fn)
+        if ok and protos then return protos end
+    end
+    return nil
+end
+
+-- ── GC Script Finder ────────────────────────────────────────────────────────
+-- Scans getgc() for functions that belong to a specific script instance.
+-- Returns all closures associated with that script.
+
+function Executor.findScriptClosures(scriptInstance)
+    local gc = Executor.getGarbageCollector(false)
+    if #gc == 0 then return {} end
+
+    local closures = {}
+    local scriptPath = scriptInstance:GetFullName()
+
+    for _, obj in ipairs(gc) do
+        if type(obj) == "function" then
+            local ok, env = pcall(getfenv, obj)
+            if ok and env and type(env) == "table" then
+                local envScript = rawget(env, "script")
+                if envScript and typeof(envScript) == "Instance" then
+                    if envScript == scriptInstance or envScript:GetFullName() == scriptPath then
+                        table.insert(closures, obj)
+                    end
+                end
+            end
+        end
+    end
+
+    return closures
+end
+
+-- ── Save Instance (USSI / BetterSaveInstance) ───────────────────────────────
+
+function Executor.saveGame(options)
+    local fn = Executor.resolve("saveinstance")
+    if not fn then return false, "saveinstance not available" end
+
+    local opts = options or {}
+    local saveOptions = {
+        SafeMode               = opts.SafeMode ~= nil and opts.SafeMode or Config.SaveInstance.SafeMode,
+        KillAllScripts         = opts.KillAllScripts ~= nil and opts.KillAllScripts or Config.SaveInstance.KillAllScripts,
+        Decompile              = opts.Decompile ~= nil and opts.Decompile or Config.SaveInstance.Decompile,
+        IgnoreNotArchivable    = opts.IgnoreNotArchivable ~= nil and opts.IgnoreNotArchivable or Config.SaveInstance.IgnoreNotArchivable,
+        IncludeBytecode        = opts.IncludeBytecode ~= nil and opts.IncludeBytecode or Config.SaveInstance.IncludeBytecode,
+        RemovePlayerCharacters = opts.RemovePlayerCharacters ~= nil and opts.RemovePlayerCharacters or Config.SaveInstance.RemovePlayerCharacters,
+    }
+
+    local ok, err = pcall(fn, saveOptions)
+    return ok, err
+end
+
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                              MODULE: State                                 ║
+-- ║                   MODULE: State — getgenv() Backed                        ║
+-- ║          Shared state via getgenv() for cross-script access               ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
-local State = {
-    gui = nil,
-    mainFrame = nil,
-    treeScroll = nil,
-    codeLabel = nil,
-    pathLabel = nil,
-    titleLabel = nil,
-    metaLabel = nil,
-    selected = nil,
-    source = nil,
-    nodeCount = 0,
-    highlight = nil,
-    billboard = nil,
-    favorites = {},
-    expanded = {},
-    filters = { scripts = true, modules = true, locals = true, all = true },
+local State = {}
+
+-- Persist state in getgenv so other executor scripts can read it
+local function initSharedState()
+    local genv = Executor.getExecutorGlobals()
+    if genv then
+        if not genv.__ScriptExplorerState then
+            genv.__ScriptExplorerState = {}
+        end
+        return genv.__ScriptExplorerState
+    end
+    return {}
+end
+
+State._shared = initSharedState()
+
+-- UI references
+State.gui = nil
+State.mainFrame = nil
+State.treeScroll = nil
+State.codeLabel = nil
+State.pathLabel = nil
+State.titleLabel = nil
+State.metaLabel = nil
+State.hashLabel = nil
+State.envLabel = nil
+State.methodLabel = nil
+
+-- Selection
+State.selected = nil
+State.source = nil
+State.nodeCount = 0
+State.lastDecompileMethod = nil
+
+-- Visual
+State.highlight = nil
+State.billboard = nil
+
+-- Persisted across sessions
+State.favorites = State._shared.favorites or {}
+State.expanded = State._shared.expanded or {}
+State.scriptHashes = {}
+State.decompileLog = {}
+
+-- UNC capabilities ref
+State.capabilities = nil
+
+-- Filters
+State.filters = {
+    scripts = true,
+    modules = true,
+    locals = true,
+    all = true,
+    showHidden = false,
 }
 
 function State.reset()
     State.selected = nil
     State.source = nil
     State.nodeCount = 0
+    State.lastDecompileMethod = nil
 end
 
 function State.addFavorite(instance)
@@ -107,15 +521,78 @@ function State.addFavorite(instance)
     for _, f in ipairs(State.favorites) do
         if f.path == path then return false end
     end
-    table.insert(State.favorites, { name = instance.Name, path = path, class = instance.ClassName })
+    table.insert(State.favorites, {
+        name = instance.Name,
+        path = path,
+        class = instance.ClassName,
+        hash = Executor.getScriptHash(instance),
+        timestamp = os.time(),
+    })
+    State._shared.favorites = State.favorites
     return true
 end
 
+function State.removeFavorite(path)
+    for i, f in ipairs(State.favorites) do
+        if f.path == path then
+            table.remove(State.favorites, i)
+            State._shared.favorites = State.favorites
+            return true
+        end
+    end
+    return false
+end
+
+function State.isFavorite(instance)
+    local path = instance:GetFullName()
+    for _, f in ipairs(State.favorites) do
+        if f.path == path then return true end
+    end
+    return false
+end
+
+function State.persistExpanded()
+    State._shared.expanded = State.expanded
+end
+
+function State.logDecompile(scriptName, method, success, errorMsg)
+    table.insert(State.decompileLog, {
+        script = scriptName,
+        method = method,
+        success = success,
+        error = errorMsg,
+        time = os.time(),
+    })
+end
+
+
+
+————————————————————————————————————————————————————————————
+-- FILE 2: UI_Toast.lua
+————————————————————————————————————————————————————————————
+
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                              MODULE: UI                                    ║
+-- ║                       MODULE: UI — Modern Builder                         ║
+-- ║            Glassmorphism · Smooth Tweens · SecureMode Aware               ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local UI = {}
+
+local TweenService = game:GetService("TweenService")
+
+-- ── SecureMode ──────────────────────────────────────────────────────────────
+-- When enabled, hides GUI from game-side detection via GetChildren/FindFirst.
+-- Activated by setting getgenv().SecureMode = true before loading.
+
+function UI.isSecureMode()
+    local ok, genv = pcall(function()
+        if type(getgenv) == "function" then return getgenv() end
+        return nil
+    end)
+    return ok and genv and genv.SecureMode == true
+end
+
+-- ── Core UI Helpers ─────────────────────────────────────────────────────────
 
 function UI.corner(parent, radius)
     local c = Instance.new("UICorner")
@@ -129,439 +606,1499 @@ function UI.stroke(parent, thickness, color, transparency)
     s.Thickness = thickness or 1
     s.Color = color or Config.Colors.Accent
     s.Transparency = transparency or 0
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     s.Parent = parent
     return s
 end
 
-function UI.padding(parent, size)
+function UI.gradient(parent, colorFrom, colorTo, rotation)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(colorFrom or Config.Colors.Panel, colorTo or Config.Colors.Background)
+    g.Rotation = rotation or 90
+    g.Parent = parent
+    return g
+end
+
+function UI.padding(parent, top, bottom, left, right)
     local p = Instance.new("UIPadding")
-    p.PaddingTop, p.PaddingBottom = UDim.new(0, size), UDim.new(0, size)
-    p.PaddingLeft, p.PaddingRight = UDim.new(0, size), UDim.new(0, size)
+    p.PaddingTop = UDim.new(0, top or 0)
+    p.PaddingBottom = UDim.new(0, bottom or top or 0)
+    p.PaddingLeft = UDim.new(0, left or top or 0)
+    p.PaddingRight = UDim.new(0, right or left or top or 0)
     p.Parent = parent
     return p
 end
 
-function UI.list(parent, padding, direction)
+function UI.list(parent, padding, direction, alignment)
     local l = Instance.new("UIListLayout")
     l.SortOrder = Enum.SortOrder.LayoutOrder
     l.Padding = UDim.new(0, padding or 2)
     l.FillDirection = direction or Enum.FillDirection.Vertical
+    l.HorizontalAlignment = alignment or Enum.HorizontalAlignment.Left
     l.Parent = parent
     return l
 end
 
-function UI.tween(instance, props, duration)
-    local ti = TweenInfo.new(duration or 0.12, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-    game:GetService("TweenService"):Create(instance, ti, props):Play()
+-- ── Tweening ────────────────────────────────────────────────────────────────
+-- Smooth easing with configurable styles
+
+function UI.tween(instance, props, duration, style, direction)
+    local ti = TweenInfo.new(
+        duration or 0.15,
+        style or Enum.EasingStyle.Quart,
+        direction or Enum.EasingDirection.Out
+    )
+    local tween = TweenService:Create(instance, ti, props)
+    tween:Play()
+    return tween
 end
+
+function UI.tweenSpring(instance, props, duration)
+    return UI.tween(instance, props, duration or 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+end
+
+function UI.tweenBounce(instance, props, duration)
+    return UI.tween(instance, props, duration or 0.4, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out)
+end
+
+-- ── Frame Builder ───────────────────────────────────────────────────────────
 
 function UI.frame(props)
     local f = Instance.new("Frame")
+    f.Name = props.Name or "Frame"
     f.BackgroundColor3 = props.Color or Config.Colors.Panel
     f.BackgroundTransparency = props.Transparency or 0
     f.Size = props.Size or UDim2.new(1, 0, 1, 0)
     f.Position = props.Position or UDim2.new(0, 0, 0, 0)
     f.BorderSizePixel = 0
     f.ClipsDescendants = props.Clip or false
+    if props.ZIndex then f.ZIndex = props.ZIndex end
+    if props.LayoutOrder then f.LayoutOrder = props.LayoutOrder end
+    if props.AutoSize then f.AutomaticSize = props.AutoSize end
     if props.Corner then UI.corner(f, props.Corner) end
-    if props.Stroke then UI.stroke(f, props.Stroke.Size, props.Stroke.Color, props.Stroke.Trans) end
+    if props.Stroke then
+        UI.stroke(f, props.Stroke.Size or 1, props.Stroke.Color or Config.Colors.GlassStroke, props.Stroke.Trans or 0.5)
+    end
+    if props.Gradient then
+        UI.gradient(f, props.Gradient.From, props.Gradient.To, props.Gradient.Rotation)
+    end
     f.Parent = props.Parent
     return f
 end
 
+-- Glass-style frame (simulated glassmorphism)
+function UI.glass(props)
+    props.Color = props.Color or Config.Colors.GlassBg
+    props.Transparency = props.Transparency or 0.15
+    props.Corner = props.Corner or 12
+    props.Stroke = props.Stroke or { Size = 1, Color = Config.Colors.GlassStroke, Trans = 0.6 }
+    return UI.frame(props)
+end
+
+-- ── Text Label ──────────────────────────────────────────────────────────────
+
 function UI.label(props)
     local l = Instance.new("TextLabel")
+    l.Name = props.Name or "Label"
     l.BackgroundTransparency = 1
     l.Size = props.Size or UDim2.new(1, 0, 0, 20)
     l.Position = props.Position or UDim2.new(0, 0, 0, 0)
     l.Text = props.Text or ""
     l.TextColor3 = props.Color or Config.Colors.Text
-    l.Font = props.Bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    l.Font = props.Bold and Enum.Font.GothamBold or (props.Mono and Enum.Font.Code or Enum.Font.Gotham)
     l.TextSize = props.TextSize or 14
     l.TextXAlignment = props.AlignX or Enum.TextXAlignment.Left
     l.TextYAlignment = props.AlignY or Enum.TextYAlignment.Center
     l.TextTruncate = props.Truncate or Enum.TextTruncate.None
     l.RichText = props.Rich or false
-    if props.Wrap then l.TextWrapped = true end
+    l.TextWrapped = props.Wrap or false
+    if props.ZIndex then l.ZIndex = props.ZIndex end
+    if props.LayoutOrder then l.LayoutOrder = props.LayoutOrder end
+    if props.AutoSize then l.AutomaticSize = props.AutoSize end
     l.Parent = props.Parent
     return l
 end
 
+-- ── Button ──────────────────────────────────────────────────────────────────
+
 function UI.button(props)
     local b = Instance.new("TextButton")
+    b.Name = props.Name or "Button"
     b.BackgroundColor3 = props.Color or Config.Colors.Accent
     b.Size = props.Size or UDim2.new(0, 44, 0, 44)
     b.Position = props.Position or UDim2.new(0, 0, 0, 0)
     b.Text = props.Text or ""
     b.TextColor3 = props.TextColor or Config.Colors.Text
     b.Font = Enum.Font.GothamBold
-    b.TextSize = props.TextSize or 18
+    b.TextSize = props.TextSize or 16
     b.AutoButtonColor = false
     b.BorderSizePixel = 0
+    if props.ZIndex then b.ZIndex = props.ZIndex end
+    if props.LayoutOrder then b.LayoutOrder = props.LayoutOrder end
     UI.corner(b, props.Corner or 10)
-    b.Parent = props.Parent
-    
-    local hoverStroke = UI.stroke(b, 2, Config.Colors.Accent, 1)
-    b.MouseEnter:Connect(function() UI.tween(hoverStroke, {Transparency = 0.3}, 0.1) end)
-    b.MouseLeave:Connect(function() UI.tween(hoverStroke, {Transparency = 1}, 0.1) end)
-    
+
+    -- Hover effects (glassmorphism glow)
+    local hoverStroke = UI.stroke(b, 2, Config.Colors.AccentHover, 1)
+    local originalColor = props.Color or Config.Colors.Accent
+
+    b.MouseEnter:Connect(function()
+        UI.tween(b, {BackgroundColor3 = props.HoverColor or Config.Colors.AccentHover}, 0.12)
+        UI.tween(hoverStroke, {Transparency = 0.2}, 0.12)
+    end)
+    b.MouseLeave:Connect(function()
+        UI.tween(b, {BackgroundColor3 = originalColor}, 0.15)
+        UI.tween(hoverStroke, {Transparency = 1}, 0.15)
+    end)
+
+    -- Click ripple effect
+    b.MouseButton1Down:Connect(function()
+        UI.tween(b, {Size = props.Size and UDim2.new(
+            props.Size.X.Scale, props.Size.X.Offset - 2,
+            props.Size.Y.Scale, props.Size.Y.Offset - 2
+        ) or UDim2.new(0, 42, 0, 42)}, 0.06)
+    end)
+    b.MouseButton1Up:Connect(function()
+        UI.tween(b, {Size = props.Size or UDim2.new(0, 44, 0, 44)}, 0.1)
+    end)
+
     if props.OnClick then b.MouseButton1Click:Connect(props.OnClick) end
+    b.Parent = props.Parent
     return b
 end
 
+-- ── Scrolling Frame ─────────────────────────────────────────────────────────
+
 function UI.scroll(props)
     local s = Instance.new("ScrollingFrame")
+    s.Name = props.Name or "Scroll"
     s.BackgroundTransparency = props.Transparency or 1
     s.Size = props.Size or UDim2.new(1, 0, 1, 0)
     s.Position = props.Position or UDim2.new(0, 0, 0, 0)
     s.BorderSizePixel = 0
-    s.ScrollBarThickness = 8
+    s.ScrollBarThickness = props.BarThickness or 6
     s.ScrollBarImageColor3 = Config.Colors.Accent
+    s.ScrollBarImageTransparency = 0.3
     s.AutomaticCanvasSize = Enum.AutomaticSize.Y
     s.CanvasSize = UDim2.new(0, 0, 0, 0)
     s.ClipsDescendants = true
+    s.ElasticBehavior = Enum.ElasticBehavior.Always
+    s.ScrollingDirection = Enum.ScrollingDirection.Y
+    if props.ZIndex then s.ZIndex = props.ZIndex end
     s.Parent = props.Parent
     return s
 end
 
+-- ── Text Input ──────────────────────────────────────────────────────────────
+
 function UI.input(props)
     local t = Instance.new("TextBox")
-    t.BackgroundColor3 = props.Color or Config.Colors.Panel
+    t.Name = props.Name or "Input"
+    t.BackgroundColor3 = props.Color or Config.Colors.Item
     t.Size = props.Size or UDim2.new(1, 0, 0, 40)
     t.Position = props.Position or UDim2.new(0, 0, 0, 0)
     t.Text = props.Text or ""
     t.PlaceholderText = props.Placeholder or ""
     t.TextColor3 = Config.Colors.Text
     t.PlaceholderColor3 = Config.Colors.Muted
-    t.Font = Enum.Font.Gotham
+    t.Font = props.Mono and Enum.Font.Code or Enum.Font.Gotham
     t.TextSize = props.TextSize or 14
     t.ClearTextOnFocus = false
     t.BorderSizePixel = 0
+    t.TextXAlignment = props.AlignX or Enum.TextXAlignment.Left
+    if props.ZIndex then t.ZIndex = props.ZIndex end
     UI.corner(t, props.Corner or 8)
-    UI.padding(t, 10)
+    UI.padding(t, 0, 0, 10, 10)
+
+    -- Focus glow
+    local focusStroke = UI.stroke(t, 2, Config.Colors.Accent, 1)
+    t.Focused:Connect(function()
+        UI.tween(focusStroke, {Transparency = 0.2}, 0.12)
+    end)
+    t.FocusLost:Connect(function()
+        UI.tween(focusStroke, {Transparency = 1}, 0.15)
+    end)
+
     t.Parent = props.Parent
     return t
 end
 
--- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                            MODULE: Toast                                   ║
--- ╚═══════════════════════════════════════════════════════════════════════════╝
+-- ── Separator ───────────────────────────────────────────────────────────────
 
-local Toast = { container = nil }
-
-function Toast.init(parent)
-    Toast.container = UI.frame({ Size = UDim2.new(0, 320, 1, 0), Position = UDim2.new(1, -330, 0, 0), Transparency = 1, Parent = parent })
-    UI.list(Toast.container, 8)
-    UI.padding(Toast.container, 15)
+function UI.separator(parent, height)
+    local sep = Instance.new("Frame")
+    sep.Name = "Separator"
+    sep.BackgroundColor3 = Config.Colors.Border
+    sep.BackgroundTransparency = 0.5
+    sep.Size = UDim2.new(1, -16, 0, height or 1)
+    sep.BorderSizePixel = 0
+    sep.Parent = parent
+    return sep
 end
 
-function Toast.show(message, duration, color)
+-- ── Badge / Pill ────────────────────────────────────────────────────────────
+
+function UI.badge(props)
+    local b = Instance.new("TextLabel")
+    b.Name = "Badge"
+    b.BackgroundColor3 = props.Color or Config.Colors.AccentMuted
+    b.BackgroundTransparency = props.Transparency or 0.3
+    b.Size = props.Size or UDim2.new(0, 60, 0, 22)
+    b.Position = props.Position or UDim2.new(0, 0, 0, 0)
+    b.Text = props.Text or ""
+    b.TextColor3 = props.TextColor or Config.Colors.Text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = props.TextSize or 11
+    b.BorderSizePixel = 0
+    UI.corner(b, 11)
+    b.Parent = props.Parent
+    return b
+end
+
+-- ╔═══════════════════════════════════════════════════════════════════════════╗
+-- ║                      MODULE: Toast — Notification System                  ║
+-- ║                Modern slide-in toasts with auto-dismiss                   ║
+-- ╚═══════════════════════════════════════════════════════════════════════════╝
+
+local Toast = { container = nil, queue = {} }
+
+function Toast.init(parent)
+    Toast.container = UI.frame({
+        Name = "ToastContainer",
+        Size = UDim2.new(0, 340, 1, -20),
+        Position = UDim2.new(1, -350, 0, 10),
+        Transparency = 1,
+        Parent = parent,
+    })
+    UI.list(Toast.container, 8)
+    UI.padding(Toast.container, 10, 10, 10, 10)
+end
+
+function Toast.show(message, duration, color, icon)
     if not Toast.container then return end
-    
-    local toast = UI.frame({ Size = UDim2.new(1, 0, 0, 0), Color = color or Config.Colors.Panel, Corner = 10, Parent = Toast.container })
+
+    local toast = UI.glass({
+        Name = "Toast",
+        Size = UDim2.new(1, 0, 0, 0),
+        Color = Config.Colors.GlassBg,
+        Parent = Toast.container,
+    })
     toast.AutomaticSize = Enum.AutomaticSize.Y
-    UI.stroke(toast, 1, Config.Colors.Accent, 0.5)
-    
-    local text = UI.label({ Text = message, Size = UDim2.new(1, -16, 0, 0), Position = UDim2.new(0, 8, 0, 8), 
-                           Wrap = true, Parent = toast, Bold = true, TextSize = 13 })
-    text.AutomaticSize = Enum.AutomaticSize.Y
-    
-    local pad = UI.frame({ Size = UDim2.new(1, 0, 0, 8), Transparency = 1, Parent = text })
-    
-    task.delay(duration or 3, function()
+    toast.ClipsDescendants = true
+
+    -- Accent stripe on the left
+    local stripe = Instance.new("Frame")
+    stripe.Name = "Stripe"
+    stripe.BackgroundColor3 = color or Config.Colors.Accent
+    stripe.Size = UDim2.new(0, 3, 1, 0)
+    stripe.BorderSizePixel = 0
+    stripe.Parent = toast
+
+    -- Icon + Message
+    local prefix = icon or "ℹ️"
+    local text = UI.label({
+        Name = "Message",
+        Text = prefix .. "  " .. message,
+        Size = UDim2.new(1, -24, 0, 0),
+        Position = UDim2.new(0, 14, 0, 10),
+        Wrap = true,
+        Bold = true,
+        TextSize = 13,
+        Color = Config.Colors.Text,
+        AutoSize = Enum.AutomaticSize.Y,
+        Parent = toast,
+    })
+
+    -- Bottom padding
+    local pad = UI.frame({
+        Name = "Pad",
+        Size = UDim2.new(1, 0, 0, 10),
+        Transparency = 1,
+        Parent = toast,
+    })
+
+    -- Slide-in animation
+    toast.Position = UDim2.new(1, 0, 0, 0)
+    UI.tween(toast, {Position = UDim2.new(0, 0, 0, 0)}, 0.25, Enum.EasingStyle.Back)
+
+    -- Progress bar
+    local progress = Instance.new("Frame")
+    progress.Name = "Progress"
+    progress.BackgroundColor3 = color or Config.Colors.Accent
+    progress.BackgroundTransparency = 0.5
+    progress.Size = UDim2.new(1, 0, 0, 2)
+    progress.Position = UDim2.new(0, 0, 1, -2)
+    progress.BorderSizePixel = 0
+    progress.Parent = toast
+
+    local dur = duration or 3
+    UI.tween(progress, {Size = UDim2.new(0, 0, 0, 2)}, dur, Enum.EasingStyle.Linear)
+
+    -- Auto dismiss
+    task.delay(dur, function()
         if toast.Parent then
-            UI.tween(toast, {BackgroundTransparency = 1}, 0.3)
-            UI.tween(text, {TextTransparency = 1}, 0.3)
-            task.wait(0.3)
+            UI.tween(toast, {Position = UDim2.new(1, 20, 0, 0)}, 0.2)
+            UI.tween(text, {TextTransparency = 1}, 0.2)
+            task.wait(0.25)
             if toast.Parent then toast:Destroy() end
         end
     end)
 end
 
+function Toast.success(message, duration)
+    Toast.show(message, duration or 3, Config.Colors.Success, "✅")
+end
+
+function Toast.error(message, duration)
+    Toast.show(message, duration or 4, Config.Colors.Error, "❌")
+end
+
+function Toast.warn(message, duration)
+    Toast.show(message, duration or 3, Config.Colors.Warning, "⚠️")
+end
+
+function Toast.info(message, duration)
+    Toast.show(message, duration or 3, Config.Colors.Accent, "ℹ️")
+end
+
+
+
+————————————————————————————————————————————————————————————
+-- FILE 3: Decompiler_Highlighter.lua
+————————————————————————————————————————————————————————————
+
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                           MODULE: Decompiler                               ║
+-- ║               MODULE: Decompiler — Robust 10-Method Chain                 ║
+-- ║   decompile → closure → bytecode → getsenv → getgc+upvalues → require   ║
+-- ║        Handles RunContext=Client, native code, and partial recovery       ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local Decompiler = {}
 
-local function serializeTable(tbl, depth)
-    if depth > 5 then return "{...}" end
-    depth = depth or 1
-    local indent = string.rep("    ", depth)
-    local parts = {}
-    
-    for k, v in pairs(tbl) do
-        local key = type(k) == "string" and (k:match("^[%a_][%w_]*$") and k or '["'..k..'"]') or "["..tostring(k).."]"
-        local val
-        
-        if type(v) == "string" then
-            val = '"' .. v:sub(1, 80):gsub('"', '\\"'):gsub("\n", "\\n") .. (v:len() > 80 and "..." or "") .. '"'
-        elseif type(v) == "table" then
-            val = serializeTable(v, depth + 1)
-        elseif type(v) == "function" then
-            val = "function() end"
-        else
-            val = tostring(v)
+-- ── Table Serializer ────────────────────────────────────────────────────────
+
+local function serializeValue(value, depth, visited)
+    depth = depth or 0
+    visited = visited or {}
+
+    if depth > 6 then return "{ --[[ depth limit ]] }" end
+
+    local vType = type(value)
+
+    if vType == "string" then
+        local truncated = #value > 120 and value:sub(1, 120) .. "..." or value
+        return '"' .. truncated:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", "\\r") .. '"'
+    elseif vType == "number" or vType == "boolean" then
+        return tostring(value)
+    elseif vType == "nil" then
+        return "nil"
+    elseif vType == "function" then
+        return "function() --[[ compiled ]] end"
+    elseif vType == "table" then
+        if visited[value] then return "{ --[[ circular ref ]] }" end
+        visited[value] = true
+
+        local indent = string.rep("    ", depth + 1)
+        local closeIndent = string.rep("    ", depth)
+        local parts = {}
+        local count = 0
+
+        for k, v in pairs(value) do
+            count = count + 1
+            if count > 30 then
+                table.insert(parts, indent .. "-- ... " .. (next(value) and "more entries" or ""))
+                break
+            end
+
+            local keyStr
+            if type(k) == "string" and k:match("^[%a_][%w_]*$") then
+                keyStr = k
+            elseif type(k) == "string" then
+                keyStr = '["' .. k .. '"]'
+            else
+                keyStr = "[" .. tostring(k) .. "]"
+            end
+
+            table.insert(parts, indent .. keyStr .. " = " .. serializeValue(v, depth + 1, visited))
         end
-        
-        table.insert(parts, indent .. key .. " = " .. val)
-        if #parts > 25 then table.insert(parts, indent .. "-- ... more entries") break end
+
+        if #parts == 0 then return "{}" end
+        return "{\n" .. table.concat(parts, ",\n") .. "\n" .. closeIndent .. "}"
+    else
+        return "nil --[[ " .. vType .. ": " .. tostring(value) .. " ]]"
     end
-    
-    if #parts == 0 then return "{}" end
-    return "{\n" .. table.concat(parts, ",\n") .. "\n" .. string.rep("    ", depth - 1) .. "}"
 end
+
+-- ── Module Decompilation ────────────────────────────────────────────────────
 
 function Decompiler.decompileModule(moduleScript)
     local ok, module = pcall(require, moduleScript)
     if not ok or module == nil then return nil end
-    
-    local result = "-- Decompiled ModuleScript (speed's decompiler)\n"
-    result = result .. "-- Path: " .. moduleScript:GetFullName() .. "\n\n"
-    
+
+    local result = "-- ╔══════════════════════════════════════════╗\n"
+    result = result .. "-- ║  Decompiled ModuleScript (require())    ║\n"
+    result = result .. "-- ╚══════════════════════════════════════════╝\n"
+    result = result .. "-- Path: " .. moduleScript:GetFullName() .. "\n"
+    result = result .. "-- Type: " .. type(module) .. "\n\n"
+
     if type(module) == "table" then
-        result = result .. "return " .. serializeTable(module, 1)
+        result = result .. "return " .. serializeValue(module, 0)
     elseif type(module) == "function" then
-        result = result .. "return function() end -- compiled"
+        result = result .. "return function() --[[ compiled function ]] end"
     else
         result = result .. "return " .. tostring(module)
     end
-    
+
     return result
 end
 
-function Decompiler.getSource(script)
-    local methods = {
-        function() return Executor.call("decompile", script) end,
-        function() 
-            local closure = Executor.call("getscriptclosure", script)
-            return closure and Executor.call("decompile", closure)
-        end,
-        function()
-            local ok, src = pcall(function() return gethiddenproperty(script, "Source") end)
-            return ok and src and #src > 0 and src
-        end,
-        function() return Executor.call("getscriptsource", script) end,
-        function()
-            if script:IsA("ModuleScript") then return Decompiler.decompileModule(script) end
-        end,
-    }
-    
-    for _, method in ipairs(methods) do
-        local ok, result = pcall(method)
-        if ok and result and #result > 10 then
-            local lines = 1
-            for _ in result:gmatch("\n") do lines = lines + 1 end
-            return { source = result, lines = lines, bytes = #result }
+-- ── GC-Based Closure Reconstruction ─────────────────────────────────────────
+-- When decompile() completely fails, scan the garbage collector for functions
+-- belonging to this script, then extract upvalues + constants to build
+-- a partial reconstruction of the source.
+
+function Decompiler.gcReconstruct(scriptInstance)
+    -- Find all closures belonging to this script
+    local closures = Executor.findScriptClosures(scriptInstance)
+    if #closures == 0 then return nil end
+
+    local result = "-- ╔══════════════════════════════════════════════════════╗\n"
+    result = result .. "-- ║  GC Reconstruction (getgc + getupvalues)            ║\n"
+    result = result .. "-- ║  Partial source recovered from garbage collector    ║\n"
+    result = result .. "-- ╚══════════════════════════════════════════════════════╝\n"
+    result = result .. "-- Script: " .. scriptInstance:GetFullName() .. "\n"
+    result = result .. "-- Closures found: " .. #closures .. "\n\n"
+
+    for i, closure in ipairs(closures) do
+        if i > 20 then
+            result = result .. "\n-- ... " .. (#closures - 20) .. " more closures omitted\n"
+            break
+        end
+
+        result = result .. "-- ═══ Closure #" .. i .. " ═══════════════════════════════════\n"
+
+        -- Try to decompile this individual closure
+        local decompFn = Executor.resolve("decompile")
+        if decompFn then
+            local ok, src = pcall(decompFn, closure)
+            if ok and src and type(src) == "string" and #src > 10 then
+                result = result .. "-- [decompiled successfully]\n"
+                result = result .. src .. "\n\n"
+                -- Skip upvalue/constant dump for this one since we got real source
+                continue
+            end
+        end
+
+        -- Get upvalues
+        local upvals = Executor.getUpvalues(closure)
+        if upvals then
+            result = result .. "-- Upvalues:\n"
+            if type(upvals) == "table" then
+                for idx, upval in pairs(upvals) do
+                    if type(upval) == "table" and upval.name then
+                        -- debug.getupvalue style: {name=..., value=...}
+                        result = result .. "--   [" .. tostring(idx) .. "] " .. tostring(upval.name) .. " = "
+                        if type(upval.value) == "table" then
+                            result = result .. serializeValue(upval.value, 1)
+                        else
+                            result = result .. tostring(upval.value)
+                        end
+                        result = result .. "\n"
+                    else
+                        -- getupvalues style: {[idx] = value}
+                        result = result .. "--   [" .. tostring(idx) .. "] = "
+                        if type(upval) == "table" then
+                            result = result .. serializeValue(upval, 1)
+                        elseif type(upval) == "function" then
+                            result = result .. "function() end"
+                        else
+                            result = result .. tostring(upval)
+                        end
+                        result = result .. "\n"
+                    end
+                end
+            end
+        end
+
+        -- Get constants
+        local consts = Executor.getConstants(closure)
+        if consts then
+            result = result .. "-- Constants:\n"
+            local constCount = 0
+            for idx, const in pairs(consts) do
+                constCount = constCount + 1
+                if constCount > 50 then
+                    result = result .. "--   ... more constants\n"
+                    break
+                end
+                result = result .. "--   [" .. tostring(idx) .. "] "
+                if type(const) == "string" then
+                    result = result .. '"' .. const:sub(1, 80) .. '"'
+                else
+                    result = result .. tostring(const)
+                end
+                result = result .. "\n"
+            end
+        end
+
+        -- Get sub-protos (nested functions)
+        local protos = Executor.getProtos(closure)
+        if protos and #protos > 0 then
+            result = result .. "-- Sub-functions: " .. #protos .. "\n"
+            for pi, proto in ipairs(protos) do
+                if pi > 5 then break end
+                local protoConsts = Executor.getConstants(proto)
+                if protoConsts then
+                    result = result .. "--   Proto[" .. pi .. "] constants: "
+                    local parts = {}
+                    for _, c in pairs(protoConsts) do
+                        if type(c) == "string" then
+                            table.insert(parts, '"' .. c:sub(1, 40) .. '"')
+                        end
+                        if #parts >= 8 then break end
+                    end
+                    result = result .. table.concat(parts, ", ") .. "\n"
+                end
+            end
+        end
+
+        result = result .. "\n"
+    end
+
+    return result
+end
+
+-- ── Environment-Based Source Recovery ────────────────────────────────────────
+-- Uses getsenv() to read all variables from a running script's environment.
+-- This often works even when decompile() fails.
+
+function Decompiler.envRecovery(scriptInstance)
+    local env = Executor.getScriptEnvironment(scriptInstance)
+    if not env then return nil end
+
+    local result = "-- ╔══════════════════════════════════════════════════════╗\n"
+    result = result .. "-- ║  Environment Recovery (getsenv)                     ║\n"
+    result = result .. "-- ║  Live variables extracted from running script       ║\n"
+    result = result .. "-- ╚══════════════════════════════════════════════════════╝\n"
+    result = result .. "-- Script: " .. scriptInstance:GetFullName() .. "\n\n"
+
+    local varCount = 0
+    local functions = {}
+    local tables = {}
+    local values = {}
+
+    for key, value in pairs(env) do
+        if key ~= "script" and key ~= "_G" and key ~= "shared" then
+            varCount = varCount + 1
+            if varCount > 100 then
+                result = result .. "-- ... (100+ variables, truncated)\n"
+                break
+            end
+
+            if type(value) == "function" then
+                table.insert(functions, key)
+            elseif type(value) == "table" then
+                table.insert(tables, { key = key, val = value })
+            else
+                table.insert(values, { key = key, val = value, vtype = type(value) })
+            end
         end
     end
-    
-    -- Fallback info
-    local info = "-- 📜 " .. script.Name .. " (" .. script.ClassName .. ")\n"
-    info = info .. "-- Path: " .. script:GetFullName() .. "\n\n"
-    info = info .. "-- Source requires decompiler support\n"
-    info = info .. "-- Children: " .. #script:GetChildren()
-    
-    return { source = info, lines = 5, bytes = #info }
+
+    -- Print simple values first
+    if #values > 0 then
+        result = result .. "-- ── Values ──────────────────────────\n"
+        for _, v in ipairs(values) do
+            if v.vtype == "string" then
+                result = result .. "local " .. tostring(v.key) .. ' = "' .. tostring(v.val):sub(1, 80) .. '"\n'
+            else
+                result = result .. "local " .. tostring(v.key) .. " = " .. tostring(v.val) .. "\n"
+            end
+        end
+        result = result .. "\n"
+    end
+
+    -- Print function names
+    if #functions > 0 then
+        result = result .. "-- ── Functions (" .. #functions .. ") ─────────────────────\n"
+        for _, name in ipairs(functions) do
+            result = result .. "local function " .. tostring(name) .. "(...) end  -- exists in env\n"
+
+            -- Try to get upvalues of this function
+            local fn = env[name]
+            if fn and type(fn) == "function" then
+                local upvals = Executor.getUpvalues(fn)
+                if upvals then
+                    for idx, uv in pairs(upvals) do
+                        if type(uv) ~= "function" and type(uv) ~= "table" then
+                            result = result .. "  -- upvalue[" .. tostring(idx) .. "] = " .. tostring(uv) .. "\n"
+                        end
+                    end
+                end
+            end
+        end
+        result = result .. "\n"
+    end
+
+    -- Print tables
+    if #tables > 0 then
+        result = result .. "-- ── Tables (" .. #tables .. ") ──────────────────────────\n"
+        for _, t in ipairs(tables) do
+            result = result .. "local " .. tostring(t.key) .. " = " .. serializeValue(t.val, 0) .. "\n\n"
+        end
+    end
+
+    result = result .. "\n-- Total variables recovered: " .. varCount
+    return result
+end
+
+-- ── RunContext Detection ────────────────────────────────────────────────────
+-- Scripts with RunContext=Client appear as "Script" class but run client-side.
+-- Many executors can't decompile these. We detect and handle them specially.
+
+function Decompiler.isRunContextClient(scriptInstance)
+    if not scriptInstance:IsA("Script") then return false end
+    if scriptInstance:IsA("LocalScript") then return false end
+    if scriptInstance:IsA("ModuleScript") then return false end
+
+    -- It's a regular Script — check RunContext
+    local ok, runContext = pcall(function()
+        return scriptInstance.RunContext
+    end)
+    if ok and runContext then
+        return runContext == Enum.RunContext.Client
+    end
+
+    -- Fallback: if a Script is in a client-side container, it might be RunContext=Client
+    local path = scriptInstance:GetFullName():lower()
+    if path:find("starterplayer") or path:find("startergui") or path:find("starterpack") then
+        return true
+    end
+
+    return false
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- ═══ MAIN DECOMPILER CHAIN — 10 METHODS ═════════════════════════════════════
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Each method is tried in order. The first one that returns >10 chars wins.
+-- Every attempt is logged to State.decompileLog for debugging.
+
+function Decompiler.getSource(scriptInstance)
+    local log = {}
+    local isRCC = Decompiler.isRunContextClient(scriptInstance)
+
+    local methods = {
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 1: Direct decompile (UNC standard)                      │
+        -- │ Most executors with built-in decompilers support this.         │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "decompile(script)",
+            fn = function()
+                local decompFn = Executor.resolve("decompile")
+                if not decompFn then return nil, "decompile not available" end
+                local ok, src = pcall(decompFn, scriptInstance)
+                if not ok then return nil, "pcall failed: " .. tostring(src) end
+                if not src or type(src) ~= "string" then return nil, "returned non-string" end
+                if #src < 10 then return nil, "returned too short (" .. #src .. " chars)" end
+                -- Check for error messages disguised as source
+                if src:find("^%-%-") and #src < 100 and src:find("fail") then
+                    return nil, "returned error comment: " .. src:sub(1, 50)
+                end
+                return src
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 2: getscriptclosure → decompile(closure)                │
+        -- │ Gets a fresh closure from bytecode, then decompiles it.        │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "closure→decompile",
+            fn = function()
+                local closure = Executor.getScriptClosure(scriptInstance)
+                if not closure then return nil, "getscriptclosure failed" end
+                local decompFn = Executor.resolve("decompile")
+                if not decompFn then return nil, "decompile not available" end
+                local ok, src = pcall(decompFn, closure)
+                if not ok then return nil, "decompile(closure) failed: " .. tostring(src) end
+                if not src or #src < 10 then return nil, "returned too short" end
+                return src
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 3: gethiddenproperty("Source")                          │
+        -- │ Reads the hidden Source property directly.                     │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "hiddenproperty:Source",
+            fn = function()
+                local fn = Executor.resolve("gethiddenproperty")
+                if not fn then return nil, "gethiddenproperty not available" end
+                local ok, src = pcall(fn, scriptInstance, "Source")
+                if not ok then return nil, "pcall failed: " .. tostring(src) end
+                if not src or type(src) ~= "string" or #src < 5 then return nil, "no source found" end
+                return src
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 4: getscriptsource (legacy)                             │
+        -- │ Older function, still works on some executors.                 │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "getscriptsource",
+            fn = function()
+                local fn = Executor.resolve("getscriptsource")
+                if not fn then return nil, "getscriptsource not available" end
+                local ok, src = pcall(fn, scriptInstance)
+                if not ok then return nil, "pcall failed: " .. tostring(src) end
+                if not src or #src < 5 then return nil, "no source returned" end
+                return src
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 5: getsenv — environment variable recovery              │
+        -- │ Gets all live variables from the running script's env.         │
+        -- │ Works even on RunContext=Client scripts!                       │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "getsenv(env-recovery)",
+            fn = function()
+                return Decompiler.envRecovery(scriptInstance)
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 6: getgc + getupvalues + getconstants reconstruction    │
+        -- │ Scans garbage collector for closures from this script,         │
+        -- │ extracts their upvalues and constants for partial source.      │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "gc-reconstruct",
+            fn = function()
+                return Decompiler.gcReconstruct(scriptInstance)
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 7: require() for ModuleScripts                          │
+        -- │ Runs the module and serializes its return value.               │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "module-require",
+            fn = function()
+                if not scriptInstance:IsA("ModuleScript") then
+                    return nil, "not a ModuleScript"
+                end
+                return Decompiler.decompileModule(scriptInstance)
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 8: getscriptbytecode → bytecode dump                    │
+        -- │ When nothing else works, dump raw bytecode as hex for manual   │
+        -- │ analysis with external tools (unluau, luauDec).                │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "bytecode-dump",
+            fn = function()
+                local bytecode = Executor.getScriptBytecode(scriptInstance)
+                if not bytecode or #bytecode < 4 then return nil, "no bytecode" end
+
+                local result = "-- ╔══════════════════════════════════════════╗\n"
+                result = result .. "-- ║  Bytecode Dump (for external decompiler) ║\n"
+                result = result .. "-- ╚══════════════════════════════════════════╝\n"
+                result = result .. "-- Script: " .. scriptInstance:GetFullName() .. "\n"
+                result = result .. "-- Size: " .. #bytecode .. " bytes\n"
+                result = result .. "-- Use with: unluau, luauDec, or similar tools\n\n"
+
+                -- Show first 512 bytes as hex dump
+                local maxBytes = math.min(#bytecode, 512)
+                result = result .. "-- Hex dump (first " .. maxBytes .. " bytes):\n"
+                for i = 1, maxBytes, 16 do
+                    local hex = ""
+                    local ascii = ""
+                    for j = i, math.min(i + 15, maxBytes) do
+                        local byte = string.byte(bytecode, j)
+                        hex = hex .. string.format("%02X ", byte)
+                        ascii = ascii .. (byte >= 32 and byte <= 126 and string.char(byte) or ".")
+                    end
+                    result = result .. string.format("-- %04X: %-48s | %s\n", i - 1, hex, ascii)
+                end
+
+                -- Extract readable strings from bytecode
+                result = result .. "\n-- Extracted strings:\n"
+                local strCount = 0
+                for str in bytecode:gmatch("[%w_%.%:]+") do
+                    if #str >= 4 and strCount < 60 then
+                        strCount = strCount + 1
+                        result = result .. '--   "' .. str:sub(1, 80) .. '"\n'
+                    end
+                end
+
+                return result
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 9: getloadedmodules scan                                │
+        -- │ Check if this module is in getloadedmodules and get its return │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "loadedmodules-scan",
+            fn = function()
+                if not scriptInstance:IsA("ModuleScript") then
+                    return nil, "not a ModuleScript"
+                end
+                local modules = Executor.getLoadedModules()
+                for _, mod in ipairs(modules) do
+                    if mod == scriptInstance then
+                        return Decompiler.decompileModule(scriptInstance)
+                    end
+                end
+                return nil, "module not in getloadedmodules"
+            end,
+        },
+
+        -- ┌─────────────────────────────────────────────────────────────────┐
+        -- │ Method 10: getrunningscripts closure scan                      │
+        -- │ Check if the script is in getrunningscripts, then try to       │
+        -- │ get its closure from the running scripts list.                 │
+        -- └─────────────────────────────────────────────────────────────────┘
+        {
+            name = "runningscripts-scan",
+            fn = function()
+                local running = Executor.getRunningScripts()
+                for _, rs in ipairs(running) do
+                    if rs == scriptInstance then
+                        -- It's running, try getsenv on it
+                        local envResult = Decompiler.envRecovery(scriptInstance)
+                        if envResult then return envResult end
+
+                        -- Try getting its closure via GC
+                        local gcResult = Decompiler.gcReconstruct(scriptInstance)
+                        if gcResult then return gcResult end
+
+                        return nil, "found in running scripts but couldn't extract"
+                    end
+                end
+                return nil, "not in getrunningscripts"
+            end,
+        },
+    }
+
+    -- ── Execute the chain ───────────────────────────────────────────────────
+    for _, method in ipairs(methods) do
+        local ok, result, errMsg = pcall(function()
+            local src, err = method.fn()
+            return src, err
+        end)
+
+        if ok and result and type(result) == "string" and #result > 10 then
+            -- Count lines
+            local lines = 1
+            for _ in result:gmatch("\n") do lines = lines + 1 end
+
+            -- Get hash if available
+            local hash = Executor.getScriptHash(scriptInstance)
+
+            -- Log success
+            State.logDecompile(scriptInstance.Name, method.name, true, nil)
+
+            return {
+                source = result,
+                lines = lines,
+                bytes = #result,
+                method = method.name,
+                hash = hash,
+                isRunContextClient = isRCC,
+                log = log,
+            }
+        else
+            local reason = "unknown"
+            if not ok then
+                reason = "error: " .. tostring(result)
+            elseif errMsg then
+                reason = errMsg
+            elseif result then
+                reason = "too short"
+            else
+                reason = "returned nil"
+            end
+            table.insert(log, method.name .. " → " .. reason)
+            State.logDecompile(scriptInstance.Name, method.name, false, reason)
+        end
+    end
+
+    -- ── All methods failed — generate detailed error report ─────────────────
+    local info = "-- ╔══════════════════════════════════════════════════════════╗\n"
+    info = info .. "-- ║  ⚠️  ALL DECOMPILATION METHODS FAILED                  ║\n"
+    info = info .. "-- ╚══════════════════════════════════════════════════════════╝\n\n"
+    info = info .. "-- Script: " .. scriptInstance.Name .. "\n"
+    info = info .. "-- Class:  " .. scriptInstance.ClassName .. "\n"
+    info = info .. "-- Path:   " .. scriptInstance:GetFullName() .. "\n"
+
+    if isRCC then
+        info = info .. "-- ⚠️  RunContext = Client (many executors cannot decompile these!)\n"
+        info = info .. "--    Tip: This is a Server Script running as Client.\n"
+        info = info .. "--    Only AWP.GG and a few executors support decompiling these.\n"
+    end
+
+    local hash = Executor.getScriptHash(scriptInstance)
+    if hash then
+        info = info .. "-- Hash:   " .. hash .. "\n"
+    end
+
+    info = info .. "-- Children: " .. #scriptInstance:GetChildren() .. "\n\n"
+
+    info = info .. "-- ── Method Results ──────────────────────────────────────\n"
+    for i, entry in ipairs(log) do
+        info = info .. "-- " .. i .. ". " .. entry .. "\n"
+    end
+
+    info = info .. "\n-- ── Executor Capabilities ───────────────────────────────\n"
+    info = info .. "-- UNC Score: " .. Executor.UNCScore .. "/" .. Executor.UNCTotal .. "\n"
+    local caps = Executor.Capabilities or {}
+    for k, v in pairs(caps) do
+        if not v then
+            info = info .. "-- ❌ " .. k .. "\n"
+        end
+    end
+
+    info = info .. "\n-- ── What to try ─────────────────────────────────────────\n"
+    info = info .. "-- 1. Use an executor with a built-in decompiler (100%% sUNC)\n"
+    info = info .. "-- 2. Try saveinstance() to dump the whole game\n"
+    info = info .. "-- 3. Use an external decompiler (unluau, luauDec)\n"
+    if isRCC then
+        info = info .. "-- 4. Use AWP.GG which handles RunContext=Client scripts\n"
+    end
+
+    return {
+        source = info,
+        lines = 30,
+        bytes = #info,
+        method = "ALL FAILED",
+        hash = hash,
+        isRunContextClient = isRCC,
+        log = log,
+    }
+end
+
+-- ── Environment Inspector ───────────────────────────────────────────────────
+
+function Decompiler.inspectEnvironment(scriptInstance)
+    return Decompiler.envRecovery(scriptInstance)
 end
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                           MODULE: Highlighter                              ║
+-- ║                    MODULE: Highlighter — 3D Overlay                       ║
+-- ║         Highlight + BillboardGui for in-world object inspection           ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local Highlighter = {}
 
 function Highlighter.clear()
-    if State.highlight then State.highlight:Destroy() State.highlight = nil end
-    if State.billboard then State.billboard:Destroy() State.billboard = nil end
+    if State.highlight then
+        pcall(function() State.highlight:Destroy() end)
+        State.highlight = nil
+    end
+    if State.billboard then
+        pcall(function() State.billboard:Destroy() end)
+        State.billboard = nil
+    end
 end
 
 function Highlighter.show(instance)
     Highlighter.clear()
-    
-    local target = instance:IsA("BasePart") and instance 
-                or instance:IsA("Model") and (instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true))
-                or instance:FindFirstChildWhichIsA("BasePart", true)
-    
+
+    local target
+    if instance:IsA("BasePart") then
+        target = instance
+    elseif instance:IsA("Model") then
+        target = instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
+    else
+        target = instance:FindFirstChildWhichIsA("BasePart", true)
+    end
+
     if not target then return end
-    
+
     local CoreGui = game:GetService("CoreGui")
-    
+
+    -- Highlight Effect
     State.highlight = Instance.new("Highlight")
+    State.highlight.Name = "ExplorerHighlight"
     State.highlight.FillColor = Config.Colors.Highlight
-    State.highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
-    State.highlight.FillTransparency = 0.6
+    State.highlight.OutlineColor = Config.Colors.Warning
+    State.highlight.FillTransparency = 0.65
+    State.highlight.OutlineTransparency = 0.1
+    State.highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     State.highlight.Adornee = instance:IsA("Model") and instance or target
     State.highlight.Parent = CoreGui
-    
+
+    -- Billboard Info
     State.billboard = Instance.new("BillboardGui")
-    State.billboard.Size = UDim2.new(0, 300, 0, 60)
+    State.billboard.Name = "ExplorerBillboard"
+    State.billboard.Size = UDim2.new(0, 320, 0, 70)
     State.billboard.StudsOffset = Vector3.new(0, 5, 0)
     State.billboard.Adornee = target
     State.billboard.AlwaysOnTop = true
+    State.billboard.LightInfluence = 0
     State.billboard.Parent = CoreGui
-    
-    local bg = UI.frame({ Color = Color3.new(0,0,0), Corner = 8, Parent = State.billboard })
-    bg.BackgroundTransparency = 0.2
-    UI.stroke(bg, 2, Color3.fromRGB(255, 255, 0))
-    
-    UI.label({ Text = "📍 " .. instance.Name .. " [" .. instance.ClassName .. "]", 
-              Size = UDim2.new(1, -12, 0, 25), Position = UDim2.new(0, 6, 0, 4),
-              Color = Color3.fromRGB(255, 255, 100), Bold = true, TextSize = 16, Parent = bg })
-    
-    UI.label({ Text = instance:GetFullName(), Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 32),
-              Color = Color3.fromRGB(200, 200, 200), TextSize = 11, Truncate = Enum.TextTruncate.AtEnd, Parent = bg })
-    
-    task.delay(5, Highlighter.clear)
+
+    local bg = UI.glass({
+        Name = "BillboardBg",
+        Size = UDim2.new(1, 0, 1, 0),
+        Corner = 10,
+        Parent = State.billboard,
+    })
+
+    UI.label({
+        Name = "Title",
+        Text = "📍 " .. instance.Name,
+        Size = UDim2.new(1, -14, 0, 28),
+        Position = UDim2.new(0, 7, 0, 4),
+        Color = Config.Colors.Warning,
+        Bold = true,
+        TextSize = 15,
+        Truncate = Enum.TextTruncate.AtEnd,
+        Parent = bg,
+    })
+
+    UI.label({
+        Name = "Class",
+        Text = "[" .. instance.ClassName .. "]",
+        Size = UDim2.new(0.5, -7, 0, 18),
+        Position = UDim2.new(0, 7, 0, 34),
+        Color = Config.Colors.Accent,
+        TextSize = 12,
+        Parent = bg,
+    })
+
+    UI.label({
+        Name = "Path",
+        Text = instance:GetFullName(),
+        Size = UDim2.new(1, -14, 0, 16),
+        Position = UDim2.new(0, 7, 0, 52),
+        Color = Config.Colors.TextSecondary,
+        TextSize = 10,
+        Truncate = Enum.TextTruncate.AtEnd,
+        Parent = bg,
+    })
+
+    task.delay(6, function()
+        Highlighter.clear()
+    end)
 end
 
+-- ── Drawing Library Alternative ─────────────────────────────────────────────
+
+function Highlighter.drawingESP(instance)
+    local caps = Executor.Capabilities
+    if not caps or not caps.hasDrawing then return nil end
+
+    local target
+    if instance:IsA("BasePart") then target = instance
+    elseif instance:IsA("Model") then target = instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
+    else target = instance:FindFirstChildWhichIsA("BasePart", true) end
+
+    if not target then return nil end
+
+    local camera = workspace.CurrentCamera
+    local drawings = {}
+
+    local nameText = Drawing.new("Text")
+    nameText.Text = instance.Name .. " [" .. instance.ClassName .. "]"
+    nameText.Size = 14
+    nameText.Color = Color3.fromRGB(255, 255, 100)
+    nameText.Center = true
+    nameText.Outline = true
+    nameText.Font = 2
+    nameText.Visible = false
+    table.insert(drawings, nameText)
+
+    local box = Drawing.new("Square")
+    box.Color = Config.Colors.Highlight
+    box.Thickness = 1
+    box.Filled = false
+    box.Visible = false
+    table.insert(drawings, box)
+
+    local connection
+    connection = game:GetService("RunService").RenderStepped:Connect(function()
+        if not target or not target.Parent then
+            for _, d in ipairs(drawings) do d:Remove() end
+            connection:Disconnect()
+            return
+        end
+
+        local pos, onScreen = camera:WorldToViewportPoint(target.Position)
+        if onScreen then
+            nameText.Position = Vector2.new(pos.X, pos.Y - 30)
+            nameText.Visible = true
+
+            local size = target.Size
+            local scale = 1 / pos.Z * camera.ViewportSize.Y
+            local w = size.X * scale * 0.5
+            local h = size.Y * scale * 0.5
+
+            box.Position = Vector2.new(pos.X - w/2, pos.Y - h/2)
+            box.Size = Vector2.new(w, h)
+            box.Visible = true
+        else
+            nameText.Visible = false
+            box.Visible = false
+        end
+    end)
+
+    return {
+        drawings = drawings,
+        connection = connection,
+        destroy = function()
+            connection:Disconnect()
+            for _, d in ipairs(drawings) do d:Remove() end
+        end,
+    }
+end
+
+
+
+————————————————————————————————————————————————————————————
+-- FILE 4: Scanner_Explorer.lua
+————————————————————————————————————————————————————————————
+
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                           MODULE: Scanner                                  ║
+-- ║                    MODULE: Scanner — Modern Discovery                     ║
+-- ║     getloadedmodules · getrunningscripts · getgc · DataModel scan        ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local Scanner = {}
 
+-- ── Icon & Color Mapping ────────────────────────────────────────────────────
+
 function Scanner.getIcon(instance)
-    return Config.Icons[instance.ClassName] or 
-           (instance:IsA("BaseScript") and Config.Icons.Script) or
-           (instance:IsA("BasePart") and Config.Icons.Part) or
-           (instance:IsA("Folder") and Config.Icons.Folder) or
-           (instance:IsA("Model") and Config.Icons.Model) or
-           Config.Icons.Default
+    return Config.Icons[instance.ClassName]
+        or (instance:IsA("BaseScript") and Config.Icons.Script)
+        or (instance:IsA("BasePart") and Config.Icons.Part)
+        or (instance:IsA("Folder") and Config.Icons.Folder)
+        or (instance:IsA("Model") and Config.Icons.Model)
+        or (instance:IsA("GuiObject") and Config.Icons.Frame)
+        or (instance:IsA("Sound") and Config.Icons.Sound)
+        or Config.Icons.Default
 end
 
 function Scanner.getColor(instance)
     if instance:IsA("LocalScript") then return Config.Colors.LocalScript
-    elseif instance:IsA("Script") then return Config.Colors.Script
+    elseif instance:IsA("Script") and not instance:IsA("LocalScript") then return Config.Colors.Script
     elseif instance:IsA("ModuleScript") then return Config.Colors.ModuleScript
     elseif instance:IsA("Folder") then return Config.Colors.Folder
+    elseif instance:IsA("BasePart") then return Config.Colors.Service
     else return Config.Colors.Muted end
 end
 
+-- ── Full Game Map ───────────────────────────────────────────────────────────
+
 function Scanner.generateMap()
-    local maps, totalObjs, totalScripts = {}, 0, 0
-    
+    local maps = {}
+    local totalObjs, totalScripts = 0, 0
+
     for _, serviceName in ipairs(Config.Services) do
         local ok, service = pcall(game.GetService, game, serviceName)
         if not ok or not service then continue end
-        
+
         local lines, objs, scripts = {}, 0, 0
-        
+
         local function scan(inst, depth, path)
-            if objs > 1500 then return end
+            if objs > 2000 then return end
             objs = objs + 1
             if inst:IsA("BaseScript") then scripts = scripts + 1 end
-            
+
             local icon = Scanner.getIcon(inst)
-            table.insert(lines, string.rep("  ", depth) .. icon .. " " .. inst.Name .. " [" .. inst.ClassName .. "] -- " .. path)
-            
+            local hash = ""
+            if inst:IsA("BaseScript") and Config.Decompiler.ShowBytecodeHash then
+                local h = Executor.getScriptHash(inst)
+                if h then hash = " [hash:" .. h:sub(1, 12) .. "...]" end
+            end
+
+            table.insert(lines, string.rep("  ", depth) .. icon .. " " .. inst.Name .. " [" .. inst.ClassName .. "]" .. hash .. " -- " .. path)
+
             for _, child in ipairs(inst:GetChildren()) do
                 pcall(scan, child, depth + 1, path .. "." .. child.Name)
             end
         end
-        
+
         for _, child in ipairs(service:GetChildren()) do
             pcall(scan, child, 0, serviceName .. "." .. child.Name)
         end
-        
-        totalObjs, totalScripts = totalObjs + objs, totalScripts + scripts
+
+        totalObjs = totalObjs + objs
+        totalScripts = totalScripts + scripts
         maps[serviceName] = { lines = lines, objs = objs, scripts = scripts }
     end
-    
+
     return maps, totalObjs, totalScripts
 end
+
+-- ── Loaded Modules Discovery (UNC: getloadedmodules) ────────────────────────
+
+function Scanner.getLoadedModulesList()
+    local modules = Executor.getLoadedModules()
+    local results = {}
+
+    for _, mod in ipairs(modules) do
+        pcall(function()
+            table.insert(results, {
+                instance = mod,
+                name = mod.Name,
+                path = mod:GetFullName(),
+                class = mod.ClassName,
+                hash = Executor.getScriptHash(mod),
+            })
+        end)
+    end
+
+    table.sort(results, function(a, b) return a.name < b.name end)
+    return results
+end
+
+-- ── Running Scripts Discovery (UNC: getrunningscripts) ──────────────────────
+
+function Scanner.getRunningScriptsList()
+    local scripts = Executor.getRunningScripts()
+    local results = {}
+
+    for _, scr in ipairs(scripts) do
+        pcall(function()
+            table.insert(results, {
+                instance = scr,
+                name = scr.Name,
+                path = scr:GetFullName(),
+                class = scr.ClassName,
+                hash = Executor.getScriptHash(scr),
+            })
+        end)
+    end
+
+    table.sort(results, function(a, b) return a.name < b.name end)
+    return results
+end
+
+-- ── GC Object Scanner (UNC: getgc) ─────────────────────────────────────────
+-- Scans garbage collector for functions, tables, and hidden references
+
+function Scanner.scanGC(filterType)
+    local gc = Executor.getGarbageCollector(true)
+    local results = {}
+
+    for _, obj in ipairs(gc) do
+        if #results >= 200 then break end
+
+        if filterType == nil or type(obj) == filterType then
+            local info = { type = type(obj) }
+
+            if type(obj) == "function" then
+                pcall(function()
+                    local dbg = debug.getinfo(obj)
+                    info.name = dbg.name or "anonymous"
+                    info.source = dbg.source or "unknown"
+                    info.line = dbg.linedefined or 0
+                end)
+            elseif type(obj) == "table" then
+                local count = 0
+                for _ in pairs(obj) do count = count + 1 end
+                info.size = count
+            end
+
+            table.insert(results, info)
+        end
+    end
+
+    return results
+end
+
+-- ── Registry Scanner (UNC: getreg) ─────────────────────────────────────────
+
+function Scanner.scanRegistry()
+    local reg = Executor.getRegistry()
+    local results = { functions = 0, tables = 0, threads = 0, other = 0 }
+
+    for _, entry in ipairs(reg) do
+        local t = type(entry)
+        if t == "function" then results.functions = results.functions + 1
+        elseif t == "table" then results.tables = results.tables + 1
+        elseif t == "thread" then results.threads = results.threads + 1
+        else results.other = results.other + 1 end
+    end
+
+    results.total = #reg
+    return results
+end
+
+-- ── Search (Fuzzy Match Support) ────────────────────────────────────────────
 
 function Scanner.search(query, parent)
     local results = {}
     query = query:lower()
-    
+
     local function searchIn(instance)
         if #results >= Config.Search.MaxResults then return end
-        
+
         for _, child in ipairs(instance:GetChildren()) do
             if #results >= Config.Search.MaxResults then return end
-            
+
             local nameMatch = child.Name:lower():find(query, 1, true)
             local classMatch = child.ClassName:lower():find(query, 1, true)
-            
-            if nameMatch or classMatch then
+
+            -- Fuzzy match: check if characters appear in order
+            local fuzzyMatch = false
+            if Config.Search.FuzzyMatch and not nameMatch and not classMatch then
+                local name = child.Name:lower()
+                local qi = 1
+                for i = 1, #name do
+                    if qi <= #query and name:sub(i, i) == query:sub(qi, qi) then
+                        qi = qi + 1
+                    end
+                end
+                fuzzyMatch = qi > #query
+            end
+
+            if nameMatch or classMatch or fuzzyMatch then
                 table.insert(results, child)
             end
-            
+
             pcall(searchIn, child)
         end
     end
-    
+
     for _, serviceName in ipairs(Config.Services) do
         if #results >= Config.Search.MaxResults then break end
         local ok, service = pcall(game.GetService, game, serviceName)
         if ok and service then pcall(searchIn, service) end
     end
-    
+
     return results
 end
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                           MODULE: Explorer                                 ║
+-- ║                  MODULE: Explorer — Tree View Builder                     ║
+-- ║           Lazy-loaded nodes · Sorted · Live environment view             ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local Explorer = {}
 
+-- ── Select Item ─────────────────────────────────────────────────────────────
+
 function Explorer.selectItem(instance)
     State.selected = instance
-    
-    if State.pathLabel then State.pathLabel.Text = "📍 " .. instance:GetFullName() end
-    
+
+    if State.pathLabel then
+        State.pathLabel.Text = "📍 " .. instance:GetFullName()
+    end
+
     local icon = Scanner.getIcon(instance)
-    if State.titleLabel then State.titleLabel.Text = icon .. " " .. instance.Name end
-    
+    if State.titleLabel then
+        State.titleLabel.Text = icon .. " " .. instance.Name
+    end
+
     Highlighter.show(instance)
-    Toast.show(icon .. " " .. instance.Name .. "\n[" .. instance.ClassName .. "]\n" .. instance:GetFullName(), 3)
-    
+
+    -- Toast notification
+    Toast.info(icon .. " " .. instance.Name .. "\n[" .. instance.ClassName .. "]", 2.5)
+
+    -- ── Script source view ──────────────────────────────────────────────────
     if instance:IsA("BaseScript") then
         local result = Decompiler.getSource(instance)
         State.source = result.source
+
         if State.codeLabel then State.codeLabel.Text = result.source end
-        if State.metaLabel then State.metaLabel.Text = "📊 " .. result.lines .. " lines | " .. result.bytes .. " bytes" end
+        if State.metaLabel then
+            State.metaLabel.Text = "📊 " .. result.lines .. " lines · " .. result.bytes .. " bytes · method: " .. result.method
+        end
+        if State.hashLabel and result.hash then
+            State.hashLabel.Text = "#️⃣ " .. result.hash:sub(1, 40) .. "..."
+        elseif State.hashLabel then
+            State.hashLabel.Text = ""
+        end
+
+        -- Check for live environment (getsenv)
+        if State.envLabel then
+            local env = Executor.getScriptEnvironment(instance)
+            if env then
+                local count = 0
+                for _ in pairs(env) do count = count + 1 end
+                State.envLabel.Text = "🔬 Live env: " .. count .. " variables"
+            else
+                State.envLabel.Text = ""
+            end
+        end
+
+    -- ── Non-script info view ────────────────────────────────────────────────
     else
-        local info = "-- 📌 " .. instance.Name .. "\n"
-        info = info .. "-- Class: " .. instance.ClassName .. "\n"
-        info = info .. "-- Path: " .. instance:GetFullName() .. "\n"
-        info = info .. "-- Children: " .. #instance:GetChildren()
-        
+        local info = "-- ╔══════════════════════════════════════════╗\n"
+        info = info .. "-- ║  Instance Info                            ║\n"
+        info = info .. "-- ╚══════════════════════════════════════════╝\n\n"
+        info = info .. "-- Name:     " .. instance.Name .. "\n"
+        info = info .. "-- Class:    " .. instance.ClassName .. "\n"
+        info = info .. "-- Path:     " .. instance:GetFullName() .. "\n"
+        info = info .. "-- Children: " .. #instance:GetChildren() .. "\n"
+
         pcall(function()
             if instance:IsA("BasePart") then
-                info = info .. "\n-- Position: " .. tostring(instance.Position)
-                info = info .. "\n-- Size: " .. tostring(instance.Size)
+                info = info .. "-- Position: " .. tostring(instance.Position) .. "\n"
+                info = info .. "-- Size:     " .. tostring(instance.Size) .. "\n"
+                info = info .. "-- Material: " .. tostring(instance.Material) .. "\n"
+                info = info .. "-- Anchored: " .. tostring(instance.Anchored) .. "\n"
             elseif instance:IsA("ValueBase") then
-                info = info .. "\n-- Value: " .. tostring(instance.Value)
+                info = info .. "-- Value:    " .. tostring(instance.Value) .. "\n"
+            elseif instance:IsA("RemoteEvent") or instance:IsA("RemoteFunction") then
+                info = info .. "\n-- ⚠️ Remote endpoint\n"
+                info = info .. "-- Can be monitored with hookfunction/firesignal\n"
             end
         end)
-        
+
+        -- Show favorite status
+        if State.isFavorite and State.isFavorite(instance) then
+            info = info .. "\n-- ★ Favorited\n"
+        end
+
         State.source = info
         if State.codeLabel then State.codeLabel.Text = info end
         if State.metaLabel then State.metaLabel.Text = "📌 " .. instance.ClassName end
+        if State.hashLabel then State.hashLabel.Text = "" end
+        if State.envLabel then State.envLabel.Text = "" end
     end
 end
+
+-- ── Create Tree Node ────────────────────────────────────────────────────────
 
 function Explorer.createNode(instance, parent, indent, order)
     if State.nodeCount >= Config.Tree.MaxNodes then return end
     if indent > Config.Tree.MaxDepth then return end
     State.nodeCount = State.nodeCount + 1
-    
+
     local isScript = instance:IsA("BaseScript")
     local childCount = #instance:GetChildren()
     local hasChildren = childCount > 0
-    
-    local container = UI.frame({ Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = parent })
+
+    -- Container
+    local container = UI.frame({
+        Name = "Node_" .. instance.Name,
+        Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight),
+        Transparency = 1,
+        Parent = parent,
+    })
     container.LayoutOrder = order
     container.AutomaticSize = Enum.AutomaticSize.Y
-    
+
+    -- Clickable button
     local btn = Instance.new("TextButton")
+    btn.Name = "NodeBtn"
     btn.Size = UDim2.new(1, -indent * Config.Tree.IndentSize, 0, Config.Tree.ItemHeight)
     btn.Position = UDim2.new(0, indent * Config.Tree.IndentSize, 0, 0)
     btn.BackgroundColor3 = Config.Colors.Item
-    btn.BackgroundTransparency = 0.9
+    btn.BackgroundTransparency = 0.92
     btn.BorderSizePixel = 0
     btn.Font = isScript and Enum.Font.GothamBold or Enum.Font.Gotham
     btn.TextSize = 13
@@ -571,35 +2108,57 @@ function Explorer.createNode(instance, parent, indent, order)
     btn.AutoButtonColor = false
     btn.Parent = container
     UI.corner(btn, 6)
-    
+
     local icon = Scanner.getIcon(instance)
-    local expand = hasChildren and Config.Icons.Collapse or ""
-    btn.Text = "  " .. expand .. " " .. icon .. " " .. instance.Name .. 
-               " <font color=\"#666\">[" .. instance.ClassName .. "]</font>" ..
-               (hasChildren and " <font color=\"#555\">(" .. childCount .. ")</font>" or "")
-    
-    local hoverStroke = UI.stroke(btn, 2, Config.Colors.Accent, 1)
-    btn.MouseEnter:Connect(function() UI.tween(btn, {BackgroundTransparency = 0.7}, 0.1) UI.tween(hoverStroke, {Transparency = 0.3}, 0.1) end)
-    btn.MouseLeave:Connect(function() UI.tween(btn, {BackgroundTransparency = 0.9}, 0.1) UI.tween(hoverStroke, {Transparency = 1}, 0.1) end)
-    
-    local childrenFrame = UI.frame({ Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = container })
+    local expandIcon = hasChildren and Config.Icons.Collapse or ""
+    local isFav = State.isFavorite(instance) and " ★" or ""
+
+    btn.Text = "  " .. expandIcon .. " " .. icon .. " " .. instance.Name
+        .. ' <font color="#555">[' .. instance.ClassName .. ']</font>'
+        .. (hasChildren and ' <font color="#444">(' .. childCount .. ')</font>' or "")
+        .. '<font color="#eab308">' .. isFav .. '</font>'
+
+    -- Hover effects
+    local hoverStroke = UI.stroke(btn, 1.5, Scanner.getColor(instance), 1)
+
+    btn.MouseEnter:Connect(function()
+        UI.tween(btn, {BackgroundTransparency = 0.7}, 0.1)
+        UI.tween(hoverStroke, {Transparency = 0.4}, 0.1)
+    end)
+    btn.MouseLeave:Connect(function()
+        UI.tween(btn, {BackgroundTransparency = 0.92}, 0.12)
+        UI.tween(hoverStroke, {Transparency = 1}, 0.12)
+    end)
+
+    -- Children container (lazy loaded)
+    local childrenFrame = UI.frame({
+        Name = "Children",
+        Size = UDim2.new(1, 0, 0, 0),
+        Position = UDim2.new(0, 0, 0, Config.Tree.ItemHeight),
+        Transparency = 1,
+        Parent = container,
+    })
     childrenFrame.Visible = false
     childrenFrame.AutomaticSize = Enum.AutomaticSize.Y
     UI.list(childrenFrame, 2)
-    
-    local isExpanded, childrenLoaded = false, false
+
+    local isExpanded = false
+    local childrenLoaded = false
     local fullPath = instance:GetFullName()
-    
+
+    -- Lazy-load children on first expand
     local function loadChildren()
         if childrenLoaded then return end
         childrenLoaded = true
+
         local children = instance:GetChildren()
         table.sort(children, function(a, b)
             local aScore = a:IsA("BaseScript") and 0 or (a:IsA("Folder") and 1 or 2)
             local bScore = b:IsA("BaseScript") and 0 or (b:IsA("Folder") and 1 or 2)
-            return aScore == bScore and a.Name < b.Name or aScore < bScore
+            if aScore == bScore then return a.Name < b.Name end
+            return aScore < bScore
         end)
-        
+
         for i, child in ipairs(children) do
             pcall(Explorer.createNode, child, childrenFrame, indent + 1, i)
         end
@@ -607,114 +2166,192 @@ function Explorer.createNode(instance, parent, indent, order)
 
     local function updateVisuals()
         childrenFrame.Visible = isExpanded
-        expand = isExpanded and Config.Icons.Expand or Config.Icons.Collapse
-        btn.Text = "  " .. expand .. " " .. icon .. " " .. instance.Name .. 
-                   " <font color=\"#666\">[" .. instance.ClassName .. "]</font>" ..
-                   (hasChildren and " <font color=\"#555\">(" .. childCount .. ")</font>" or "")
+        expandIcon = isExpanded and Config.Icons.Expand or Config.Icons.Collapse
+        isFav = State.isFavorite(instance) and " ★" or ""
+
+        btn.Text = "  " .. expandIcon .. " " .. icon .. " " .. instance.Name
+            .. ' <font color="#555">[' .. instance.ClassName .. ']</font>'
+            .. (hasChildren and ' <font color="#444">(' .. childCount .. ')</font>' or "")
+            .. '<font color="#eab308">' .. isFav .. '</font>'
     end
-    
+
+    -- Restore expanded state from session
     if State.expanded[fullPath] then
         isExpanded = true
         updateVisuals()
         if hasChildren then loadChildren() end
     end
-    
+
+    -- Click handler
     btn.MouseButton1Click:Connect(function()
         Explorer.selectItem(instance)
-        
+
         if hasChildren then
             isExpanded = not isExpanded
-            State.expanded[fullPath] = isExpanded
+            State.expanded[fullPath] = isExpanded or nil
+            State.persistExpanded()
             updateVisuals()
             if isExpanded then loadChildren() end
         end
     end)
 end
 
+-- ── Build Tree ──────────────────────────────────────────────────────────────
+
 function Explorer.buildTree(query)
+    -- Clear existing
     for _, child in ipairs(State.treeScroll:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
     end
-    
+
     State.nodeCount = 0
-    
+
+    -- ── Search mode ─────────────────────────────────────────────────────────
     if query and #query >= Config.Search.MinChars then
         local results = Scanner.search(query)
         for i, instance in ipairs(results) do
             pcall(Explorer.createNode, instance, State.treeScroll, 0, i)
         end
-    else
-        local order = 0
-        for _, serviceName in ipairs(Config.Services) do
-            local ok, service = pcall(game.GetService, game, serviceName)
-            if not ok or not service then continue end
-            
-            local childCount = 0
-            pcall(function() childCount = #service:GetChildren() end)
-            -- Removed empty check to show all services including ServerScriptService
-            
-            order = order + 1
-            
-            local serviceNode = UI.frame({ Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = State.treeScroll })
-            serviceNode.LayoutOrder = order
-            serviceNode.AutomaticSize = Enum.AutomaticSize.Y
-            
-            local serviceBtn = Instance.new("TextButton")
-            serviceBtn.Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight)
-            serviceBtn.BackgroundColor3 = Config.Colors.Service
-            serviceBtn.BackgroundTransparency = 0.85
-            serviceBtn.BorderSizePixel = 0
-            serviceBtn.Font = Enum.Font.GothamBold
-            serviceBtn.TextSize = 13
-            serviceBtn.TextColor3 = Config.Colors.Service
-            serviceBtn.TextXAlignment = Enum.TextXAlignment.Left
-            serviceBtn.RichText = true
-            serviceBtn.Text = "  ▶ 📂 " .. serviceName .. " <font color=\"#555\">(" .. childCount .. ")</font>"
-            serviceBtn.AutoButtonColor = false
-            serviceBtn.Parent = serviceNode
-            UI.corner(serviceBtn, 6)
-            
-            local serviceChildren = UI.frame({ Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 0, Config.Tree.ItemHeight), Transparency = 1, Parent = serviceNode })
-            serviceChildren.Visible = false
-            serviceChildren.AutomaticSize = Enum.AutomaticSize.Y
-            UI.list(serviceChildren, 2)
-            
-            local serviceExpanded, serviceLoaded = false, false
+        return
+    end
 
-            local function loadServiceChildren()
-                if serviceLoaded then return end
-                serviceLoaded = true
-                local children = service:GetChildren()
-                table.sort(children, function(a, b) return a.Name < b.Name end)
-                
-                for i, child in ipairs(children) do
-                    pcall(Explorer.createNode, child, serviceChildren, 1, i)
-                end
-            end
+    -- ── Service tree mode ───────────────────────────────────────────────────
+    local order = 0
+    for _, serviceName in ipairs(Config.Services) do
+        local ok, service = pcall(game.GetService, game, serviceName)
+        if not ok or not service then continue end
 
-            local function updateServiceVisuals()
-                serviceChildren.Visible = serviceExpanded
-                serviceBtn.Text = "  " .. (serviceExpanded and "▼" or "▶") .. " 📂 " .. serviceName .. " <font color=\"#555\">(" .. childCount .. ")</font>"
-            end
-            
-            if State.expanded[serviceName] then
-                serviceExpanded = true
-                updateServiceVisuals()
-                loadServiceChildren()
-            end
+        local childCount = 0
+        pcall(function() childCount = #service:GetChildren() end)
 
-            serviceBtn.MouseButton1Click:Connect(function()
-                serviceExpanded = not serviceExpanded
-                State.expanded[serviceName] = serviceExpanded
-                updateServiceVisuals()
-                if serviceExpanded then loadServiceChildren() end
+        order = order + 1
+
+        local serviceNode = UI.frame({
+            Name = "Service_" .. serviceName,
+            Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight),
+            Transparency = 1,
+            Parent = State.treeScroll,
+        })
+        serviceNode.LayoutOrder = order
+        serviceNode.AutomaticSize = Enum.AutomaticSize.Y
+
+        local serviceBtn = Instance.new("TextButton")
+        serviceBtn.Name = "ServiceBtn"
+        serviceBtn.Size = UDim2.new(1, 0, 0, Config.Tree.ItemHeight)
+        serviceBtn.BackgroundColor3 = Config.Colors.Service
+        serviceBtn.BackgroundTransparency = 0.88
+        serviceBtn.BorderSizePixel = 0
+        serviceBtn.Font = Enum.Font.GothamBold
+        serviceBtn.TextSize = 13
+        serviceBtn.TextColor3 = Config.Colors.Service
+        serviceBtn.TextXAlignment = Enum.TextXAlignment.Left
+        serviceBtn.RichText = true
+        serviceBtn.Text = '  ▸ 📂 ' .. serviceName .. ' <font color="#555">(' .. childCount .. ')</font>'
+        serviceBtn.AutoButtonColor = false
+        serviceBtn.Parent = serviceNode
+        UI.corner(serviceBtn, 6)
+
+        -- Service hover
+        serviceBtn.MouseEnter:Connect(function()
+            UI.tween(serviceBtn, {BackgroundTransparency = 0.75}, 0.1)
+        end)
+        serviceBtn.MouseLeave:Connect(function()
+            UI.tween(serviceBtn, {BackgroundTransparency = 0.88}, 0.12)
+        end)
+
+        local serviceChildren = UI.frame({
+            Name = "ServiceChildren",
+            Size = UDim2.new(1, 0, 0, 0),
+            Position = UDim2.new(0, 0, 0, Config.Tree.ItemHeight),
+            Transparency = 1,
+            Parent = serviceNode,
+        })
+        serviceChildren.Visible = false
+        serviceChildren.AutomaticSize = Enum.AutomaticSize.Y
+        UI.list(serviceChildren, 2)
+
+        local serviceExpanded = false
+        local serviceLoaded = false
+
+        local function loadServiceChildren()
+            if serviceLoaded then return end
+            serviceLoaded = true
+
+            local children = service:GetChildren()
+            table.sort(children, function(a, b)
+                local aScore = a:IsA("BaseScript") and 0 or (a:IsA("Folder") and 1 or 2)
+                local bScore = b:IsA("BaseScript") and 0 or (b:IsA("Folder") and 1 or 2)
+                if aScore == bScore then return a.Name < b.Name end
+                return aScore < bScore
             end)
+
+            for i, child in ipairs(children) do
+                pcall(Explorer.createNode, child, serviceChildren, 1, i)
+            end
         end
+
+        local function updateServiceVisuals()
+            serviceChildren.Visible = serviceExpanded
+            local arrow = serviceExpanded and "▾" or "▸"
+            serviceBtn.Text = '  ' .. arrow .. ' 📂 ' .. serviceName .. ' <font color="#555">(' .. childCount .. ')</font>'
+        end
+
+        -- Restore expanded state
+        if State.expanded[serviceName] then
+            serviceExpanded = true
+            updateServiceVisuals()
+            loadServiceChildren()
+        end
+
+        serviceBtn.MouseButton1Click:Connect(function()
+            serviceExpanded = not serviceExpanded
+            State.expanded[serviceName] = serviceExpanded or nil
+            State.persistExpanded()
+            updateServiceVisuals()
+            if serviceExpanded then loadServiceChildren() end
+        end)
     end
 end
 
+-- ── Special Views ───────────────────────────────────────────────────────────
+
+function Explorer.showLoadedModules()
+    for _, child in ipairs(State.treeScroll:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    State.nodeCount = 0
+
+    local modules = Scanner.getLoadedModulesList()
+    for i, mod in ipairs(modules) do
+        pcall(Explorer.createNode, mod.instance, State.treeScroll, 0, i)
+    end
+
+    Toast.info("📡 Loaded modules: " .. #modules, 3)
+end
+
+function Explorer.showRunningScripts()
+    for _, child in ipairs(State.treeScroll:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    State.nodeCount = 0
+
+    local scripts = Scanner.getRunningScriptsList()
+    for i, scr in ipairs(scripts) do
+        pcall(Explorer.createNode, scr.instance, State.treeScroll, 0, i)
+    end
+
+    Toast.info("⚡ Running scripts: " .. #scripts, 3)
+end
+
+
+
+————————————————————————————————————————————————————————————
+-- FILE 5: GameMap_Init.lua
+————————————————————————————————————————————————————————————
+
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                           MODULE: GameMap                                  ║
+-- ║                       MODULE: GameMap — Full Viewer                       ║
+-- ║               Map all services · Copy · saveinstance support             ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local GameMap = {}
@@ -722,50 +2359,153 @@ local GameMap = {}
 function GameMap.show()
     local Players = game:GetService("Players")
     local CoreGui = game:GetService("CoreGui")
-    
+
     local mapGui = Instance.new("ScreenGui")
-    mapGui.Name = "GameMapViewer"
+    mapGui.Name = "GameMapViewer_v12"
     mapGui.ResetOnSpawn = false
     mapGui.DisplayOrder = 99999
     mapGui.IgnoreGuiInset = true
     pcall(function() mapGui.Parent = CoreGui end)
     if not mapGui.Parent then mapGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
-    
-    local mapFrame = UI.frame({ Size = UDim2.new(0.85, 0, 0.9, 0), Position = UDim2.new(0.075, 0, 0.05, 0), 
-                                Color = Config.Colors.Background, Corner = 16, Parent = mapGui })
-    UI.stroke(mapFrame, 3, Config.Colors.Accent, 0.2)
-    
-    local header = UI.frame({ Size = UDim2.new(1, 0, 0, 55), Color = Config.Colors.Panel, Corner = 16, Parent = mapFrame })
-    UI.label({ Text = "🗺️ GAME MAP - Full Object List", Size = UDim2.new(1, -250, 1, 0), Position = UDim2.new(0, 20, 0, 0), Bold = true, TextSize = 20, Parent = header })
-    
-    UI.button({ Text = "✕", Size = UDim2.new(0, 45, 0, 45), Position = UDim2.new(1, -50, 0, 5), Color = Config.Colors.Error, 
-               OnClick = function() mapGui:Destroy() end, Parent = header })
-    
-    UI.button({ Text = "✅ Open Explorer", Size = UDim2.new(0, 150, 0, 38), Position = UDim2.new(1, -210, 0, 8), Color = Config.Colors.Success, TextSize = 14,
-               OnClick = function() mapGui:Destroy() end, Parent = header })
-    
-    local loading = UI.label({ Text = "🔄 Scanning game...", Size = UDim2.new(1, 0, 1, -55), Position = UDim2.new(0, 0, 0, 55), 
-                               AlignX = Enum.TextXAlignment.Center, TextSize = 22, Color = Config.Colors.Muted, Parent = mapFrame })
-    
+
+    -- ── Main Frame ──────────────────────────────────────────────────────────
+    local mapFrame = UI.glass({
+        Name = "MapFrame",
+        Size = UDim2.new(0.85, 0, 0.9, 0),
+        Position = UDim2.new(0.075, 0, 0.05, 0),
+        Color = Config.Colors.Background,
+        Corner = 14,
+        Parent = mapGui,
+    })
+    UI.stroke(mapFrame, 2, Config.Colors.Accent, 0.3)
+    mapFrame.ClipsDescendants = true
+
+    -- ── Header ──────────────────────────────────────────────────────────────
+    local header = UI.frame({
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, 52),
+        Color = Config.Colors.Panel,
+        Corner = 14,
+        Parent = mapFrame,
+    })
+    UI.gradient(header, Config.Colors.Panel, Config.Colors.Background)
+
+    UI.label({
+        Text = "🗺️  GAME MAP",
+        Size = UDim2.new(0.5, 0, 1, 0),
+        Position = UDim2.new(0, 18, 0, 0),
+        Bold = true,
+        TextSize = 18,
+        Parent = header,
+    })
+
+    -- UNC score badge
+    local uncScore = Executor.UNCScore or 0
+    local uncTotal = Executor.UNCTotal or 18
+    UI.badge({
+        Text = "UNC " .. uncScore .. "/" .. uncTotal,
+        Size = UDim2.new(0, 80, 0, 24),
+        Position = UDim2.new(0.5, -40, 0, 14),
+        Color = uncScore >= 14 and Config.Colors.Success or (uncScore >= 8 and Config.Colors.Warning or Config.Colors.Error),
+        TextSize = 11,
+        Parent = header,
+    })
+
+    -- Close button
+    UI.button({
+        Text = "✕",
+        Size = UDim2.new(0, 42, 0, 42),
+        Position = UDim2.new(1, -50, 0, 5),
+        Color = Config.Colors.Error,
+        OnClick = function() mapGui:Destroy() end,
+        Parent = header,
+    })
+
+    -- Save Instance button
+    UI.button({
+        Text = "💾 Save Game",
+        Size = UDim2.new(0, 120, 0, 36),
+        Position = UDim2.new(1, -180, 0, 8),
+        Color = Config.Colors.Success,
+        TextSize = 13,
+        OnClick = function()
+            Toast.info("💾 Saving game instance...", 2)
+            task.spawn(function()
+                local ok, err = Executor.saveGame()
+                if ok then
+                    Toast.success("💾 Game saved! Check your executor's workspace folder.", 5)
+                else
+                    Toast.error("Save failed: " .. tostring(err), 4)
+                end
+            end)
+        end,
+        Parent = header,
+    })
+
+    -- ── Loading ─────────────────────────────────────────────────────────────
+    local loading = UI.label({
+        Text = "⏳ Scanning game objects...",
+        Size = UDim2.new(1, 0, 1, -55),
+        Position = UDim2.new(0, 0, 0, 55),
+        AlignX = Enum.TextXAlignment.Center,
+        TextSize = 20,
+        Color = Config.Colors.Muted,
+        Parent = mapFrame,
+    })
+
     task.spawn(function()
         local maps, totalObjs, totalScripts = Scanner.generateMap()
         if not mapGui.Parent then return end
         loading:Destroy()
-        
-        local stats = UI.frame({ Size = UDim2.new(1, -20, 0, 32), Position = UDim2.new(0, 10, 0, 62), Color = Config.Colors.Item, Corner = 8, Parent = mapFrame })
-        UI.label({ Text = "📊 Total: " .. totalObjs .. " objects | " .. totalScripts .. " scripts", Size = UDim2.new(1, -20, 1, 0), Position = UDim2.new(0, 10, 0, 0), Color = Config.Colors.Accent, Bold = true, Parent = stats })
-        
-        local tabs = UI.scroll({ Size = UDim2.new(1, -20, 0, 42), Position = UDim2.new(0, 10, 0, 100), Parent = mapFrame })
-        tabs.ScrollBarThickness = 0
+
+        -- ── Stats Bar ───────────────────────────────────────────────────────
+        local stats = UI.frame({
+            Name = "Stats",
+            Size = UDim2.new(1, -20, 0, 36),
+            Position = UDim2.new(0, 10, 0, 60),
+            Color = Config.Colors.Item,
+            Corner = 8,
+            Parent = mapFrame,
+        })
+
+        -- Running scripts count
+        local runningCount = #Executor.getRunningScripts()
+        local loadedCount = #Executor.getLoadedModules()
+
+        UI.label({
+            Text = "📊 " .. totalObjs .. " objects · " .. totalScripts .. " scripts · ⚡ " .. runningCount .. " running · 📡 " .. loadedCount .. " modules loaded",
+            Size = UDim2.new(1, -20, 1, 0),
+            Position = UDim2.new(0, 10, 0, 0),
+            Color = Config.Colors.Accent,
+            Bold = true,
+            TextSize = 12,
+            Parent = stats,
+        })
+
+        -- ── Tabs ────────────────────────────────────────────────────────────
+        local tabs = UI.scroll({
+            Name = "Tabs",
+            Size = UDim2.new(1, -20, 0, 42),
+            Position = UDim2.new(0, 10, 0, 102),
+            BarThickness = 0,
+            Parent = mapFrame,
+        })
         tabs.AutomaticCanvasSize = Enum.AutomaticSize.X
         UI.list(tabs, 5, Enum.FillDirection.Horizontal)
-        
-        local content = UI.scroll({ Size = UDim2.new(1, -20, 1, -155), Position = UDim2.new(0, 10, 0, 148), Parent = mapFrame })
+
+        -- ── Content ─────────────────────────────────────────────────────────
+        local content = UI.scroll({
+            Name = "Content",
+            Size = UDim2.new(1, -20, 1, -158),
+            Position = UDim2.new(0, 10, 0, 150),
+            Parent = mapFrame,
+        })
         content.BackgroundColor3 = Config.Colors.Panel
         content.BackgroundTransparency = 0
         UI.corner(content, 10)
-        
+
         local contentBox = Instance.new("TextBox")
+        contentBox.Name = "ContentText"
         contentBox.Size = UDim2.new(1, -20, 0, 0)
         contentBox.Position = UDim2.new(0, 10, 0, 10)
         contentBox.BackgroundTransparency = 1
@@ -778,55 +2518,86 @@ function GameMap.show()
         contentBox.MultiLine = true
         contentBox.ClearTextOnFocus = false
         contentBox.TextEditable = false
-        contentBox.AutomaticSize = Enum.AutomaticSize.Y
+        contentBox.AutomaticSize = Enum.AutomaticSize.XY
         contentBox.Parent = content
-        
+
         local currentTab = nil
         local tabButtons = {}
-        
+
         local function showService(serviceName)
-            if currentTab then currentTab.BackgroundColor3 = Config.Colors.Item end
+            if currentTab then
+                UI.tween(currentTab, {BackgroundColor3 = Config.Colors.Item}, 0.12)
+            end
             if tabButtons[serviceName] then
-                tabButtons[serviceName].BackgroundColor3 = Config.Colors.Accent
+                UI.tween(tabButtons[serviceName], {BackgroundColor3 = Config.Colors.Accent}, 0.12)
                 currentTab = tabButtons[serviceName]
             end
-            
+
             local data = maps[serviceName]
             if data then
-                local header = "\n-- " .. serviceName .. " (" .. data.objs .. " objects, " .. data.scripts .. " scripts)\n\n"
-                contentBox.Text = header .. table.concat(data.lines, "\n")
+                local headerText = "\n-- ═══════════════════════════════════════════════\n"
+                headerText = headerText .. "-- 📂 " .. serviceName .. "\n"
+                headerText = headerText .. "-- Objects: " .. data.objs .. " · Scripts: " .. data.scripts .. "\n"
+                headerText = headerText .. "-- ═══════════════════════════════════════════════\n\n"
+                contentBox.Text = headerText .. table.concat(data.lines, "\n")
             end
         end
-        
-        local order = 0
+
+        -- Build service tabs
+        local tabOrder = 0
         for _, serviceName in ipairs(Config.Services) do
             if maps[serviceName] and #maps[serviceName].lines > 0 then
-                order = order + 1
-                local tabBtn = UI.button({ Text = "📂 " .. serviceName:sub(1, 12), Size = UDim2.new(0, 120, 0, 34), Color = Config.Colors.Item, TextSize = 11, Corner = 6, Parent = tabs })
-                tabBtn.LayoutOrder = order
+                tabOrder = tabOrder + 1
+                local tabBtn = UI.button({
+                    Text = "📂 " .. serviceName:sub(1, 14),
+                    Size = UDim2.new(0, 130, 0, 34),
+                    Color = Config.Colors.Item,
+                    TextSize = 11,
+                    Corner = 8,
+                    Parent = tabs,
+                })
+                tabBtn.LayoutOrder = tabOrder
                 tabButtons[serviceName] = tabBtn
                 tabBtn.MouseButton1Click:Connect(function() showService(serviceName) end)
-                if order == 1 then showService(serviceName) end
+
+                if tabOrder == 1 then showService(serviceName) end
             end
         end
-        
-        local copyAll = UI.button({ Text = "📋 Copy All", Size = UDim2.new(0, 90, 0, 34), Color = Config.Colors.Success, TextSize = 11, Corner = 6, Parent = tabs })
-        copyAll.LayoutOrder = 999
+
+        -- Copy All button
+        local copyAll = UI.button({
+            Text = "📋 Copy All",
+            Size = UDim2.new(0, 100, 0, 34),
+            Color = Config.Colors.AccentMuted,
+            TextSize = 11,
+            Corner = 8,
+            Parent = tabs,
+        })
+        copyAll.LayoutOrder = 998
+
         copyAll.MouseButton1Click:Connect(function()
-            local fullMap = ""
+            local fullMap = "-- Game Map · Generated by Script Explorer v" .. Config.Version .. "\n"
+            fullMap = fullMap .. "-- Date: " .. os.date("%Y-%m-%d %H:%M:%S") .. "\n\n"
+
             for _, sn in ipairs(Config.Services) do
-                if maps[sn] then fullMap = fullMap .. "\n-- " .. sn .. "\n" .. table.concat(maps[sn].lines, "\n") .. "\n" end
+                if maps[sn] and #maps[sn].lines > 0 then
+                    fullMap = fullMap .. "\n-- ═══ " .. sn .. " ═══\n"
+                    fullMap = fullMap .. table.concat(maps[sn].lines, "\n") .. "\n"
+                end
             end
-            Executor.clipboard(fullMap)
-            copyAll.Text = "✅ Copied"
-            task.wait(1.5)
-            copyAll.Text = "📋 Copy All"
+
+            if Executor.clipboard(fullMap) then
+                Toast.success("📋 Full map copied!", 2)
+            else
+                Toast.error("Clipboard not available", 2)
+            end
         end)
     end)
 end
 
 -- ╔═══════════════════════════════════════════════════════════════════════════╗
--- ║                              MAIN INIT                                     ║
+-- ║                         MAIN INITIALIZATION                               ║
+-- ║           UNC Detection · getgenv() State · SecureMode                    ║
 -- ╚═══════════════════════════════════════════════════════════════════════════╝
 
 local function init()
@@ -834,103 +2605,384 @@ local function init()
     local UserInputService = game:GetService("UserInputService")
     local CoreGui = game:GetService("CoreGui")
     local LocalPlayer = Players.LocalPlayer
-    
-    -- Create ScreenGui
+
+    -- ── Initialize UNC Executor ─────────────────────────────────────────────
+    Executor.init()
+    State.capabilities = Executor.Capabilities
+
+    -- ── Register in getgenv() ───────────────────────────────────────────────
+    local genv = Executor.getExecutorGlobals()
+    if genv then
+        -- Prevent double-loading
+        if genv.__ScriptExplorerLoaded then
+            warn("⚠️ Script Explorer is already running!")
+            return
+        end
+        genv.__ScriptExplorerLoaded = true
+        genv.__ScriptExplorerVersion = Config.Version
+    end
+
+    -- ── Create GUI ──────────────────────────────────────────────────────────
     State.gui = Instance.new("ScreenGui")
-    State.gui.Name = "ScriptExplorer"
+    State.gui.Name = "ScriptExplorer_v12"
     State.gui.ResetOnSpawn = false
     State.gui.DisplayOrder = 9999
     State.gui.IgnoreGuiInset = true
+    State.gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    -- SecureMode check
+    if UI.isSecureMode() then
+        pcall(function()
+            syn.protect_gui(State.gui)
+        end)
+    end
+
     pcall(function() State.gui.Parent = CoreGui end)
     if not State.gui.Parent then State.gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
-    
+
     Toast.init(State.gui)
-    GameMap.show()
-    
-    -- Main Frame
-    State.mainFrame = UI.frame({ 
+
+    -- ── Main Window ─────────────────────────────────────────────────────────
+    State.mainFrame = UI.glass({
+        Name = "MainFrame",
         Size = UDim2.fromScale(Config.Window.Width, Config.Window.Height),
-        Position = UDim2.fromScale(0.5 - Config.Window.Width/2, 0.5 - Config.Window.Height/2),
-        Color = Config.Colors.Background, Corner = 14, Clip = true, Parent = State.gui 
+        Position = UDim2.fromScale(0.5 - Config.Window.Width / 2, 0.5 - Config.Window.Height / 2),
+        Color = Config.Colors.Background,
+        Corner = 14,
+        Clip = true,
+        Parent = State.gui,
     })
     State.mainFrame.Active = true
-    UI.stroke(State.mainFrame, 2, Config.Colors.Accent, 0.3)
-    
-    -- Header
-    local header = UI.frame({ Size = UDim2.new(1, 0, 0, 52), Color = Config.Colors.Panel, Corner = 14, Parent = State.mainFrame })
-    UI.label({ Text = "🚀 Script Explorer v" .. Config.Version, Size = UDim2.new(1, -180, 1, 0), Position = UDim2.new(0, 18, 0, 0), Bold = true, TextSize = 18, Parent = header })
-    
-    UI.button({ Text = "🗺️", Size = UDim2.new(0, 42, 0, 42), Position = UDim2.new(1, -175, 0, 5), OnClick = GameMap.show, Parent = header })
-    
+    UI.stroke(State.mainFrame, 2, Config.Colors.Accent, 0.4)
+
+    -- ── Header ──────────────────────────────────────────────────────────────
+    local header = UI.frame({
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, 50),
+        Color = Config.Colors.Panel,
+        Corner = 14,
+        Parent = State.mainFrame,
+    })
+    UI.gradient(header, Config.Colors.Panel, Config.Colors.Background)
+
+    UI.label({
+        Text = "🚀 Script Explorer v" .. Config.Version,
+        Size = UDim2.new(0.4, 0, 1, 0),
+        Position = UDim2.new(0, 16, 0, 0),
+        Bold = true,
+        TextSize = 16,
+        Parent = header,
+    })
+
+    -- UNC Badge in header
+    UI.badge({
+        Text = "UNC " .. Executor.UNCScore .. "/" .. Executor.UNCTotal,
+        Size = UDim2.new(0, 75, 0, 22),
+        Position = UDim2.new(0.4, 5, 0, 14),
+        Color = Executor.UNCScore >= 14 and Config.Colors.Success or Config.Colors.Warning,
+        TextSize = 10,
+        Parent = header,
+    })
+
+    -- Header buttons
+    UI.button({ Text = "🗺️", Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(1, -260, 0, 5), OnClick = GameMap.show, Parent = header })
+    UI.button({ Text = "📡", Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(1, -215, 0, 5), Color = Config.Colors.ModuleScript, OnClick = Explorer.showLoadedModules, Parent = header })
+    UI.button({ Text = "⚡", Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(1, -170, 0, 5), Color = Config.Colors.Warning, OnClick = Explorer.showRunningScripts, Parent = header })
+
+    -- Save Instance button
+    UI.button({
+        Text = "💾",
+        Size = UDim2.new(0, 40, 0, 40),
+        Position = UDim2.new(1, -125, 0, 5),
+        Color = Config.Colors.AccentMuted,
+        OnClick = function()
+            Toast.info("💾 Saving game...", 2)
+            task.spawn(function()
+                local ok, err = Executor.saveGame()
+                if ok then Toast.success("Game saved!", 4)
+                else Toast.error("Save failed: " .. tostring(err), 4) end
+            end)
+        end,
+        Parent = header,
+    })
+
+    -- Minimize
     local isMin = false
-    local minBtn = UI.button({ Text = "─", Size = UDim2.new(0, 42, 0, 42), Position = UDim2.new(1, -130, 0, 5), Color = Config.Colors.Folder, Parent = header })
+    local minBtn = UI.button({ Text = "─", Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(1, -80, 0, 5), Color = Config.Colors.Folder, Parent = header })
     minBtn.MouseButton1Click:Connect(function()
         isMin = not isMin
-        UI.tween(State.mainFrame, {Size = isMin and UDim2.new(0, 350, 0, 52) or UDim2.fromScale(Config.Window.Width, Config.Window.Height)}, 0.2)
+        if isMin then
+            UI.tween(State.mainFrame, {Size = UDim2.new(0, 360, 0, 50)}, 0.2)
+        else
+            UI.tween(State.mainFrame, {Size = UDim2.fromScale(Config.Window.Width, Config.Window.Height)}, 0.2)
+        end
     end)
-    
-    UI.button({ Text = "✕", Size = UDim2.new(0, 42, 0, 42), Position = UDim2.new(1, -85, 0, 5), Color = Config.Colors.Error,
-               OnClick = function() Highlighter.clear() State.gui:Destroy() end, Parent = header })
-    
-    -- Toolbar
-    local toolbar = UI.frame({ Size = UDim2.new(1, -20, 0, 42), Position = UDim2.new(0, 10, 0, 58), Transparency = 1, Parent = State.mainFrame })
-    
-    local searchBox = UI.input({ Size = UDim2.new(1, -110, 1, 0), Placeholder = "🔍 Search...", Parent = toolbar })
-    UI.button({ Text = "🔄", Size = UDim2.new(0, 42, 1, 0), Position = UDim2.new(1, -100, 0, 0), OnClick = function() Explorer.buildTree() end, Parent = toolbar })
-    UI.button({ Text = "⭐", Size = UDim2.new(0, 42, 1, 0), Position = UDim2.new(1, -52, 0, 0), Color = Config.Colors.Folder, Parent = toolbar })
-    
+
+    -- Close
+    UI.button({
+        Text = "✕",
+        Size = UDim2.new(0, 40, 0, 40),
+        Position = UDim2.new(1, -38, 0, 5),
+        Color = Config.Colors.Error,
+        OnClick = function()
+            Highlighter.clear()
+            if genv then genv.__ScriptExplorerLoaded = false end
+            State.gui:Destroy()
+        end,
+        Parent = header,
+    })
+
+    -- ── Toolbar ─────────────────────────────────────────────────────────────
+    local toolbar = UI.frame({
+        Name = "Toolbar",
+        Size = UDim2.new(1, -20, 0, 40),
+        Position = UDim2.new(0, 10, 0, 56),
+        Transparency = 1,
+        Parent = State.mainFrame,
+    })
+
+    local searchBox = UI.input({
+        Size = UDim2.new(1, -110, 1, 0),
+        Placeholder = "🔍  Search scripts, objects, classes...",
+        Parent = toolbar,
+    })
+
+    UI.button({
+        Text = "⟳",
+        Size = UDim2.new(0, 40, 1, 0),
+        Position = UDim2.new(1, -100, 0, 0),
+        OnClick = function() Explorer.buildTree() Toast.info("⟳ Tree refreshed", 1.5) end,
+        Parent = toolbar,
+    })
+
+    UI.button({
+        Text = "★",
+        Size = UDim2.new(0, 40, 1, 0),
+        Position = UDim2.new(1, -55, 0, 0),
+        Color = Config.Colors.Folder,
+        OnClick = function()
+            if State.selected then
+                if State.isFavorite(State.selected) then
+                    State.removeFavorite(State.selected:GetFullName())
+                    Toast.warn("★ Removed from favorites", 2)
+                else
+                    State.addFavorite(State.selected)
+                    Toast.success("★ Added to favorites!", 2)
+                end
+                Explorer.buildTree()
+            end
+        end,
+        Parent = toolbar,
+    })
+
+    -- Search with debounce
     local debounce = nil
     searchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local q = searchBox.Text
         if debounce then task.cancel(debounce) end
         debounce = task.delay(Config.Search.Debounce, function() Explorer.buildTree(q) end)
     end)
-    
-    -- Path bar
-    local pathBar = UI.frame({ Size = UDim2.new(1, -20, 0, 28), Position = UDim2.new(0, 10, 0, 106), Color = Config.Colors.Item, Corner = 8, Parent = State.mainFrame })
-    State.pathLabel = UI.label({ Text = "📍 Select an item...", Size = UDim2.new(1, -90, 1, 0), Position = UDim2.new(0, 12, 0, 0), Color = Config.Colors.Muted, TextSize = 12, Truncate = Enum.TextTruncate.AtEnd, Parent = pathBar })
-    
-    UI.button({ Text = "📋", Size = UDim2.new(0, 70, 0, 22), Position = UDim2.new(1, -78, 0, 3), TextSize = 12, Corner = 6,
-               OnClick = function() if State.selected then Executor.clipboard(State.selected:GetFullName()) Toast.show("📋 Path copied!", 2) end end, Parent = pathBar })
-    
-    -- Split container
-    local split = UI.frame({ Size = UDim2.new(1, -20, 1, -145), Position = UDim2.new(0, 10, 0, 140), Transparency = 1, Clip = true, Parent = State.mainFrame })
-    
-    -- Tree panel
-    local treePanel = UI.frame({ Size = UDim2.new(Config.Tree.PanelWidth, -5, 1, 0), Color = Config.Colors.Panel, Corner = 10, Clip = true, Parent = split })
+
+    -- ── Path Bar ────────────────────────────────────────────────────────────
+    local pathBar = UI.frame({
+        Name = "PathBar",
+        Size = UDim2.new(1, -20, 0, 26),
+        Position = UDim2.new(0, 10, 0, 102),
+        Color = Config.Colors.Item,
+        Corner = 6,
+        Parent = State.mainFrame,
+    })
+
+    State.pathLabel = UI.label({
+        Text = "📍 Select an item...",
+        Size = UDim2.new(1, -90, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0),
+        Color = Config.Colors.Muted,
+        TextSize = 11,
+        Truncate = Enum.TextTruncate.AtEnd,
+        Parent = pathBar,
+    })
+
+    UI.button({
+        Text = "📋",
+        Size = UDim2.new(0, 65, 0, 20),
+        Position = UDim2.new(1, -73, 0, 3),
+        TextSize = 12,
+        Corner = 5,
+        OnClick = function()
+            if State.selected then
+                Executor.clipboard(State.selected:GetFullName())
+                Toast.success("Path copied!", 1.5)
+            end
+        end,
+        Parent = pathBar,
+    })
+
+    -- ── Split Panel ─────────────────────────────────────────────────────────
+    local split = UI.frame({
+        Name = "SplitPanel",
+        Size = UDim2.new(1, -20, 1, -138),
+        Position = UDim2.new(0, 10, 0, 134),
+        Transparency = 1,
+        Clip = true,
+        Parent = State.mainFrame,
+    })
+
+    -- ── Tree Panel ──────────────────────────────────────────────────────────
+    local treePanel = UI.frame({
+        Name = "TreePanel",
+        Size = UDim2.new(Config.Tree.PanelWidth, -4, 1, 0),
+        Color = Config.Colors.Panel,
+        Corner = 10,
+        Clip = true,
+        Parent = split,
+    })
+
     State.treeScroll = UI.scroll({ Parent = treePanel })
     UI.list(State.treeScroll, 2)
-    UI.padding(State.treeScroll, 6)
-    
-    -- Code panel
-    local codePanel = UI.frame({ Size = UDim2.new(1 - Config.Tree.PanelWidth, -5, 1, 0), Position = UDim2.new(Config.Tree.PanelWidth, 5, 0, 0), Color = Config.Colors.Panel, Corner = 10, Clip = true, Parent = split })
-    
-    local codeHeader = UI.frame({ Size = UDim2.new(1, 0, 0, 45), Color = Config.Colors.Item, Parent = codePanel })
-    State.titleLabel = UI.label({ Text = "📜 Select a script", Size = UDim2.new(1, -140, 1, 0), Position = UDim2.new(0, 12, 0, 0), Bold = true, TextSize = 14, Truncate = Enum.TextTruncate.AtEnd, Parent = codeHeader })
-    
-    UI.button({ Text = "▶", Size = UDim2.new(0, 38, 0, 34), Position = UDim2.new(1, -130, 0, 5), Color = Config.Colors.Success, TextSize = 14,
-               OnClick = function()
-                   if State.source then
-                       local fn, err = loadstring(State.source)
-                       if fn then pcall(fn) Toast.show("✅ Executed!", 2, Config.Colors.Success)
-                       else Toast.show("❌ " .. tostring(err):sub(1, 50), 3, Config.Colors.Error) end
-                   end
-               end, Parent = codeHeader })
-    
-    UI.button({ Text = "📋", Size = UDim2.new(0, 38, 0, 34), Position = UDim2.new(1, -88, 0, 5),
-               OnClick = function() if State.source then Executor.clipboard(State.source) Toast.show("📋 Copied!", 2) end end, Parent = codeHeader })
-    
-    UI.button({ Text = "🔄", Size = UDim2.new(0, 38, 0, 34), Position = UDim2.new(1, -46, 0, 5),
-               OnClick = function() if State.selected and State.selected:IsA("BaseScript") then Explorer.selectItem(State.selected) end end, Parent = codeHeader })
-    
-    State.metaLabel = UI.label({ Text = "", Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 46), Color = Config.Colors.Muted, TextSize = 11, Parent = codePanel })
-    
-    local codeScroll = UI.scroll({ Size = UDim2.new(1, 0, 1, -70), Position = UDim2.new(0, 0, 0, 70), Parent = codePanel })
+    UI.padding(State.treeScroll, 6, 6, 6, 6)
+
+    -- ── Code Panel ──────────────────────────────────────────────────────────
+    local codePanel = UI.frame({
+        Name = "CodePanel",
+        Size = UDim2.new(1 - Config.Tree.PanelWidth, -4, 1, 0),
+        Position = UDim2.new(Config.Tree.PanelWidth, 4, 0, 0),
+        Color = Config.Colors.Panel,
+        Corner = 10,
+        Clip = true,
+        Parent = split,
+    })
+
+    -- Code header
+    local codeHeader = UI.frame({
+        Name = "CodeHeader",
+        Size = UDim2.new(1, 0, 0, 44),
+        Color = Config.Colors.Item,
+        Parent = codePanel,
+    })
+
+    State.titleLabel = UI.label({
+        Text = "📜 Select a script",
+        Size = UDim2.new(1, -180, 1, 0),
+        Position = UDim2.new(0, 12, 0, 0),
+        Bold = true,
+        TextSize = 14,
+        Truncate = Enum.TextTruncate.AtEnd,
+        Parent = codeHeader,
+    })
+
+    -- Execute button
+    UI.button({
+        Text = "▶",
+        Size = UDim2.new(0, 36, 0, 32),
+        Position = UDim2.new(1, -172, 0, 6),
+        Color = Config.Colors.Success,
+        TextSize = 14,
+        OnClick = function()
+            if State.source then
+                local fn, err = loadstring(State.source)
+                if fn then
+                    pcall(fn)
+                    Toast.success("▶ Executed!", 2)
+                else
+                    Toast.error("❌ " .. tostring(err):sub(1, 60), 3)
+                end
+            end
+        end,
+        Parent = codeHeader,
+    })
+
+    -- Copy source
+    UI.button({
+        Text = "📋",
+        Size = UDim2.new(0, 36, 0, 32),
+        Position = UDim2.new(1, -132, 0, 6),
+        OnClick = function()
+            if State.source then
+                Executor.clipboard(State.source)
+                Toast.success("📋 Source copied!", 1.5)
+            end
+        end,
+        Parent = codeHeader,
+    })
+
+    -- View environment (getsenv)
+    UI.button({
+        Text = "🔬",
+        Size = UDim2.new(0, 36, 0, 32),
+        Position = UDim2.new(1, -92, 0, 6),
+        Color = Config.Colors.AccentMuted,
+        OnClick = function()
+            if State.selected and State.selected:IsA("BaseScript") then
+                local envData = Decompiler.inspectEnvironment(State.selected)
+                if envData then
+                    State.source = envData
+                    if State.codeLabel then State.codeLabel.Text = envData end
+                    Toast.info("🔬 Live environment loaded", 2)
+                else
+                    Toast.warn("getsenv not available for this script", 2)
+                end
+            end
+        end,
+        Parent = codeHeader,
+    })
+
+    -- Refresh source
+    UI.button({
+        Text = "⟳",
+        Size = UDim2.new(0, 36, 0, 32),
+        Position = UDim2.new(1, -52, 0, 6),
+        OnClick = function()
+            if State.selected and State.selected:IsA("BaseScript") then
+                Explorer.selectItem(State.selected)
+                Toast.info("⟳ Refreshed", 1.5)
+            end
+        end,
+        Parent = codeHeader,
+    })
+
+    -- Meta labels
+    State.metaLabel = UI.label({
+        Text = "",
+        Size = UDim2.new(1, -12, 0, 16),
+        Position = UDim2.new(0, 6, 0, 46),
+        Color = Config.Colors.Muted,
+        TextSize = 11,
+        Parent = codePanel,
+    })
+
+    State.hashLabel = UI.label({
+        Text = "",
+        Size = UDim2.new(1, -12, 0, 14),
+        Position = UDim2.new(0, 6, 0, 62),
+        Color = Config.Colors.TextSecondary,
+        TextSize = 10,
+        Mono = true,
+        Parent = codePanel,
+    })
+
+    State.envLabel = UI.label({
+        Text = "",
+        Size = UDim2.new(1, -12, 0, 14),
+        Position = UDim2.new(0, 6, 0, 76),
+        Color = Config.Colors.ModuleScript,
+        TextSize = 10,
+        Parent = codePanel,
+    })
+
+    -- Code view
+    local codeScroll = UI.scroll({
+        Size = UDim2.new(1, 0, 1, -94),
+        Position = UDim2.new(0, 0, 0, 94),
+        Parent = codePanel,
+    })
+
     State.codeLabel = Instance.new("TextBox")
+    State.codeLabel.Name = "CodeView"
     State.codeLabel.Size = UDim2.new(1, -16, 0, 0)
     State.codeLabel.Position = UDim2.new(0, 8, 0, 8)
     State.codeLabel.BackgroundTransparency = 1
-    State.codeLabel.Text = "-- Select a script to view source"
+    State.codeLabel.Text = "-- Select a script to view source\n-- Use ▶ to execute, 📋 to copy, 🔬 to inspect env"
     State.codeLabel.TextColor3 = Config.Colors.Text
     State.codeLabel.Font = Enum.Font.Code
     State.codeLabel.TextSize = 13
@@ -942,41 +2994,61 @@ local function init()
     State.codeLabel.TextEditable = false
     State.codeLabel.AutomaticSize = Enum.AutomaticSize.XY
     State.codeLabel.Parent = codeScroll
-    
-    -- Dragging
+
+    -- ── Dragging ────────────────────────────────────────────────────────────
     local dragging, dragStart, startPos = false, nil, nil
+
     header.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging, dragStart, startPos = true, input.Position, State.mainFrame.Position
+            dragging = true
+            dragStart = input.Position
+            startPos = State.mainFrame.Position
         end
     end)
+
     header.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
+
     UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
-            State.mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            State.mainFrame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
         end
     end)
-    
-    -- Build tree
+
+    -- ── Build Tree & Animate In ─────────────────────────────────────────────
     Explorer.buildTree()
 
-    -- Auto-Refresh Loop removed as per user request
-    
-    -- Animate in
+    -- Entrance animation
     State.mainFrame.Size = UDim2.new(0, 0, 0, 0)
     State.mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
     task.wait(0.1)
-    UI.tween(State.mainFrame, {
+    UI.tweenSpring(State.mainFrame, {
         Size = UDim2.fromScale(Config.Window.Width, Config.Window.Height),
-        Position = UDim2.fromScale(0.5 - Config.Window.Width/2, 0.5 - Config.Window.Height/2)
-    }, 0.35)
-    
-    print("✅ Script Explorer v" .. Config.Version .. " loaded!")
+        Position = UDim2.fromScale(0.5 - Config.Window.Width / 2, 0.5 - Config.Window.Height / 2),
+    }, 0.4)
+
+    -- ── Startup Toasts ──────────────────────────────────────────────────────
+    task.wait(0.5)
+    Toast.success("Script Explorer v" .. Config.Version .. " loaded!", 3)
+
+    task.wait(0.3)
+    local capCount = Executor.UNCScore
+    if capCount >= 14 then
+        Toast.info("🎯 UNC Score: " .. capCount .. "/" .. Executor.UNCTotal .. " — Excellent!", 4)
+    elseif capCount >= 8 then
+        Toast.warn("UNC Score: " .. capCount .. "/" .. Executor.UNCTotal .. " — Some features limited", 4)
+    else
+        Toast.error("UNC Score: " .. capCount .. "/" .. Executor.UNCTotal .. " — Many features unavailable", 5)
+    end
+
+    print("✅ Script Explorer v" .. Config.Version .. " [UNC " .. capCount .. "/" .. Executor.UNCTotal .. "] loaded!")
 end
 
 init()
